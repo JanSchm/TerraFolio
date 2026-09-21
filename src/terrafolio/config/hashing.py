@@ -23,7 +23,7 @@ __all__ = [
     "sha256_hex",
 ]
 
-ASSUMPTION_SET_ID_LENGTH: Final = 16
+ASSUMPTION_SET_ID_LENGTH: Final = 16  # structural: identifier length, not a rate
 """Characters of the digest an assumption-set id keeps.
 
 Structural: it is an identifier length, not a tolerance. Sixteen hex characters

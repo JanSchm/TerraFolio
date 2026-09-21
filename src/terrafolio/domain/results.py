@@ -17,20 +17,29 @@ boundary: the numeric core is in euros, everything here is in €m.
 from __future__ import annotations
 
 import datetime as dt
-from typing import Final
+from typing import Annotated, Any, Final
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, PlainSerializer
 from pydantic.alias_generators import to_camel
 
-from terrafolio.domain.enums import Effort, RunStatus, Stage, Technology
+from terrafolio.domain.enums import (
+    Effort,
+    RunStatus,
+    Stage,
+    Technology,
+    WarningCode,
+    WarningSeverity,
+)
 from terrafolio.domain.mandate import Mandate
 
 __all__ = [
     "ConvergencePoint",
+    "FeasibilityWarning",
     "Holding",
     "PortfolioAggregates",
     "RunProvenance",
     "RunRecord",
+    "WarningCodeName",
 ]
 
 RESULT_CONFIG: Final = ConfigDict(
@@ -45,6 +54,42 @@ RESULT_CONFIG: Final = ConfigDict(
     # at the boundary that owns the conversion.
     allow_inf_nan=False,
 )
+
+
+def _warning_code_by_name(value: Any) -> Any:
+    """Accept the name, which is what the wire and the store carry."""
+    if isinstance(value, str) and not value.isdigit():
+        try:
+            return WarningCode[value]
+        except KeyError:
+            known = ", ".join(code.name for code in WarningCode)
+            raise ValueError(f"unknown warning code {value!r}; expected one of {known}") from None
+    return value
+
+
+WarningCodeName = Annotated[
+    WarningCode,
+    BeforeValidator(_warning_code_by_name),
+    PlainSerializer(lambda code: code.name, return_type=str),
+]
+"""A :class:`WarningCode` that crosses every boundary as its **name**.
+
+``docs/api.md`` pins ``{"code": "CAPACITY_BELOW_TARGET"}``, and the reason is
+durability rather than readability: runs are immutable and addressable
+indefinitely (§11), so an ordinal that shifted when a code was inserted would
+silently rewrite the meaning of every run already stored. The integer exists
+only to make the enum's ordering the severity ordering.
+"""
+
+
+class FeasibilityWarning(BaseModel):
+    """One §5.4 warning, as the preview and the result both report it."""
+
+    model_config = RESULT_CONFIG
+
+    code: WarningCodeName
+    severity: WarningSeverity
+    message: str
 
 
 class Holding(BaseModel):
