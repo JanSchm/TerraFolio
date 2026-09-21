@@ -102,7 +102,24 @@
     return {
       name: o.name || '',
       values: o.values || [],
+      labels: o.labels || {},
       selected: (o.selected || []).slice(),
+      /**
+       * A regional-indicator flag for an ISO-2 code, purely decorative.
+       * The markup hides it from assistive technology and lets the country name
+       * be the accessible label: readers announce flag emoji inconsistently, and
+       * on a machine without an emoji font it renders as two letters anyway.
+       * UK is not an ISO-2 region code for the flag; GB is.
+       */
+      flag: function (code) {
+        var region = code === 'UK' ? 'GB' : code;
+        return String.fromCodePoint.apply(String, region.split('').map(function (ch) {
+          return 127397 + ch.charCodeAt(0);
+        }));
+      },
+      label: function (value) {
+        return this.labels[value] || value;
+      },
       isOn: function (value) {
         return this.selected.indexOf(value) !== -1;
       },
