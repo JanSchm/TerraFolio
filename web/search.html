@@ -98,8 +98,15 @@
     </dl>
   </section>
 
-  <p class="mt-[18px] font-condensed text-meta tracking-cta text-muted motion-safe:animate-blink"
-     aria-live="polite" data-field="progress-note"></p>
+  <div class="mt-[18px] flex flex-wrap items-center justify-between gap-4">
+    <p class="m-0 font-condensed text-meta tracking-cta text-muted motion-safe:animate-blink"
+       aria-live="polite" data-field="progress-note"></p>
+    <!-- A run can take half a minute at the largest sizes, so the screen must have a
+         way out. As a static page this is a plain link back to the mandate; issue #11
+         intercepts it to abort the run before navigating. -->
+    <a href="mandate.html" data-action="cancel"
+       class="inline-flex min-h-[44px] cursor-pointer items-center whitespace-nowrap border border-edge bg-transparent px-4 py-2 font-condensed text-label font-semibold text-text no-underline hover:bg-accent-100">Stop and edit the mandate</a>
+  </div>
 
 </main>
 </body>
