@@ -103,8 +103,10 @@ def test_a_rejected_batch_writes_none_of_itself(tmp_path: Path) -> None:
     with closing(opened_store(tmp_path / "runs.db")) as connection:
         open_run(connection, submission())
         append_events(connection, run_id=RUN_ID, events=curve(1))
-        with pytest.raises(DuplicateGenerationError):
+        with pytest.raises(DuplicateGenerationError) as caught:
             append_events(connection, run_id=RUN_ID, events=curve(2, 3, 1))
+        # The generation it collided on, not the first one in the batch.
+        assert caught.value.generation == 1
         assert latest_generation(connection, run_id=RUN_ID) == 1
 
 
@@ -120,6 +122,20 @@ def test_appending_nothing_writes_nothing(tmp_path: Path) -> None:
     with closing(opened_store(tmp_path / "runs.db")) as connection:
         open_run(connection, submission())
         assert append_events(connection, run_id=RUN_ID, events=()) == 0
+
+
+@pytest.mark.parametrize("fitness", [float("nan"), float("inf"), float("-inf")])
+def test_a_fitness_that_is_not_a_number_is_refused(tmp_path: Path, fitness: float) -> None:
+    """The result models set ``allow_inf_nan=False``; the storage layer says it
+    again, because a curve is written by a worker and not every path there goes
+    through a model. NaN needs no CHECK of its own -- SQLite stores it as NULL,
+    which ``NOT NULL`` already refuses."""
+    with closing(opened_store(tmp_path / "runs.db")) as connection:
+        open_run(connection, submission())
+        event = RunEvent(generation=1, best_fitness=fitness, mean_fitness=0.0, summary_json="{}")
+        with pytest.raises(sqlite3.IntegrityError):
+            append_events(connection, run_id=RUN_ID, events=[event])
+        assert latest_generation(connection, run_id=RUN_ID) == 0
 
 
 def test_the_latest_generation_is_zero_before_the_search_reports(

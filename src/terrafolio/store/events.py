@@ -55,9 +55,30 @@ def append_events(
         message = str(error)
         if "FOREIGN KEY" in message:
             raise RunNotFoundError(run_id) from error
-        generations = sorted(event.generation for event in events)
-        raise DuplicateGenerationError(run_id, generations[0]) from error
+        if "UNIQUE constraint failed" in message:
+            raise DuplicateGenerationError(run_id, _clashing(connection, run_id, events)) from error
+        # A CHECK or NOT NULL violation -- a non-finite fitness, most likely.
+        # Translating it into a duplicate would send the reader after the wrong
+        # bug, so it goes up as what it is.
+        raise
     return len(rows)
+
+
+def _clashing(connection: sqlite3.Connection, run_id: str, events: Sequence[RunEvent]) -> int:
+    """The generation this batch collided on, rather than the first one in it.
+
+    Worth the extra query: the batch is rejected whole, so "generation 7 is
+    already logged" and "this batch started at generation 5" are different
+    facts, and only the first says what to look at.
+    """
+    offered = sorted(event.generation for event in events)
+    placeholders = ",".join("?" for _ in offered)
+    row = connection.execute(
+        f"SELECT MIN(gen) AS clash FROM run_event WHERE run_id = ? AND gen IN ({placeholders})",
+        (run_id, *offered),
+    ).fetchone()
+    clash: int | None = None if row is None else row["clash"]
+    return offered[0] if clash is None else int(clash)
 
 
 def read_events(

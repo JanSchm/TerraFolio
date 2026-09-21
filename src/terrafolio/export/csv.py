@@ -34,7 +34,6 @@ from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Final
 
-from terrafolio.domain.conventions import YEARS
 from terrafolio.domain.enums import RunStatus
 from terrafolio.domain.mandate import Mandate
 from terrafolio.domain.results import Holding
@@ -256,13 +255,12 @@ def cashflow_csv(run: StoredRun) -> bytes:
 
     The years come from the pipeline snapshot's base year: the run result does
     not carry one, and A-13 makes it a property of the whole loaded set.
+
+    The series is exactly ``YEARS`` long because ``RunRecord`` pins that for a
+    finished run; there is no second check here, which would only state the
+    same invariant further from where it is enforced.
     """
     _require_result(run)
     series = run.record.cashflow_30y_m
-    if len(series) != YEARS:
-        raise ValueError(
-            f"run {run.record.run_ref} carries {len(series)} years of portfolio cash flow, "
-            f"not {YEARS}"
-        )
     rows = [(_cell(run.base_year + offset), _cell(amount)) for offset, amount in enumerate(series)]
     return _render(_header(run), CASHFLOW_COLUMNS, rows)
