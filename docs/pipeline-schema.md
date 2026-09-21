@@ -170,6 +170,22 @@ not turn them, and the cross-file dispersion report surfaces disagreement betwee
 | `depreciationYears` | integer | years | 1 … 40 | Straight-line life from COD. |
 | `debtRate` | number | fraction | 0 … 0.25 | Nominal senior rate. Used by the dispersion report. |
 | `debtTenorYears` | integer | years | 0 … 30 | Debt life from COD. Determines exactly which years carry a `dscr` (§7). |
+| `degradationRate` | number | fraction/yr | 0 … 0.10 | Annual output decline. Lets a consumer **reproduce** `physicals.generationGwh` rather than take it on trust. |
+| `priceEscalation` | number | fraction/yr | −0.10 … 0.25 | Escalation of the contracted price inside the PPA tenor. |
+| `merchantEscalation` | number | fraction/yr | −0.10 … 0.25 | Escalation of the capture price. |
+| `opexEscalation` | number | fraction/yr | −0.10 … 0.25 | Escalation of `opexPerKwYear`. |
+| `targetDscr` | number | multiple | 1.0 … 3.0 | The DSCR the analyst **sized** the debt to (D-3). Records the sizing basis; it is not the realised minimum. |
+
+**The last five are rates, not multipliers** (1C-21). `priceEscalation` is `0.005`, not `1.005` —
+§2 requires shares and rates to be fractions of one, and every other rate in the block already reads
+that way. The arithmetic that consumes them adds the one.
+
+**None of them participates in a tie-out.** They are declared inputs, present because two
+first-class features need them and nothing else in a file lets a consumer recover them: the
+cross-file dispersion report covers the three escalators (epic §2), and the house model's variance
+report re-derives generation and the debt sizing from `degradationRate` and `targetDscr` (issue 2C).
+Settled on the epic as the `reconciled` contract — 1B's enum spelling with 1A's five fields — and
+applied to this document, `templates/project-template.json` and the 48 golden fixtures by #8.
 
 #### 4.6.1 The pipeline base year is unanimous
 

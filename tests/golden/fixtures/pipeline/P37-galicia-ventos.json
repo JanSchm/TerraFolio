@@ -40,7 +40,12 @@
     "taxRate": 0.2,
     "depreciationYears": 25,
     "debtRate": 0.055,
-    "debtTenorYears": 18
+    "debtTenorYears": 18,
+    "degradationRate": 0.002,
+    "priceEscalation": 0.005,
+    "merchantEscalation": 0.021,
+    "opexEscalation": 0.021,
+    "targetDscr": 1.4
   },
   "statements": {
     "years": [

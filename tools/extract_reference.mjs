@@ -565,24 +565,21 @@ const debtSizingBasisOf = (p) =>
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
-// The project-file contract is not settled.  1B's docs/pipeline-schema.md and
-// 1A's pydantic ProjectFile have landed incompatible, in two places:
+// The project-file contract is SETTLED: `reconciled` — 1B's technology enum
+// spelling with 1A's five `assumptions` fields.  1C recommended it in 1C-20 and
+// 1A adopted it in full, reversing its own C-1:
+//   https://github.com/JanSchm/TerraFolio/issues/1#issuecomment-5766800812
 //
-//   * the technology enum — `solar` (schema §4.2) vs `solar_pv` (1A's model);
-//   * five `assumptions` fields 1A requires that 1B's template does not carry.
-//     Since schema §3 makes unknown keys a validation error, no single file
-//     satisfies both.
+// That comment left one action outstanding — "`DEFAULT_CONTRACT = 'reconciled'`
+// in tools/extract_reference.mjs, then regenerate" — which #4 closed without
+// doing, leaving all 48 committed fixtures and 1B's own template failing 1A's
+// pydantic ProjectFile 48/48 on the five missing `assumptions` fields.  Issue
+// 2C (#8) applies it here, since it blocks 2C's parity test and 2A's first
+// acceptance criterion alike.
 //
-// 1B's own templates/project-template.json fails 1A's model with exactly the
-// six errors 1C's files do, so this is a disagreement between those two and
-// not a defect in either's implementation of one contract.  Raised on #1:
-//   https://github.com/JanSchm/TerraFolio/issues/1#issuecomment-5766794430
-//
-// Rather than guess, the contract is a parameter.  `--contract=<name>` selects
-// one; the committed fixtures are emitted under the default.  When the epic
-// settles it, the change is the DEFAULT_CONTRACT constant and nothing else —
-// and if the resolution is the recommended one (1B's spelling, 1A's fields),
-// it is a new three-line entry here.
+// The parameterisation stays.  `--contract=<name>` still selects one, so the
+// superseded shapes remain reproducible and the next contract change is again
+// one constant rather than a rewrite.
 // ---------------------------------------------------------------------------
 
 const STAGE = { Greenfield: 'greenfield', 'Ready-to-build': 'ready_to_build', Construction: 'construction' };
@@ -614,11 +611,13 @@ const CONTRACTS = {
   },
 };
 
-const DEFAULT_CONTRACT = 'pipeline-schema-1.0';
+const DEFAULT_CONTRACT = 'reconciled';
 
 // The contract that templates/project-template.json describes. The closed-shape
-// check is 1B's oracle, so it governs that contract and no other.
-const TEMPLATE_CONTRACT = 'pipeline-schema-1.0';
+// check is 1B's oracle, so it governs that contract and no other. #8 added the
+// five settled `assumptions` fields to that template, so it now describes
+// `reconciled` and the check runs against the default again.
+const TEMPLATE_CONTRACT = 'reconciled';
 
 let CONTRACT = CONTRACTS[DEFAULT_CONTRACT];
 
