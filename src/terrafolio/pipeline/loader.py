@@ -62,6 +62,7 @@ from terrafolio.pipeline.arrays import (
     RevenueArrays,
     StatementArrays,
     Vector,
+    normalise_country_code,
 )
 from terrafolio.pipeline.dispersion import DispersionReport, dispersion_report
 from terrafolio.pipeline.snapshot import file_content_hash, snapshot_hash
@@ -78,9 +79,6 @@ __all__ = [
     "RejectedFile",
     "load_pipeline",
 ]
-
-_UK_ALIAS = "UK"
-_UK_ISO = "GB"
 
 MILLISECONDS_PER_SECOND: Final = 1000  # structural: unit definition, not a calibration
 """``docs/api.md`` reports every elapsed time as ``durationMs``."""
@@ -279,8 +277,7 @@ def _integers(values: Iterable[int]) -> np.ndarray:
 
 def _country_code(file: ProjectFile) -> str:
     """``UK`` is an accepted alias; ``GB`` is the code everything else uses."""
-    code = file.location.country_code
-    return _UK_ISO if code == _UK_ALIAS else code
+    return normalise_country_code(file.location.country_code)
 
 
 def _statements(files: Sequence[ProjectFile]) -> StatementArrays:

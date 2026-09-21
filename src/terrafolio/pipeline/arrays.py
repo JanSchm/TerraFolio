@@ -54,6 +54,7 @@ __all__ = [
     "RatiosArrays",
     "RevenueArrays",
     "StatementArrays",
+    "normalise_country_code",
 ]
 
 KW_PER_MW: Final = 1000  # structural: unit definition, not a calibration
@@ -63,6 +64,22 @@ KW_PER_MW: Final = 1000  # structural: unit definition, not a calibration
 — but not this one, and capex per kW needs it in both the plausibility band
 (``docs/pipeline-schema.md`` §10) and the reported scalar.
 """
+
+_UK_ALIAS: Final = "UK"
+_GB_ISO: Final = "GB"
+
+
+def normalise_country_code(code: str) -> str:
+    """Collapse the ``UK`` alias onto the ISO ``GB`` the rest of the system uses.
+
+    ``docs/pipeline-schema.md`` §4.1 keeps ``UK`` as an accepted alias, and the
+    assumption set's market tables key on ``GB``. Applied at **both** ends — to a
+    file's declared country on load, and to a mandate's eligible-country chips before
+    they are compared — because an alias that holds in one direction only is not an
+    alias, it is a screen that silently rejects every British project.
+    """
+    return _GB_ISO if code == _UK_ALIAS else code
+
 
 Vector = NDArray[np.float64]
 """A ``(n,)`` per-project scalar column."""
