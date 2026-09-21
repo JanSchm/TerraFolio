@@ -38,6 +38,9 @@ whether or not the scanner worked.
 from __future__ import annotations
 
 import ast
+import io
+import math
+import tokenize
 import tomllib
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -45,15 +48,19 @@ from pathlib import Path
 from typing import Any, Final
 
 import pytest
+from test_import_boundaries import NUMERIC_CORE
 
 from terrafolio.config.loader import DEFAULT_ASSUMPTION_SET, assumptions_dir
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 PACKAGE_ROOT: Final = REPO_ROOT / "src" / "terrafolio"
 
-CORE_PACKAGES: Final[frozenset[str]] = frozenset(
-    {"economics", "model", "optimiser", "pipeline", "generate"}
-)
+# One definition of the numeric core, shared with the import-boundary guard so
+# a package added by a later issue cannot be ranked in one and forgotten in the
+# other. The literal scan covers two packages more: `pipeline` and `generate`
+# consume the assumption set just as heavily but are allowed to import pydantic,
+# so they fall outside the *import* rule while still needing the *literal* one.
+CORE_PACKAGES: Final[frozenset[str]] = NUMERIC_CORE | {"pipeline", "generate"}
 
 EXEMPT_MODULES: Final[frozenset[str]] = frozenset(
     {"domain/mandate_bounds.py", "domain/file_bounds.py"}
@@ -87,11 +94,20 @@ class Violation:
 
 
 def _escaped_lines(source: str) -> frozenset[int]:
-    return frozenset(
-        number
-        for number, text in enumerate(source.splitlines(), start=1)
-        if STRUCTURAL_MARKER in text
-    )
+    """Lines carrying a real ``# structural:`` comment.
+
+    Tokenised rather than substring-matched: ``S = "# structural: ..."`` is a
+    string, not an escape, and a guard whose opt-out can be triggered from
+    inside a string literal or a docstring is not a guard.
+    """
+    escaped: set[int] = set()
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(source).readline):
+            if token.type == tokenize.COMMENT and STRUCTURAL_MARKER in token.string:
+                escaped.add(token.start[0])
+    except tokenize.TokenError:  # pragma: no cover - ast.parse reports it better
+        pass
+    return frozenset(escaped)
 
 
 def _annotation_nodes(tree: ast.AST) -> set[int]:
@@ -167,13 +183,26 @@ def scan_source(
             continue
         if value in forbidden and value not in COLLISION_EXEMPT:
             found.append(Violation(module, line, value, "B"))
-        elif value != int(value):
+        elif not math.isfinite(value) or value != int(value):
+            # int(inf) raises, so the guard has to test finiteness before
+            # integrality -- and a literal that overflows to inf (1e999) is
+            # itself worth reporting rather than crashing the scan.
             found.append(Violation(module, line, value, "C"))
     return found
 
 
 def _module_key(path: Path) -> str:
     return path.relative_to(PACKAGE_ROOT).as_posix()
+
+
+def _owning_package(key: str) -> str:
+    """The package a module belongs to, whether or not it is a directory.
+
+    ``optimiser/ga.py`` and a flat ``optimiser.py`` are both the optimiser;
+    taking the first path segment alone would treat the second as a package
+    called ``optimiser.py`` and quietly drop it out of the strictest tier.
+    """
+    return key.split("/", maxsplit=1)[0].removesuffix(".py")
 
 
 def scan_tree(
@@ -186,7 +215,7 @@ def scan_tree(
             scan_source(
                 path.read_text(encoding="utf-8"),
                 module=key,
-                core=key.split("/")[0] in CORE_PACKAGES,
+                core=_owning_package(key) in CORE_PACKAGES,
                 exempt=key in EXEMPT_MODULES,
                 forbidden=forbidden,
             )
@@ -333,3 +362,51 @@ def test_structural_escapes_stay_rare() -> None:
     assert total <= MAX_STRUCTURAL_ESCAPES, (
         f"{total} structural escapes in src; each one is a number the assumption set does not own"
     )
+
+
+def test_the_escape_must_be_a_real_comment() -> None:
+    """A marker inside a string is a string, not an opt-out.
+
+    Substring-matching the raw line let any source mentioning the marker — a
+    docstring describing the rule, most obviously — switch the guard off for
+    itself.
+    """
+    source = 'S = "# structural: not a comment"\nY = 3.2\n'
+    assert [item.value for item in scan_source(source, **_CORE)] == [3.2]
+
+
+def test_a_docstring_mentioning_the_marker_does_not_escape_its_own_line() -> None:
+    source = '"""Escapes are written # structural: like this."""\nW = 3.2\n'
+    assert scan_source(source, **_CORE) != []
+
+
+def test_a_real_comment_still_escapes() -> None:
+    assert scan_source("N = 30  # structural: the 30-year format\n", **_CORE) == []
+
+
+def test_an_overflowing_literal_is_reported_not_crashed() -> None:
+    """``1e999`` parses to inf, and ``int(inf)`` raises.
+
+    A guard that dies on one pathological literal is easier to write off as
+    flaky than one that fails with a finding.
+    """
+    found = scan_source("X = 1e999\n", **_PLAIN)
+    assert [item.tier for item in found] == ["C"]
+
+
+def test_a_flat_module_is_still_part_of_its_package() -> None:
+    """``optimiser.py`` and ``optimiser/ga.py`` are both the optimiser.
+
+    Issue 2A adds ``cli.py`` at the package root, and any later flattening
+    produces the same shape; taking the first path segment alone would drop the
+    strictest tier for exactly those modules.
+    """
+    assert _owning_package("optimiser/ga.py") == "optimiser"
+    assert _owning_package("optimiser.py") == "optimiser"
+    assert _owning_package("domain/enums.py") == "domain"
+
+
+def test_the_two_core_definitions_cannot_drift() -> None:
+    """The literal scan covers the import rule's core plus two more, by derivation."""
+    assert NUMERIC_CORE < CORE_PACKAGES
+    assert {"pipeline", "generate"} == CORE_PACKAGES - NUMERIC_CORE

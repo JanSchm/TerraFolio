@@ -20,7 +20,7 @@ from pydantic import ValidationError
 from test_domain_mandate import VALID as VALID_MANDATE
 
 from terrafolio.domain.conventions import YEARS
-from terrafolio.domain.enums import WarningCode, WarningSeverity
+from terrafolio.domain.enums import ProvenanceGroup, WarningCode, WarningSeverity
 from terrafolio.domain.results import (
     FeasibilityWarning,
     Holding,
@@ -349,3 +349,106 @@ def test_every_code_accepts_its_own_severity(code: WarningCode) -> None:
         {"code": code.name, "severity": code.severity.value, "message": "x"}
     )
     assert warning.code is code
+
+
+# --------------------------------------------------------------------------
+# The candidate snapshot carries the domains the file schema states
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("lat", 999.0),
+        ("lon", -999.0),
+        ("ppaShare", 7.0),
+        ("developmentRiskScore", 99.0),
+        ("gearing", -3.0),
+        ("maxGearing", 1.5),
+        ("netCapacityFactor", 4.0),
+        ("capacityMw", 0.0),
+        ("id", "!!"),
+        ("countryCode", "Germany"),
+        ("iso3", "X"),
+        ("lcoe", -12.0),
+        ("moic", -1.0),
+        ("codYear", 1800),
+    ],
+)
+def test_a_holding_is_bound_by_the_same_domains_as_a_file(key: str, value: object) -> None:
+    """These are what §7.3's map plots and §7.4's table renders.
+
+    ``ProjectFile`` constrains every one of them; the result-side record used to
+    constrain none, so a row read back from the store could put a site at
+    latitude 999.
+    """
+    with pytest.raises(ValidationError):
+        Holding.model_validate(holding(**{key: value}))
+
+
+def test_a_holding_cannot_be_more_than_fully_debt_funded() -> None:
+    with pytest.raises(ValidationError, match="exceeds totalCapex_m"):
+        Holding.model_validate(holding(seniorDebt_m=999.0))
+
+
+def test_a_holding_must_carry_every_provenance_group() -> None:
+    """§7.5's drawer reads a basis per group; a partial block KeyErrors at render."""
+    partial = holding()
+    partial["provenance"] = {"grid": {"estimateBasis": "benchmark", "confidence": "low"}}
+    with pytest.raises(ValidationError, match="provenance must cover every group"):
+        Holding.model_validate(partial)
+
+
+def test_provenance_is_frozen_and_ordered_like_the_other_mappings() -> None:
+    item = Holding.model_validate(holding())
+    assert list(item.provenance) == sorted(item.provenance)
+    with pytest.raises(AttributeError):
+        item.provenance.pop(ProvenanceGroup.CAPEX)  # type: ignore[attr-defined]
+
+
+# --------------------------------------------------------------------------
+# Consistency rules that used to have gaps
+# --------------------------------------------------------------------------
+
+
+def test_duplicate_holding_ids_are_rejected() -> None:
+    """``sorted`` leaves duplicates in order, so ordering alone never caught this."""
+    message = _messages(run(holdings=[holding("P001"), holding("P001")], selectedIds=["P001"]))
+    assert "duplicate ids: P001" in message
+
+
+def test_the_selected_check_runs_even_with_no_holdings() -> None:
+    """The empty case is exactly the drift the check exists to catch."""
+    assert "selectedIds" in _messages(run(holdings=[], selectedIds=["P001"]))
+
+
+@pytest.mark.parametrize(
+    ("status", "aggregates", "fragment"),
+    [
+        ("succeeded", None, "aggregates are absent"),
+        ("running", AGGREGATES, "aggregates are present"),
+    ],
+)
+def test_status_and_aggregates_must_agree(
+    status: str, aggregates: dict[str, Any] | None, fragment: str
+) -> None:
+    """Only §8's two shapes are representable.
+
+    Deriving completeness from ``aggregates`` instead of ``status`` let a
+    partial write — succeeded with a null result — skip every check below it.
+    """
+    payload = run(status=status, aggregates=aggregates)
+    if aggregates is None:
+        payload |= {"cashflow30Y_m": [], "cashflowHold_m": [], "holdings": [], "selectedIds": []}
+    assert fragment in _messages(payload)
+
+
+def test_a_naive_created_at_is_rejected() -> None:
+    """Mixing naive and aware timestamps makes any comparison between runs raise."""
+    assert "timezone" in _messages(run(createdAt="2026-09-21T09:22:11"))
+
+
+def test_run_id_lists_are_normalised() -> None:
+    """Two runs differing only in the order ids were collected are the same run."""
+    record = RunRecord.model_validate(run(lockedIds=["P002", "P001", "P002"]))
+    assert record.locked_ids == ("P001", "P002")

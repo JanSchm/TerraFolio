@@ -16,12 +16,12 @@ boundary: the numeric core is in euros, everything here is in €m.
 
 from __future__ import annotations
 
-import datetime as dt
 from collections.abc import Mapping
 from typing import Annotated, Any, Final
 
 from pydantic import (
     AfterValidator,
+    AwareDatetime,
     BaseModel,
     BeforeValidator,
     ConfigDict,
@@ -31,6 +31,7 @@ from pydantic import (
 )
 from pydantic.alias_generators import to_camel
 
+from terrafolio.domain import file_bounds as fb
 from terrafolio.domain.conventions import YEARS, canonical_order
 from terrafolio.domain.enums import (
     Confidence,
@@ -44,7 +45,15 @@ from terrafolio.domain.enums import (
     WarningCode,
     WarningSeverity,
 )
-from terrafolio.domain.fields import FREEZE_MAPPING, Count, Flag, Number
+from terrafolio.domain.fields import (
+    FREEZE_MAPPING,
+    Count,
+    Flag,
+    Fraction,
+    Magnitude,
+    Number,
+    Positive,
+)
 from terrafolio.domain.mandate import Mandate
 
 __all__ = [
@@ -73,7 +82,7 @@ RESULT_CONFIG: Final = ConfigDict(
 )
 
 
-def _sorted_frozen[V](value: Mapping[str, V]) -> Mapping[str, V]:
+def _sorted_frozen[K: str, V](value: Mapping[K, V]) -> Mapping[K, V]:
     """Freeze a mapping and put it in canonical key order.
 
     ``docs/api.md`` specifies country shares "ordered by code", and the same
@@ -96,6 +105,15 @@ FrozenHashes = Annotated[
     FREEZE_MAPPING,
     PlainSerializer(dict, return_type=dict[str, str]),
 ]
+
+
+IdList = Annotated[tuple[str, ...], AfterValidator(lambda ids: tuple(sorted(set(ids))))]
+"""A set of project ids, normalised the way ``Mandate`` normalises its own.
+
+Two runs that differ only in the order ids were collected are the same run, and
+§12 compares stored results across releases — an ordering difference that
+carries no meaning should not read as a behavioural change.
+"""
 
 
 # --------------------------------------------------------------------------
@@ -197,6 +215,7 @@ class ProvenanceSummary(BaseModel):
 
 FrozenProvenance = Annotated[
     Mapping[ProvenanceGroup, ProvenanceSummary],
+    AfterValidator(_sorted_frozen),
     FREEZE_MAPPING,
     PlainSerializer(dict, return_type=dict[ProvenanceGroup, ProvenanceSummary]),
 ]
@@ -218,49 +237,79 @@ class ProjectScalars(BaseModel):
 
     model_config = RESULT_CONFIG
 
-    id: str
-    name: str
-    country: str
-    country_code: str
-    iso3: str
-    lat: Number
-    lon: Number
+    id: str = Field(pattern=fb.ID_PATTERN)
+    name: str = Field(min_length=1, max_length=fb.NAME_MAX_LEN)
+    country: str = Field(min_length=1, max_length=fb.COUNTRY_NAME_MAX_LEN)
+    country_code: str = Field(pattern=fb.COUNTRY_CODE_PATTERN)
+    iso3: str = Field(pattern=fb.ISO3_PATTERN)
+    lat: Number = Field(ge=-fb.LATITUDE_ABS_MAX, le=fb.LATITUDE_ABS_MAX)
+    lon: Number = Field(ge=-fb.LONGITUDE_ABS_MAX, le=fb.LONGITUDE_ABS_MAX)
     technology: Technology
     stage: Stage
-    capacity_mw: Number
-    cod_year: Count
-    net_capacity_factor: Number
-    annual_generation_gwh: Number
-    opex_per_kw_year: Number
-    ppa_share: Number
-    ppa_tenor_years: Count
-    ppa_price: Number
-    country_baseload_price: Number
-    capture_factor: Number
-    capture_price: Number
-    development_risk_score: Number
+    capacity_mw: Positive = Field(le=fb.CAPACITY_MW_MAX)
+    cod_year: Count = Field(ge=fb.BASE_YEAR_MIN, le=fb.BASE_YEAR_MAX)
+    net_capacity_factor: Fraction
+    annual_generation_gwh: Magnitude
+    opex_per_kw_year: Positive = Field(le=fb.OPEX_PER_KW_YEAR_MAX)
+    ppa_share: Fraction
+    ppa_tenor_years: Count = Field(ge=0, le=fb.PPA_TENOR_YEARS_MAX)
+    ppa_price: Magnitude = Field(le=fb.PRICE_EUR_PER_MWH_MAX)
+    country_baseload_price: Positive = Field(le=fb.PRICE_EUR_PER_MWH_MAX)
+    capture_factor: Positive = Field(le=fb.CAPTURE_FACTOR_MAX)
+    capture_price: Magnitude = Field(le=fb.PRICE_EUR_PER_MWH_MAX)
+    development_risk_score: Number = Field(
+        ge=fb.DEVELOPMENT_RISK_SCORE_MIN, le=fb.DEVELOPMENT_RISK_SCORE_MAX
+    )
     grid_secured: Flag
     om_contracted: Flag
     currency: Currency
     """The **revenue** currency, which drives the EUR-only screen."""
-    total_capex_m: Number = Field(alias="totalCapex_m")
-    senior_debt_m: Number = Field(alias="seniorDebt_m")
-    equity_m: Number = Field(alias="equity_m")
-    gearing: Number
-    max_gearing: Number
-    capex_per_kw: Number
-    debt_rate: Number
-    debt_tenor_years: Count
-    lcoe: Number
-    min_dscr: Number | None
+    total_capex_m: Positive = Field(alias="totalCapex_m")
+    senior_debt_m: Magnitude = Field(alias="seniorDebt_m")
+    equity_m: Magnitude = Field(alias="equity_m")
+    gearing: Fraction
+    max_gearing: Fraction
+    capex_per_kw: Positive
+    debt_rate: Magnitude = Field(le=fb.DEBT_RATE_MAX)
+    debt_tenor_years: Count = Field(ge=0, le=fb.DEBT_TENOR_YEARS_MAX)
+    lcoe: Magnitude
+    min_dscr: Magnitude | None
     """Over the debt life, **excluding the ramp year**. ``None`` without debt."""
     thirty_year_fcfe_m: Number = Field(alias="thirtyYearFcfe_m")
-    """Undiscounted sum, carrying **no** terminal value."""
+    """Undiscounted sum, carrying **no** terminal value. Signed."""
     equity_irr: Number | None
-    """At the mandate's hold period. ``None`` where the series has no sign change."""
-    moic: Number | None
-    payback_year: Count | None
+    """At the mandate's hold period. ``None`` where the series has no sign change.
+
+    Signed: a project can return less than the equity put into it.
+    """
+    moic: Magnitude | None
+    payback_year: Count | None = Field(default=None, ge=fb.BASE_YEAR_MIN, le=fb.BASE_YEAR_MAX)
     provenance: FrozenProvenance
+
+    @model_validator(mode="after")
+    def _debt_within_cost(self) -> ProjectScalars:
+        if self.senior_debt_m > self.total_capex_m:
+            raise ValueError(
+                f"seniorDebt_m ({self.senior_debt_m}) exceeds totalCapex_m "
+                f"({self.total_capex_m}); a project cannot be more than fully "
+                f"debt-funded"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _provenance_covers_every_group(self) -> ProjectScalars:
+        """§7.5's drawer reads a basis per group, so all seven have to be here.
+
+        The same rule ``ProjectFile.Provenance`` enforces on the way in. Without
+        it a run stored with a partial block raises ``KeyError`` at render time,
+        a long way from whatever produced it.
+        """
+        missing = [group.value for group in ProvenanceGroup if group not in self.provenance]
+        if missing:
+            raise ValueError(
+                "provenance must cover every group; missing " + ", ".join(sorted(missing))
+            )
+        return self
 
 
 class Holding(ProjectScalars):
@@ -304,35 +353,36 @@ class PortfolioAggregates(BaseModel):
 
     model_config = RESULT_CONFIG
 
-    project_count: Count
-    solar_count: Count
-    wind_count: Count
-    capacity_mw: Number
-    solar_share: Number
+    project_count: Count = Field(ge=0)
+    solar_count: Count = Field(ge=0)
+    wind_count: Count = Field(ge=0)
+    capacity_mw: Magnitude
+    solar_share: Fraction
     """Capacity-weighted, so offshore wind counts as wind (§5.1)."""
-    total_capex_m: Number = Field(alias="totalCapex_m")
-    senior_debt_m: Number = Field(alias="seniorDebt_m")
-    equity_m: Number = Field(alias="equity_m")
-    gearing: Number
-    capital_deployed: Number
+    total_capex_m: Magnitude = Field(alias="totalCapex_m")
+    senior_debt_m: Magnitude = Field(alias="seniorDebt_m")
+    equity_m: Magnitude = Field(alias="equity_m")
+    gearing: Fraction
+    capital_deployed: Magnitude
+    """Not a fraction: a locked set may breach the cap, and §13 shows the breach."""
     equity_irr: Number | None
     """Solved **once**, on the winning chromosome, over the hold-truncated series.
 
     Distinct from the equity-weighted approximation the objective optimises
     (§10.3): the two differ, and this is the one the tile shows.
     """
-    moic: Number | None
-    weighted_lcoe: Number
-    annual_generation_gwh: Number
-    co2_avoided_kt: Number
-    merchant_share: Number
+    moic: Magnitude | None
+    weighted_lcoe: Magnitude
+    annual_generation_gwh: Magnitude
+    co2_avoided_kt: Magnitude
+    merchant_share: Fraction
     """Capex-weighted share of revenue not under contract."""
-    weighted_risk_score: Number
-    worst_min_dscr: Number | None
+    weighted_risk_score: Magnitude
+    worst_min_dscr: Magnitude | None
     country_shares: FrozenShares
     """``countryCode`` -> capex share, ordered by code."""
-    largest_country_code: str | None
-    largest_country_share: Number
+    largest_country_code: str | None = Field(default=None, pattern=fb.COUNTRY_CODE_PATTERN)
+    largest_country_share: Fraction
     thirty_year_fcfe_m: Number = Field(alias="thirtyYearFcfe_m")
     fitness: Number
     """The §10.2 score of the winning chromosome, quantised to 6 dp."""
@@ -387,13 +437,13 @@ class RunRecord(BaseModel):
     run_ref: str
     """The short human label shown on the result screen, e.g. ``A-4``."""
     status: RunStatus
-    created_at: dt.datetime
-    duration_ms: Count | None
+    created_at: AwareDatetime
+    duration_ms: Count | None = Field(default=None, ge=0)
     mandate: Mandate
-    locked_ids: tuple[str, ...]
-    excluded_ids: tuple[str, ...]
+    locked_ids: IdList
+    excluded_ids: IdList
     effort: Effort
-    selected_ids: tuple[str, ...]
+    selected_ids: IdList
     aggregates: PortfolioAggregates | None
     """Absent while the run is still in flight (``docs/api.md`` §8)."""
     holdings: tuple[Holding, ...]
@@ -416,8 +466,29 @@ class RunRecord(BaseModel):
 
     @property
     def is_complete(self) -> bool:
-        """A finished run has aggregates; one still in flight does not (§8)."""
-        return self.aggregates is not None
+        """Whether the run has produced a result (``docs/api.md`` §8)."""
+        return self.status is RunStatus.SUCCEEDED
+
+    @model_validator(mode="after")
+    def _status_and_aggregates_agree(self) -> RunRecord:
+        """Only the two documented shapes are representable.
+
+        §8 returns a run in flight with ``status: running`` and no aggregates,
+        and a finished one with both. A row carrying ``succeeded`` and null
+        aggregates is a partial write, and reading ``is_complete`` off the
+        aggregates rather than the status would let it skip every check below.
+        """
+        if self.is_complete and self.aggregates is None:
+            raise ValueError(
+                f"status is {self.status.value} but aggregates are absent; a "
+                f"finished run carries its twelve headline metrics"
+            )
+        if not self.is_complete and self.aggregates is not None:
+            raise ValueError(
+                f"status is {self.status.value} but aggregates are present; only "
+                f"a succeeded run has a result"
+            )
+        return self
 
     @model_validator(mode="after")
     def _cash_flow_series_have_their_documented_lengths(self) -> RunRecord:
@@ -443,8 +514,18 @@ class RunRecord(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _holdings_are_in_canonical_order(self) -> RunRecord:
+    def _holdings_are_uniquely_identified_and_ordered(self) -> RunRecord:
+        """Ordered by id, and each id appearing once.
+
+        Sorting alone does not catch a repeat — ``sorted`` leaves duplicates
+        adjacent and in order — and a duplicated candidate double-counts in the
+        holdings table and the CSV, plots twice on the map, and makes the row
+        count disagree with ``projectCount``.
+        """
         ids = tuple(holding.id for holding in self.holdings)
+        duplicates = sorted({item for item in ids if ids.count(item) > 1})
+        if duplicates:
+            raise ValueError(f"holdings carry duplicate ids: {', '.join(duplicates)}")
         if ids != canonical_order(ids):
             raise ValueError("holdings must be ordered by id ascending")
         return self
@@ -453,7 +534,7 @@ class RunRecord(BaseModel):
     def _selected_flags_agree_with_selected_ids(self) -> RunRecord:
         """``selected`` means "in ``selectedIds``" (§8.2), so the two cannot drift."""
         flagged = tuple(holding.id for holding in self.holdings if holding.selected)
-        if self.holdings and flagged != canonical_order(self.selected_ids):
+        if flagged != self.selected_ids:
             raise ValueError(
                 "holdings flagged selected do not match selectedIds: "
                 f"{sorted(set(flagged) ^ set(self.selected_ids))}"

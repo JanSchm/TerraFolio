@@ -307,6 +307,66 @@ lengths — thirty years for `cashflow30Y_m`, the mandate's hold period for
 
 ---
 
+### C-17 — a result model is bound by the same domains as the file it describes
+
+`ProjectScalars` re-states about twenty fields that `ProjectFile` already
+declares, and the first version of it carried none of their constraints: a
+stored holding could put a site at latitude 999, a contracted share at 7, an id
+of `!!` or a `countryCode` of `Germany`. §7.3's map plots those coordinates and
+the mandate's country screen matches that code, so the constraints matter as
+much on the way out of the store as on the way in.
+
+Both sides now draw their bounds from `domain/file_bounds.py`, and the shared
+`Fraction`, `Magnitude` and `Positive` types in `domain/fields.py` carry the
+repeated ones. The two provenance rules are the same on both sides too: all
+seven groups required, and senior debt not above total cost.
+
+Found in review, along with four consistency gaps in validators added the round
+before — duplicate holding ids passing an ordering check that used `sorted`,
+the selected-ids check short-circuited by `if self.holdings and`, completeness
+read from `aggregates` rather than `status`, and a naive `createdAt` accepted
+into an audit trail that is ordered by time.
+
+### C-18 — a guard that can be switched off quietly is not a guard
+
+Three holes in the two guards, all found in review:
+
+- The `# structural:` escape was matched as a substring of the raw line, so
+  `S = "# structural: ..."` — or a docstring describing the rule — exempted its
+  own line. It is tokenised now, and only a real comment counts.
+- `scan_tree` decided tier A membership with `key.split("/")[0]`, so a module at
+  `optimiser.py` rather than `optimiser/ga.py` was read as a package named
+  `optimiser.py` and dropped out of the strictest tier. Issue 2A adds `cli.py`
+  at the package root.
+- Tier C called `int(value)` before testing finiteness, so `1e999` — which
+  Python parses to `inf` — aborted the whole scan with `OverflowError` instead
+  of reporting a finding.
+
+And one in the import guard: `transitive_third_party` followed edges from the
+starting package, but nothing names `terrafolio` as an import target, so a
+third-party import added to `terrafolio/__init__.py` was invisible — although
+every `import terrafolio.optimiser` executes it. The walk is seeded with the
+package root now.
+
+The two files also defined "the numeric core" twice, with different members.
+The literal scan derives its set from the import rule's now, so the difference —
+`pipeline` and `generate` consume the assumption set but may import pydantic —
+is stated once and asserted.
+
+### C-19 — `nan` and `inf` are not calibration values
+
+TOML has both as literals. A non-finite weight would propagate silently through
+every fitness comparison, and it also made the assumption-set digest fail inside
+`json.dumps` with `Out of range float values are not JSON compliant` — naming
+neither the key nor the file, in a loader whose entire error contract is to name
+the key path. Rejected now, before the digest, with the path.
+
+Two neighbouring gaps closed with it: an empty market table loaded as a valid
+assumption set, and a market with a capacity factor but no baseload price — or
+the reverse — was accepted and failed as a `KeyError` mid-run.
+
+---
+
 ## Open questions from 1A
 
 Both add a line item that participates in a new tie-out identity, which the

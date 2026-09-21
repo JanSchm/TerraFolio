@@ -8,6 +8,7 @@ file is edited by hand by people who are not reading a stack trace.
 
 from __future__ import annotations
 
+import math
 import os
 import re
 import tomllib
@@ -102,6 +103,12 @@ def _float(table: Mapping[str, Any], key: str, where: str = "") -> float:
     # bool subclasses int, and a flag read as 1.0 is a silent wrong number.
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise AssumptionError(f"{path}: expected a number, got {type(value).__name__}")
+    # TOML has nan and inf literals. Neither is a calibration value: a
+    # non-finite weight propagates silently through every fitness comparison,
+    # and it also makes the assumption-set digest fail far from here, inside
+    # json.dumps, with a message naming neither the key nor the file.
+    if not math.isfinite(value):
+        raise AssumptionError(f"{path}: expected a finite number, got {value}")
     return float(value)
 
 
@@ -164,6 +171,11 @@ def _market_keyed(table: Mapping[str, Any], where: str) -> Mapping[str, float]:
     unused and surface much later as a missing market for a project that looks
     perfectly valid.
     """
+    if not table:
+        raise AssumptionError(
+            f"{where}: no markets; every project is looked up by its own "
+            f"countryCode, so an empty table fails only once a run reaches one"
+        )
     for code in table:
         if not _MARKET_CODE.fullmatch(code):
             raise AssumptionError(f"{where}.{code}: expected an ISO 3166-1 alpha-2 market code")
@@ -269,6 +281,27 @@ def assumptions_dir() -> Path:
 # --------------------------------------------------------------------------
 
 
+def _reject_non_finite(node: Any, path: tuple[str, ...] = ()) -> None:
+    """Fail on a nan or inf anywhere in the file, naming where it is.
+
+    Runs before the digest, because that is what sees a non-finite value first:
+    ``json.dumps`` refuses it with "Out of range float values are not JSON
+    compliant", which names neither the key nor the file and arrives before any
+    typed accessor has had a chance to produce a better message.
+    """
+    if isinstance(node, bool):
+        return
+    if isinstance(node, float) and not math.isfinite(node):
+        where = ".".join(path) or "<root>"
+        raise AssumptionError(f"{where}: expected a finite number, got {node}")
+    if isinstance(node, Mapping):
+        for key, value in node.items():
+            _reject_non_finite(value, (*path, str(key)))
+    elif isinstance(node, list):
+        for index, item in enumerate(node):
+            _reject_non_finite(item, (*path, str(index)))
+
+
 def _identity(raw: Mapping[str, Any]) -> tuple[str, str]:
     """Digest the calibration values, excluding metadata.
 
@@ -278,6 +311,7 @@ def _identity(raw: Mapping[str, Any]) -> tuple[str, str]:
     not either.
     """
     values = {key: value for key, value in raw.items() if key != _METADATA_SECTION}
+    _reject_non_finite(values)
     payload = canonical_json(numbers_as_floats(values))
     return sha256_hex(payload)[:ASSUMPTION_SET_ID_LENGTH], content_hash(payload)
 
@@ -355,6 +389,26 @@ def _generator(raw: Mapping[str, Any]) -> GeneratorParams:
     risk = _table(table, "development_risk", "generator")
     probability = _table(table, "probability", "generator")
     capacity_factor = _table(table, "capacity_factor", "generator")
+    baseload = _market_keyed(
+        _table(table, "baseload_price", "generator"), "generator.baseload_price"
+    )
+    factors = _keyed_by_some(
+        capacity_factor,
+        Technology,
+        lambda parent, key, where: _market_keyed(_table(parent, key, where), f"{where}.{key}"),
+        "generator.capacity_factor",
+        required=MARKET_CAPACITY_FACTOR_TECHNOLOGIES,
+    )
+    # A market needs both a capacity factor and a price for a project to be
+    # generated in it. One without the other is a table that was edited and its
+    # partner forgotten, and it surfaces as a KeyError mid-run rather than here.
+    for technology, markets in factors.items():
+        orphans = sorted(set(markets) - set(baseload))
+        if orphans:
+            raise AssumptionError(
+                f"generator.capacity_factor.{technology.value}: "
+                f"{', '.join(orphans)} have no generator.baseload_price"
+            )
     return GeneratorParams(
         base_year=_int(table, "base_year", "generator"),
         cod_first_year=_int(table, "cod_first_year", "generator"),
@@ -427,16 +481,8 @@ def _generator(raw: Mapping[str, Any]) -> GeneratorParams:
             probability, "grid_secured_greenfield", "generator.probability"
         ),
         om_contracted_probability=_float(probability, "om_contracted", "generator.probability"),
-        baseload_price=_market_keyed(
-            _table(table, "baseload_price", "generator"), "generator.baseload_price"
-        ),
-        capacity_factor=_keyed_by_some(
-            capacity_factor,
-            Technology,
-            lambda parent, key, where: _market_keyed(_table(parent, key, where), f"{where}.{key}"),
-            "generator.capacity_factor",
-            required=MARKET_CAPACITY_FACTOR_TECHNOLOGIES,
-        ),
+        baseload_price=baseload,
+        capacity_factor=factors,
     )
 
 

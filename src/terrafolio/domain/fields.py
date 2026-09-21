@@ -12,7 +12,7 @@ legitimate way to write ``34.0`` in JSON — and reject everything else.
 **Immutability that reaches the contents.** ``frozen=True`` prevents attribute
 assignment and nothing more: a ``dict`` field on a frozen model can still be
 mutated in place, so a validated file could drift from the hash taken over it.
-:data:`FrozenMap` closes that, as tuples already do for the series types.
+:data:`FREEZE_MAPPING` closes that, as tuples already do for the series types.
 """
 
 from __future__ import annotations
@@ -29,8 +29,11 @@ __all__ = [
     "FREEZE_MAPPING",
     "Count",
     "Flag",
+    "Fraction",
+    "Magnitude",
     "MagnitudeSeries30",
     "Number",
+    "Positive",
     "Series30",
     "Series30Opt",
     "Years30",
@@ -56,6 +59,16 @@ Flag = Annotated[bool, Field(strict=True)]
 
 Magnitude = Annotated[float, Field(strict=True, ge=0)]
 """A non-negative float, for the statement lines stated as positive magnitudes."""
+
+Positive = Annotated[float, Field(strict=True, gt=0)]
+"""A strictly positive float — a capacity, a price, a cost."""
+
+Fraction = Annotated[float, Field(strict=True, ge=0, le=1)]
+"""A share or rate expressed as a fraction of one, never a percentage.
+
+``docs/pipeline-schema.md`` §2 fixes the convention for files and
+``docs/api.md`` §6.1 for the wire, so the same bound serves both.
+"""
 
 
 def exact_years[T](values: tuple[T, ...]) -> tuple[T, ...]:

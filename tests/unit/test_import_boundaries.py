@@ -194,11 +194,20 @@ def core_violations(facts: Iterable[ImportFacts]) -> list[str]:
 
 
 def transitive_third_party(facts: Iterable[ImportFacts], start: str) -> set[str]:
-    """Every third-party root reachable from one first-party package."""
+    """Every third-party root reachable from one first-party package.
+
+    The walk is seeded with the package's own modules **and with
+    ``terrafolio/__init__.py``**: importing ``terrafolio.optimiser`` executes
+    the package root first, so an import added there is genuinely an import of
+    the numeric core — but nothing names ``terrafolio`` as a target, so it would
+    never be reached by following edges.
+    """
     by_module = {fact.module: fact for fact in facts}
     seen: set[str] = set()
     roots: set[str] = set()
     queue = [name for name in by_module if _package_of(name) == start]
+    if PACKAGE in by_module:
+        queue.append(PACKAGE)
     while queue:
         current = queue.pop()
         if current in seen:
@@ -269,6 +278,19 @@ def test_checker_does_not_exempt_type_checking_imports() -> None:
     )
     facts = analyse_imports(source, module="terrafolio.optimiser.ga")
     assert core_violations([facts]) != []
+
+
+def test_the_package_root_is_part_of_the_core_s_reachable_set() -> None:
+    """A third-party import in ``terrafolio/__init__.py`` is one the core makes.
+
+    Nothing imports the package root by name, so following edges alone never
+    arrives there — yet every ``import terrafolio.optimiser`` executes it.
+    """
+    facts = [
+        analyse_imports("import pydantic\n", module=PACKAGE),
+        analyse_imports("", module=f"{PACKAGE}.optimiser"),
+    ]
+    assert "pydantic" in transitive_third_party(facts, "optimiser")
 
 
 def test_checker_ignores_future_imports() -> None:
