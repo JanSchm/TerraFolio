@@ -25,8 +25,10 @@ from terrafolio.config.assumptions import AssumptionSet
 from terrafolio.config.loader import load_default
 from terrafolio.domain.errors import format_validation_error
 from terrafolio.domain.project_file import ProjectFile
+from terrafolio.generate.from_file import inputs_from_file, statements_from_file
 from terrafolio.generate.pipeline import generate_pipeline, write_pipeline
 from terrafolio.generate.spreadsheet import read_workbook, write_workbook
+from terrafolio.model.variance import compare_to_house_model
 
 DEFAULT_PIPELINE = Path("pipeline")
 DEFAULT_COUNT = 300
@@ -89,6 +91,23 @@ def _ingest(arguments: argparse.Namespace, assumptions: AssumptionSet) -> int:
     target = arguments.out / f"{validated.id}.json"
     target.write_text(json.dumps(file, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"{arguments.workbook} -> {target}")
+
+    # The house model's second job (epic §2): re-derive the statements from the
+    # file's own declared assumptions and say where the two disagree. It reports
+    # and never gates -- the file has already been written above, and a
+    # divergence is a modelling difference worth seeing, not a rejection (A-7).
+    report = compare_to_house_model(
+        inputs_from_file(file, assumptions),
+        statements_from_file(file),
+        tolerance_abs=assumptions.validation.tolerance_abs_m,
+        tolerance_rel=assumptions.validation.tolerance_rel,
+    )
+    if report.agrees:
+        print("  the house model reproduces this file on every line")
+    else:
+        print(f"  the house model differs on {len(report.diverging)} line(s):")
+        for line in report.diverging:
+            print(f"    {line}")
     return 0
 
 
