@@ -321,6 +321,41 @@ The extractor makes exactly three structural transformations, all mechanical: wr
 rejoined (closing a hyphen or en dash broken across a line), raised runs become `^exponent`, and the
 running header and footer are dropped by font size.
 
+### A-10 — §7.1's compliance colour and §12's colour-only ban are reconciled by a second channel
+
+*Raised by issue #3. Affects: #5, #10, #11.*
+
+§7.1 says each headline tile is "coloured to indicate compliance". §12 requires "no colour-only
+status encoding". Read literally these conflict, and the conflict recurs at the holdings table's
+"red below the mandate floor" (§7.4) and at the map's solar-versus-wind markers (§7.3).
+
+**Decided.** Colour stays, as an *additional* channel. Every status also carries a mark or a word:
+`✓` or `!` on a tile sub-label, a trailing `!` and a spoken `below the {n}× floor` on a breaching
+DSCR cell, `Not selected` in a shaded row's accessible name, technology in each map marker's
+accessible name. [`ui-contract.md` §7.1](ui-contract.md#71-colour-is-never-the-only-signal) lists
+every place and its required second signal.
+
+Note that the palette contains no red. "Red below the mandate floor" renders in
+`--color-accent-800`, the alert tone, plus the mark.
+
+### A-11 — the mockup's search-screen copy does not conform to §14 and is replaced
+
+*Raised by issue #3. Affects: #5, #10, #11.*
+
+§14 removes algorithm-internal vocabulary — population, crossover, mutation, fitness, generation —
+from user-facing copy, confining it to technical documentation and the run record. The mockup's
+screen 02 is written entirely in it: "Searching the solution space", "Population of 90 candidate
+portfolios, tournament selection, uniform crossover, 2.5% mutation", "Fitness convergence",
+"GENERATION 07 / 60", "crossover and mutation · pruning infeasible portfolios".
+
+**Decided.** The mockup is the source for *layout and geometry*, not for this screen's words.
+[`ui-contract.md` §4](ui-contract.md#4-screen-02--search) carries a replacement for every instance,
+and §8 carries the banned and preferred vocabularies. "Generation" becomes **round**, "fitness"
+becomes **mandate score**, "population mean" becomes **average of all candidates**.
+
+The run record and the SSE event names keep the technical terms: they are not user-facing, and
+renaming them would make the engine harder to reason about for no gain.
+
 ---
 
 ## Open questions
@@ -411,3 +446,5 @@ screened out by the §5.3 EUR-only toggle and are never converted. See
 | 2026-09-21 | #3 | A-7 — plausibility and dispersion warn; only tie-out failures block. |
 | 2026-09-21 | #3 | A-8 — the narrowed assumption set enumerated. |
 | 2026-09-21 | #3 | A-9 — `spec.md` is verbatim; §10.2's `Ʃ` is U+01A9 in the source. |
+| 2026-09-21 | #3 | A-10 — compliance colour always carries a mark or a word as well. |
+| 2026-09-21 | #3 | A-11 — the mockup's search-screen copy is replaced to conform to §14. |
