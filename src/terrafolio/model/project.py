@@ -46,7 +46,7 @@ import numpy as np
 import numpy.typing as npt
 
 from terrafolio.domain.conventions import EUR_PER_EUR_MILLION, MWH_PER_GWH, YEARS
-from terrafolio.model.annuity import Schedule, annuity_pv_factor, schedule
+from terrafolio.model.annuity import Schedule, annuity_payment_factor, schedule
 
 __all__ = [
     "DebtTerms",
@@ -252,14 +252,21 @@ class DebtTerms:
 def size_senior_debt(stabilised: float, terms: DebtTerms, total_capex: float) -> tuple[float, str]:
     """Size senior debt off stabilised EBITDA, then cap it by gearing (§9.3, D-3).
 
-    ``debt = min(max_gearing x capex, stabilised ÷ target_dscr x pv_factor)``.
+    ``debt = min(max_gearing x capex, stabilised ÷ target_dscr ÷ payment_factor)``.
 
-    Note the **multiplication** by the annuity PV factor. Issue #8's prose writes
-    a division, but its own acceptance criterion pins
-    ``annuity_pv_factor(0.055, 18) = 11.246…``, which is the present value of one
-    unit a year — so dividing by it would put the template project's senior debt
-    at €0.70m against its actual €74.39m. The reference divides by the reciprocal
-    *payment* factor, which is the same thing. Recorded in ``docs/decisions.md``.
+    Issue #8's prose divides by the *PV* factor, and that is a slip: its own
+    acceptance criterion pins ``annuity_pv_factor(0.055, 18) = 11.246…``, the
+    present value of one unit a year, so dividing by it puts the template
+    project's senior debt at €0.70m against its actual €74.39m. What is meant is
+    a division by the reciprocal *payment* factor, the same quantity the other
+    way up.
+
+    Written as that division rather than as ``x annuity_pv_factor`` because the
+    two agree in real arithmetic and not in float: ``(x x d) ÷ r`` and
+    ``x x (d ÷ r)`` round differently, and measured across the corpus the
+    multiplied form lands 5.7e-14 away on the seven DSCR-sculpted projects.
+    Inert against the €0.01m tolerance, fatal to a field-for-field match — so
+    this follows the reference. Recorded in ``docs/decisions.md``.
 
     Returns the quantum and which constraint bound — ``"max-gearing-cap"`` or
     ``"dscr-sculpt"``. Which one binds is what makes min DSCR two-sided: a
@@ -269,7 +276,7 @@ def size_senior_debt(stabilised: float, terms: DebtTerms, total_capex: float) ->
     if terms.tenor <= 0 or terms.rate < 0:
         return 0.0, "max-gearing-cap"
     ceiling = terms.max_gearing * total_capex
-    serviceable = stabilised / terms.target_dscr * annuity_pv_factor(terms.rate, terms.tenor)
+    serviceable = stabilised / terms.target_dscr / annuity_payment_factor(terms.rate, terms.tenor)
     if ceiling <= serviceable:
         return max(0.0, ceiling), "max-gearing-cap"
     return max(0.0, serviceable), "dscr-sculpt"

@@ -191,7 +191,8 @@ class GeneratorParams:
     price_escalation: float
     merchant_escalation: float
     opex_escalation: float
-    entry_yield_jitter: float
+    entry_yield_jitter: Range
+    contracted_share_floor: float
     capacity_factor_jitter: Range
     contract_price_factor: Range
     contract_tenor_choices: tuple[int, ...]

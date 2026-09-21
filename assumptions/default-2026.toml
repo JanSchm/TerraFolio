@@ -205,8 +205,11 @@ target_dscr = 1.40
 price_escalation = 0.005
 merchant_escalation = 0.021
 opex_escalation = 0.021
-# Entry yield is jittered +/- this, in fractions of one (§9.1).
-entry_yield_jitter = 0.007
+# Below this contracted share a project is treated as fully merchant and draws
+# no tenor (§4.3: a zero tenor requires a zero share). The shipped mix never
+# reaches it, and it is here so that a re-calibrated mix cannot emit a file
+# with a contracted share and no term to run it over.
+contracted_share_floor = 0.05
 contract_tenor_choices = [10, 12, 15, 15, 20]
 # A generated project whose min DSCR falls outside the §10 plausibility band is
 # redrawn from its own stream rather than shipped with a warning, so
@@ -270,6 +273,12 @@ span = 2.0
 # full precision and multiplies every year of generation. A `band` elsewhere in
 # this file is a bound something is tested against; a `range` is one a value is
 # drawn from, and only the second needs its width to be exact.
+
+# Entry yield is jittered around the stage figure (§9.1): +/- 0.7 points, so a
+# range 0.014 wide starting 0.007 below.
+[generator.entry_yield_jitter]
+low = -0.007
+span = 0.014
 
 # Multiplicative jitter on a market's P50 capacity factor.
 [generator.capacity_factor_jitter]

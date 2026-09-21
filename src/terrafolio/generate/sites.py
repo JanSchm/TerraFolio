@@ -41,7 +41,7 @@ import numpy as np
 from terrafolio.config.assumptions import AssumptionSet, Range
 from terrafolio.domain.enums import Currency, Stage, Technology
 
-__all__ = ["Market", "Site", "build_pool", "markets", "reference_sites"]
+__all__ = ["Market", "Site", "build_pool", "market_key", "markets", "reference_sites"]
 
 _DATA: Final = Path(__file__).resolve().parent
 _COUNTRIES: Final = _DATA / "countries.json"
@@ -85,6 +85,23 @@ class Site:
     capacity_mw: float
     cod_year: int
     currency: Currency
+
+
+_COUNTRY_ALIASES: Final = {"UK": "GB"}
+"""``docs/pipeline-schema.md`` §4.1: ``UK`` is accepted as an alias of ``GB``.
+
+The reference's site table writes ``UK`` and the assumption set keys its market
+curves by ``GB``, so the two have to be reconciled somewhere. Here, rather than
+by rewriting either: the reference corpus has to keep the code it was published
+with, and a shipped pipeline uses the canonical one throughout -- two spellings
+of one country in one pipeline would split it in the per-country concentration
+cap, which is a wrong answer rather than an untidy one.
+"""
+
+
+def market_key(country_code: str) -> str:
+    """The code the assumption set's market tables are keyed by."""
+    return _COUNTRY_ALIASES.get(country_code, country_code)
 
 
 def _load(path: Path) -> Any:
