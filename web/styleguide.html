@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Style guide — TerraFolio</title>
+<link rel="stylesheet" href="dist/app.css">
+<script defer src="js/format.js"></script>
+<script defer src="js/controls.js"></script>
+<script defer src="vendor/alpine.min.js"></script>
+</head>
+<body class="min-h-screen bg-bg text-text">
+    <!-- nav:start — identical on all four pages except which step carries aria-current.
+         tools/splice-nav.mjs writes this block; tests/nav.test.js guards it. -->
+    <header class="sticky top-0 z-nav flex flex-wrap items-center justify-between gap-4 border-b border-divider bg-bg px-7 py-[12px]">
+      <div class="flex items-baseline gap-4">
+        <span class="font-condensed text-[19px] font-bold tracking-tight">TERRAFOLIO</span>
+        <span class="text-micro uppercase tracking-brand text-muted">Renewables portfolio optimiser</span>
+      </div>
+      <ol class="flex items-center gap-[18px] font-condensed text-micro uppercase tracking-micro" aria-label="Progress">
+        <li><span data-step="mandate" class="text-muted aria-[current=step]:font-semibold aria-[current=step]:text-accent-700">01 Mandate</span></li>
+        <li aria-hidden="true" class="text-neutral-400">&#8212;</li>
+        <li><span data-step="search" class="text-muted aria-[current=step]:font-semibold aria-[current=step]:text-accent-700">02 Search</span></li>
+        <li aria-hidden="true" class="text-neutral-400">&#8212;</li>
+        <li><span data-step="portfolio" class="text-muted aria-[current=step]:font-semibold aria-[current=step]:text-accent-700">03 Portfolio</span></li>
+      </ol>
+    </header>
+    <!-- nav:end -->
+
+<main class="mx-auto max-w-mandate px-7 pb-16 pt-8">
+
+  <div class="mb-[22px] flex flex-wrap items-end justify-between gap-7">
+    <div class="max-w-prose">
+      <h1 class="mb-[6px]">The blueprint system</h1>
+      <p class="m-0 max-w-prose text-muted">Every token, both faces and every control in the
+        product, on one page. Nothing here is decoration: if a pattern is not on this page it
+        does not exist, and if it is on this page it is keyboard-operable and announced.</p>
+    </div>
+    <p class="m-0 font-condensed text-h5 uppercase tracking-wide text-muted">Reference &#183; not a product screen</p>
+  </div>
+
+  <!-- ── Panel ───────────────────────────────────────────────────────────── -->
+  <section class="mb-10" aria-labelledby="sg-panel">
+    <h2 id="sg-panel" class="mb-4 text-h4">Panel</h2>
+    <p class="mb-5 max-w-prose text-muted">The frame every surface in the product uses: a
+      hairline box with a registration mark centred on each corner, 6px of each crosshair
+      falling outside the border. The marks are pseudo-elements, so a panel costs no extra
+      markup &#8212; but an ancestor with <code>overflow: hidden</code> will clip them.</p>
+    <div class="grid gap-[18px] md:grid-cols-2">
+      <div class="panel">
+        <h3 class="mb-[4px] text-h5 text-accent-700">Objective</h3>
+        <p class="m-0 text-label text-muted">What the portfolio is asked to achieve.</p>
+      </div>
+      <div class="panel">
+        <h3 class="mb-[4px] text-h5 text-accent-700">Hard constraints</h3>
+        <p class="m-0 text-label text-muted">Breaches are rejected, not penalised.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Colour ──────────────────────────────────────────────────────────── -->
+  <section class="mb-10" aria-labelledby="sg-colour">
+    <h2 id="sg-colour" class="mb-4 text-h4">Colour</h2>
+    <p class="mb-5 max-w-prose text-muted">Two ladders on one shared lightness scale. There is
+      no red in this system &#8212; a breach is <strong class="font-semibold">accent-800</strong>,
+      and always carries a mark or a word as well, never the colour on its own.</p>
+
+    <h3 class="mb-2 text-h6 uppercase tracking-caps text-muted">Accent</h3>
+    <ol class="mb-6 grid grid-cols-3 gap-0 border border-divider md:grid-cols-9">
+      <li class="border-r border-divider"><div class="h-16 bg-accent-100"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">100</div></li>
+      <li class="border-r border-divider"><div class="h-16 bg-accent-200"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">200</div></li>
+      <li class="border-r border-divider"><div class="h-16 bg-accent-300"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">300</div></li>
+      <li class="border-r border-divider"><div class="h-16 bg-accent-400"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">400 wind</div></li>
+      <li class="border-r border-divider"><div class="h-16 bg-accent-500"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">500</div></li>
+      <li class="border-r border-divider"><div class="h-16 bg-accent-600"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">600</div></li>
+      <li class="border-r border-divider"><div class="h-16 bg-accent-700"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">700 ink, solar</div></li>
+      <li class="border-r border-divider"><div class="h-16 bg-accent-800"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">800 breach</div></li>
+      <li class="border-r border-divider"><div class="h-16 bg-accent-900"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">900</div></li>
+    </ol>
+
+    <h3 class="mb-2 text-h6 uppercase tracking-caps text-muted">Neutral</h3>
+    <ol class="mb-6 grid grid-cols-3 gap-0 border border-divider md:grid-cols-9">
+      <li class="border-r border-divider"><div class="h-16 bg-neutral-100"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">100</div></li>
+      <li class="border-r border-divider"><div class="h-16 bg-neutral-200"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">200 de-emph</div></li>
+      <li class="border-r border-divider"><div class="h-16 bg-neutral-300"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">300</div></li>
+      <li class="border-r border-divider"><div class="h-16 bg-neutral-400"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">400</div></li>
+      <li class="border-r border-divider"><div class="h-16 bg-neutral-500"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">500</div></li>
+      <li class="border-r border-divider"><div class="h-16 bg-neutral-600"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">600 edges</div></li>
+      <li class="border-r border-divider"><div class="h-16 bg-neutral-700"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">700 muted</div></li>
+      <li class="border-r border-divider"><div class="h-16 bg-neutral-800"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">800</div></li>
+      <li class="border-r border-divider"><div class="h-16 bg-neutral-900"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">900</div></li>
+    </ol>
+
+    <h3 class="mb-2 text-h6 uppercase tracking-caps text-muted">Ground</h3>
+    <ol class="grid grid-cols-2 gap-0 border border-divider md:grid-cols-4">
+      <li class="border-r border-divider"><div class="h-16 bg-bg"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">bg #f2f2f3</div></li>
+      <li class="border-r border-divider"><div class="h-16 bg-surface"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">surface #e9e9ea</div></li>
+      <li class="border-r border-divider"><div class="h-16 bg-text"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">text #1d1f20</div></li>
+      <li class="border-r border-divider"><div class="h-16 bg-divider"></div><div class="px-2 py-[6px] text-micro uppercase tracking-micro text-muted">divider text 16%</div></li>
+    </ol>
+  </section>
+
+  <!-- ── Type ────────────────────────────────────────────────────────────── -->
+  <section class="mb-10" aria-labelledby="sg-type">
+    <h2 id="sg-type" class="mb-4 text-h4">Type</h2>
+    <div class="grid gap-[18px] md:grid-cols-2">
+      <div class="panel">
+        <h3 class="mb-4 text-h6 uppercase tracking-caps text-muted">Barlow Condensed &#183; headings and every numeral</h3>
+        <p class="mb-2 font-condensed text-h1 font-semibold">Define the mandate</p>
+        <p class="mb-2 font-condensed text-h2 font-semibold">Searching the solution space</p>
+        <p class="mb-2 font-condensed text-h3 font-semibold">Suggested portfolio</p>
+        <p class="mb-4 font-condensed text-h4 font-semibold">Fitness convergence</p>
+        <p class="num text-num-2xl">1,540 MW</p>
+        <p class="num text-num-xl">&#8364;1,200m</p>
+        <p class="num text-num">12.4% &#183; 1.38&#215;</p>
+        <p class="mt-4 text-note text-muted">Numerals are lining and tabular, so a column of
+          figures lines up on the decimal.</p>
+      </div>
+      <div class="panel">
+        <h3 class="mb-4 text-h6 uppercase tracking-caps text-muted">Barlow &#183; body and labels</h3>
+        <p class="mb-3 text-body-lg">Body at 16px on a 1.55 line. The optimiser searches the live
+          candidate pipeline for the subset of projects that best satisfies the objective while
+          respecting every hard constraint.</p>
+        <p class="mb-3 text-body">Body at 15px, for denser blocks.</p>
+        <p class="mb-3 text-label font-medium tracking-tight">Label at 14px, weight 500.</p>
+        <p class="mb-3 text-note text-muted">Note at 13px, muted.</p>
+        <p class="mb-1 text-micro uppercase tracking-micro text-muted">Micro-label at 11px</p>
+        <p class="text-micro-lg uppercase tracking-micro text-muted">Micro-label at 11.5px</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Controls ────────────────────────────────────────────────────────── -->
+  <section class="mb-10" aria-labelledby="sg-controls">
+    <h2 id="sg-controls" class="mb-4 text-h4">Controls</h2>
+    <p class="mb-5 max-w-prose text-muted">Every control here is a native
+      <code>&lt;input&gt;</code>, <code>&lt;button&gt;</code> or radio underneath. Tab through
+      them: each takes focus, shows a ring, and works from the keyboard alone.</p>
+
+    <div class="grid gap-[18px] md:grid-cols-3">
+
+      <div class="panel">
+        <h3 class="mb-5 text-h5 text-accent-700">Range and number</h3>
+        <div class="flex flex-col gap-5">
+
+          <div x-data="rangeField({ name: 'capital', value: 1200, min: 200, max: 4000, step: 50, format: 'eurM' })">
+            <div class="mb-[5px] flex items-baseline justify-between gap-3">
+              <label :for="id" class="text-body font-medium tracking-tight">Available equity capital</label>
+              <output :for="id" class="num text-num" x-text="display">&#8364;1,200m</output>
+            </div>
+            <input type="range" :id="id" x-model.number="value" :min="min" :max="max" :step="step"
+                   :aria-valuetext="display" @change="changed($event)"
+                   class="h-[26px] w-full cursor-pointer">
+          </div>
+
+          <div x-data="rangeField({ name: 'hurdle', value: 11, min: 6, max: 18, step: 0.5, format: 'irr', scale: 100 })">
+            <div class="mb-[5px] flex items-baseline justify-between gap-3">
+              <label :for="id" class="text-body font-medium tracking-tight">Target equity IRR (hurdle)</label>
+              <output :for="id" class="num text-num" x-text="display">11.0%</output>
+            </div>
+            <input type="range" :id="id" x-model.number="value" :min="min" :max="max" :step="step"
+                   :aria-valuetext="display" @change="changed($event)"
+                   class="h-[26px] w-full cursor-pointer">
+          </div>
+
+          <div x-data="numberField({ name: 'hold', value: 10, min: 5, max: 30, step: 1 })">
+            <label :for="id" class="mb-[6px] block text-label text-neutral-800">Hold period (yrs)</label>
+            <input class="input" type="number" :id="id" x-model.number="value"
+                   :min="min" :max="max" :step="step" @change="changed($event)">
+          </div>
+
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3 class="mb-5 text-h5 text-accent-700">Split bar</h3>
+        <div x-data="splitBar({ name: 'solarShare', value: 45 })">
+          <div class="mb-[7px] flex items-baseline justify-between gap-3">
+            <label :for="id" class="text-body font-medium tracking-tight">Technology split</label>
+            <output :for="id" class="num text-num-sm" x-text="display">45% solar / 55% wind</output>
+          </div>
+          <div class="relative mt-1 h-[30px] border border-divider">
+            <div class="absolute inset-0 flex">
+              <div class="flex items-center overflow-hidden bg-solar pl-2" :style="`width: ${solar}%`">
+                <span class="whitespace-nowrap font-condensed text-micro font-semibold tracking-micro text-bg">SOLAR</span>
+              </div>
+              <div class="flex flex-1 items-center justify-end overflow-hidden border-l border-accent-700 bg-wind pr-2">
+                <span class="whitespace-nowrap font-condensed text-micro font-semibold tracking-micro text-accent-900">WIND</span>
+              </div>
+            </div>
+            <div class="pointer-events-none absolute -top-[5px] -bottom-[5px] w-[9px] -translate-x-1/2 bg-text"
+                 :style="`left: ${solar}%`" aria-hidden="true"></div>
+            <input type="range" :id="id" x-model.number="value" :min="min" :max="max" :step="step"
+                   :aria-valuetext="display" @change="changed($event)"
+                   class="absolute inset-0 m-0 h-full w-full cursor-ew-resize opacity-0">
+          </div>
+          <p class="mt-3 text-note text-muted">The bar is a real slider: the transparent range
+            input covers it, so it drags with the pointer and steps with the arrow keys.</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3 class="mb-5 text-h5 text-accent-700">Segmented and switch</h3>
+
+        <fieldset class="mb-6 border-0 p-0"
+                  x-data="segmented({ name: 'risk', value: 'Balanced', options: ['Low','Balanced','High'], notes: { Low: 'Excludes anything above risk score 2.6 — mostly RTB and construction assets.', Balanced: 'Admits development assets up to risk score 3.6.', High: 'Full pipeline, including early-stage greenfield.' } })">
+          <legend class="mb-[9px] block p-0 text-body font-medium tracking-tight">Development risk appetite</legend>
+          <div class="grid grid-cols-3 border border-edge">
+            <template x-for="(opt, i) in options" :key="opt">
+              <label class="flex min-h-[42px] cursor-pointer items-center justify-center px-3 py-[11px] text-seg
+                            [&:not(:first-child)]:border-l [&:not(:first-child)]:border-edge
+                            has-[:checked]:bg-accent-700 has-[:checked]:text-bg
+                            has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-2">
+                <input type="radio" :name="group" :value="opt" x-model="value" @change="changed($event)"
+                       class="sr-only">
+                <span x-text="opt">Balanced</span>
+              </label>
+            </template>
+          </div>
+          <p class="mt-[9px] text-note text-muted" x-text="note">Admits development assets up to risk score 3.6.</p>
+        </fieldset>
+
+        <div class="flex flex-col gap-[2px] border-t border-divider pt-4">
+          <div x-data="switchControl({ name: 'gridOnly', on: false })">
+            <button type="button" role="switch" :aria-checked="on ? 'true' : 'false'" @click="toggle($event)"
+                    class="flex min-h-[44px] w-full cursor-pointer items-center justify-between gap-4 border-0 bg-transparent px-[2px] py-3 text-left hover:bg-accent-100">
+              <span>
+                <span class="block text-body-lg">Grid connection secured only</span>
+                <span class="block text-note text-muted">Drops projects without a firm connection agreement</span>
+              </span>
+              <span class="relative h-[26px] w-[48px] flex-none border border-edge"
+                    :class="on ? 'bg-accent-700' : 'bg-transparent'" aria-hidden="true">
+                <span class="absolute top-[2px] bottom-[2px] w-[20px]"
+                      :class="on ? 'left-[24px] bg-bg' : 'left-[2px] bg-neutral-600'"></span>
+              </span>
+            </button>
+          </div>
+          <div x-data="switchControl({ name: 'hedged', on: false })">
+            <button type="button" role="switch" :aria-checked="on ? 'true' : 'false'" @click="toggle($event)"
+                    class="flex min-h-[44px] w-full cursor-pointer items-center justify-between gap-4 border-0 bg-transparent px-[2px] py-3 text-left hover:bg-accent-100">
+              <span>
+                <span class="block text-body-lg">EUR-denominated revenue only</span>
+                <span class="block text-note text-muted">Excludes PLN, RON, DKK, SEK and GBP exposure</span>
+              </span>
+              <span class="relative h-[26px] w-[48px] flex-none border border-edge"
+                    :class="on ? 'bg-accent-700' : 'bg-transparent'" aria-hidden="true">
+                <span class="absolute top-[2px] bottom-[2px] w-[20px]"
+                      :class="on ? 'left-[24px] bg-bg' : 'left-[2px] bg-neutral-600'"></span>
+              </span>
+            </button>
+          </div>
+          <div x-data="switchControl({ name: 'omOnly', on: false })">
+            <button type="button" role="switch" :aria-checked="on ? 'true' : 'false'" @click="toggle($event)"
+                    class="flex min-h-[44px] w-full cursor-pointer items-center justify-between gap-4 border-0 bg-transparent px-[2px] py-3 text-left hover:bg-accent-100">
+              <span>
+                <span class="block text-body-lg">O&amp;M partner contracted</span>
+                <span class="block text-note text-muted">Requires a signed long-term service agreement</span>
+              </span>
+              <span class="relative h-[26px] w-[48px] flex-none border border-edge"
+                    :class="on ? 'bg-accent-700' : 'bg-transparent'" aria-hidden="true">
+                <span class="absolute top-[2px] bottom-[2px] w-[20px]"
+                      :class="on ? 'left-[24px] bg-bg' : 'left-[2px] bg-neutral-600'"></span>
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="mt-[18px] grid gap-[18px] md:grid-cols-2">
+      <div class="panel" x-data="chipGroup({ name: 'countries', values: ['ES','PT','IT','GR','FR','DE','PL','RO','NL','DK','IE','SE','FI','UK'], selected: ['ES','PT','IT','GR','FR','DE','PL','RO','NL','DK','IE','SE','FI','UK'] })">
+        <div class="mb-2 flex items-baseline justify-between gap-3">
+          <h3 id="sg-chips" class="m-0 text-body font-medium tracking-tight">Eligible countries</h3>
+          <button type="button" @click="toggleAll($event)"
+                  class="min-h-[42px] cursor-pointer whitespace-nowrap border-0 bg-transparent px-1 font-condensed text-note font-semibold text-accent-700 underline underline-offset-4 hover:bg-accent-100"
+                  x-text="toggleAllLabel">Clear all</button>
+        </div>
+        <div class="flex flex-wrap gap-[6px]" role="group" aria-labelledby="sg-chips">
+          <template x-for="cc in values" :key="cc">
+            <button type="button" class="chip" :aria-pressed="isOn(cc) ? 'true' : 'false'" @click="toggle(cc, $event)">
+              <span aria-hidden="true" x-text="isOn(cc) ? '■' : '□'"></span><span x-text="cc">ES</span>
+            </button>
+          </template>
+        </div>
+        <p class="mt-3 text-note text-muted">Chips are buttons carrying <code>aria-pressed</code>,
+          and the filled/hollow square repeats the state without colour.</p>
+      </div>
+
+      <div class="panel">
+        <h3 class="mb-4 text-body font-medium tracking-tight">KPI tiles</h3>
+        <div class="grid grid-cols-1 border border-divider sm:grid-cols-3">
+          <div class="tile" x-data="kpiTile({ state: 'on-target' })">
+            <p class="m-0 text-micro-lg uppercase tracking-micro text-muted">Installed capacity</p>
+            <p class="num mt-[3px] text-num-2xl">1,540 MW</p>
+            <p class="mt-[2px] text-note" :class="subClass">
+              <span aria-hidden="true" x-text="mark"></span>
+              <span class="sr-only" x-text="stateLabel"></span>
+              target 1,500 MW</p>
+          </div>
+          <div class="tile bg-highlight" x-data="kpiTile({ state: 'on-target' })">
+            <p class="m-0 text-micro-lg uppercase tracking-micro text-muted">Equity IRR (10y)</p>
+            <p class="num mt-[3px] text-num-2xl">12.4%</p>
+            <p class="mt-[2px] text-note" :class="subClass">
+              <span aria-hidden="true" x-text="mark"></span>
+              <span class="sr-only" x-text="stateLabel"></span>
+              hurdle 11.0% &#183; 1.94&#215; MOIC</p>
+          </div>
+          <div class="tile" x-data="kpiTile({ state: 'breach' })">
+            <p class="m-0 text-micro-lg uppercase tracking-micro text-muted">Merchant exposure</p>
+            <p class="num mt-[3px] text-num-2xl">41%</p>
+            <p class="mt-[2px] text-note" :class="subClass">
+              <span aria-hidden="true" x-text="mark"></span>
+              <span class="sr-only" x-text="stateLabel"></span>
+              cap 35%</p>
+          </div>
+        </div>
+        <p class="mt-3 text-note text-muted">A breach is accent-800 <em>and</em> an exclamation
+          mark <em>and</em> the words &#8220;outside the mandate&#8221; for a screen reader.
+          Never the colour alone.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Buttons and warnings ────────────────────────────────────────────── -->
+  <section aria-labelledby="sg-misc">
+    <h2 id="sg-misc" class="mb-4 text-h4">Buttons and warnings</h2>
+    <div class="grid gap-[18px] md:grid-cols-2">
+      <div class="panel">
+        <h3 class="mb-4 text-h6 uppercase tracking-caps text-muted">Buttons</h3>
+        <div class="flex flex-wrap items-center gap-2">
+          <button type="button" class="blueprint min-h-[44px] cursor-pointer border-accent-700 bg-accent-700 px-[26px] py-3 font-condensed text-body font-semibold tracking-cta text-bg hover:bg-accent-800">RUN OPTIMISATION</button>
+          <button type="button" class="min-h-[44px] cursor-pointer border border-edge bg-transparent px-4 py-2 font-condensed text-label font-semibold hover:bg-accent-100">Edit mandate</button>
+          <button type="button" class="min-h-[44px] cursor-pointer border border-divider bg-transparent px-4 py-2 font-condensed text-label font-semibold opacity-45" disabled>Disabled</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h3 class="mb-4 text-h6 uppercase tracking-caps text-muted">Feasibility warnings</h3>
+        <ul class="flex max-w-[460px] flex-col gap-1">
+          <li class="flex items-start gap-[7px] text-warn text-breach">
+            <span class="num flex-none" aria-hidden="true">&#215;</span>
+            <span><span class="sr-only">Blocker: </span>No candidates pass the current screens. Widen countries, stages or the COD window.</span>
+          </li>
+          <li class="flex items-start gap-[7px] text-warn text-breach">
+            <span class="num flex-none" aria-hidden="true">!</span>
+            <span><span class="sr-only">Warning: </span>Eligible pipeline is 1,204 MW &#8212; below the 1,500 MW target.</span>
+          </li>
+          <li class="flex items-start gap-[7px] text-warn text-muted">
+            <span class="num flex-none" aria-hidden="true">&#8226;</span>
+            <span><span class="sr-only">Note: </span>3 project(s) locked in; 1 excluded.</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+</main>
+</body>
+</html>

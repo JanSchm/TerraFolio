@@ -47,10 +47,17 @@ test('js/format.js confines toLocaleString to its one grouping helper', () => {
     'the call must live in group() and use the pinned LOCALE constant');
 });
 
-test('no page or script hard-codes a thousands separator or a currency symbol format', () => {
+/**
+ * styleguide.html is a type specimen, not a product screen: showing what a formatted
+ * figure looks like is its entire job, and it renders no pipeline data. Every other
+ * page must get its numerals from format.js at runtime, and shows an em dash until it does.
+ */
+const SPECIMEN = 'styleguide.html';
+
+test('no product page hard-codes a grouped numeral instead of calling format.js', () => {
   const offenders = [];
   for (const rel of sourceFiles()) {
-    if (rel === path.join('js', 'format.js')) continue;
+    if (rel === path.join('js', 'format.js') || rel === SPECIMEN) continue;
     const source = fs.readFileSync(path.join(WEB, rel), 'utf8');
     source.split('\n').forEach((line, i) => {
       // A literal grouped figure in source means a number bypassed format.js.
