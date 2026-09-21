@@ -37,14 +37,26 @@ test('toLocaleString appears only inside js/format.js', () => {
     'these must call js/format.js instead of formatting numbers themselves');
 });
 
-test('js/format.js confines toLocaleString to its one grouping helper', () => {
+test('js/format.js confines number formatting to its one grouping helper', () => {
   const source = fs.readFileSync(path.join(WEB, 'js', 'format.js'), 'utf8');
-  // The call form, so the file's own prose about the rule does not count as breaking it.
-  const calls = source.match(/\.toLocaleString\(/g) || [];
+  // The call forms, so the file's own prose about the rule does not count as breaking it.
+  const calls = (source.match(/\.toLocaleString\(/g) || [])
+    .concat(source.match(/new Intl\.NumberFormat\(/g) || []);
   assert.equal(calls.length, 1,
-    'grouping must funnel through a single call, so the locale is pinned in one place');
-  assert.match(source, /function group\([\s\S]*?toLocaleString\(LOCALE/,
-    'the call must live in group() and use the pinned LOCALE constant');
+    'grouping must funnel through one formatter, so the locale is pinned in one place');
+  assert.match(source, /function group\([\s\S]*?Intl\.NumberFormat\(LOCALE/,
+    'the formatter must live in group() and use the pinned LOCALE constant');
+});
+
+test('the cached formatters do not leak between decimal counts', () => {
+  const fmt = require('../js/format.js');
+  // Interleaved, because a cache keyed wrongly would return the previous shape.
+  assert.equal(fmt.eurM(1200), '\u20AC1,200m');
+  assert.equal(fmt.dscr(1.4), '1.40\u00D7');
+  assert.equal(fmt.eurM(1200), '\u20AC1,200m');
+  assert.equal(fmt.irr(0.1), '10.0%');
+  assert.equal(fmt.dscr(1.4), '1.40\u00D7');
+  assert.equal(fmt.count(1200), '1,200');
 });
 
 /**

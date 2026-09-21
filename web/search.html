@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Searching — TerraFolio</title>
+<title>Searching the pipeline — TerraFolio</title>
 <link rel="stylesheet" href="dist/app.css">
 <script defer src="js/format.js"></script>
 <script defer src="js/controls.js"></script>
@@ -33,17 +33,17 @@
   <div class="mb-1 flex items-baseline gap-4">
     <span class="inline-block h-[13px] w-[13px] flex-none rounded-full border-2 border-accent-700 border-t-transparent motion-safe:animate-spin360"
           aria-hidden="true"></span>
-    <h1 class="m-0 text-h2">Searching the solution space</h1>
+    <h1 class="m-0 text-h2">Searching the pipeline</h1>
   </div>
-  <p class="mb-[30px] m-0 text-muted">Many candidate portfolios are scored against the mandate at once, the strongest
-    carried forward each round, until the best stops improving.</p>
+  <p class="mb-[30px] m-0 text-muted">Testing 90 candidate portfolios at a time against the mandate, keeping the best and
+    recombining them.</p>
 
   <section class="panel !p-[22px]" aria-labelledby="s-convergence">
     <div class="mb-4 flex items-baseline justify-between gap-3">
-      <h2 id="s-convergence" class="m-0 text-h6 uppercase tracking-caps text-muted">Portfolio score by round</h2>
+      <h2 id="s-convergence" class="m-0 text-h6 uppercase tracking-caps text-muted">Progress towards the mandate</h2>
       <p class="m-0 font-condensed text-note tracking-wide">
-        ROUND <span class="num" data-field="generation">&#8212;</span> /
-        <span class="num" data-field="generation-total">&#8212;</span>
+        ROUND <span class="num" data-field="round">&#8212;</span> /
+        <span class="num" data-field="roundTotal">&#8212;</span>
       </p>
     </div>
 
@@ -52,7 +52,7 @@
     <svg viewBox="0 0 600 150" preserveAspectRatio="none" role="img"
          aria-labelledby="s-chart-title s-chart-desc"
          class="block h-[170px] w-full border-b border-l border-divider">
-      <title id="s-chart-title">Best and mean portfolio score by round</title>
+      <title id="s-chart-title">Best and average mandate score by round</title>
       <desc id="s-chart-desc">The figures beneath the chart carry the same values as text.</desc>
       <polyline data-series="mean" points="" fill="none" stroke="currentColor"
                 class="text-accent-300" stroke-width="1.5" vector-effect="non-scaling-stroke"></polyline>
@@ -62,10 +62,10 @@
 
     <ul class="mt-[10px] flex gap-[18px] text-micro-lg text-muted">
       <li class="flex items-center gap-[6px]">
-        <span class="inline-block h-[2px] w-[14px] bg-accent-700" aria-hidden="true"></span>Best score
+        <span class="inline-block h-[2px] w-[14px] bg-accent-700" aria-hidden="true"></span>Best portfolio
       </li>
       <li class="flex items-center gap-[6px]">
-        <span class="inline-block h-[2px] w-[14px] bg-accent-300" aria-hidden="true"></span>Average score
+        <span class="inline-block h-[2px] w-[14px] bg-accent-300" aria-hidden="true"></span>Average of all candidates
       </li>
     </ul>
 
@@ -77,24 +77,24 @@
 
     <dl class="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-[18px]" data-region="live-stats">
       <div>
-        <dt class="text-micro-lg uppercase tracking-micro text-muted">Best score</dt>
-        <dd class="num m-0 text-num-lg" data-field="best-score">&#8212;</dd>
+        <dt class="text-micro-lg uppercase tracking-micro text-muted">Mandate score</dt>
+        <dd class="num m-0 text-num-lg" data-field="mandateScore">&#8212;</dd>
       </div>
       <div>
         <dt class="text-micro-lg uppercase tracking-micro text-muted">Capacity</dt>
-        <dd class="num m-0 text-num-lg" data-field="best-mw">&#8212;</dd>
+        <dd class="num m-0 text-num-lg" data-field="bestCapacityMw">&#8212;</dd>
       </div>
       <div>
         <dt class="text-micro-lg uppercase tracking-micro text-muted">Projects</dt>
-        <dd class="num m-0 text-num-lg" data-field="best-count">&#8212;</dd>
+        <dd class="num m-0 text-num-lg" data-field="bestProjectCount">&#8212;</dd>
       </div>
       <div>
         <dt class="text-micro-lg uppercase tracking-micro text-muted">Equity drawn</dt>
-        <dd class="num m-0 text-num-lg" data-field="best-equity">&#8212;</dd>
+        <dd class="num m-0 text-num-lg" data-field="bestEquity_m">&#8212;</dd>
       </div>
       <div>
         <dt class="text-micro-lg uppercase tracking-micro text-muted">Blended IRR</dt>
-        <dd class="num m-0 text-num-lg" data-field="best-irr">&#8212;</dd>
+        <dd class="num m-0 text-num-lg" data-field="bestBlendedIrr">&#8212;</dd>
       </div>
     </dl>
   </section>

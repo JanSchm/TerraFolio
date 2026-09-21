@@ -77,15 +77,15 @@ test('the stage values in the page are exactly the ones the stage screen accepts
   assert.deepEqual(values, ['greenfield', 'ready_to_build', 'construction']);
 
   // And the screen really does accept them.
-  const candidate = (stage) => ({ id: 'P01', country: 'ES', stage, technology: 'solar',
-    mw: 1, cod: 2029, min_dscr: 1.4, dev_risk: 2, grid_secured: true, om_partner: true,
-    currency: 'EUR', capex_m: 1, senior_debt_m: 0.6, equity_m: 0.4 });
+  const candidate = (stage) => ({ id: 'P01', countryCode: 'ES', stage, technology: 'solar',
+    capacityMw: 1, codYear: 2029, minDscr: 1.4, developmentRiskScore: 2, gridSecured: true,
+    omContracted: true, currency: 'EUR', totalCapex_m: 1, seniorDebt_m: 0.6, equity_m: 0.4 });
   for (const stage of values) {
-    const pool = F.candidates({ candidates: [candidate(stage)] });
+    const pool = F.projects({ projects: [candidate(stage)] });
     assert.equal(F.screens.stage(pool[0], { stages: values }), true,
       `the stage screen rejects "${stage}", which the page emits`);
   }
-  assert.equal(F.screens.stage(F.candidates({ candidates: [candidate('Ready-to-build')] })[0],
+  assert.equal(F.screens.stage(F.projects({ projects: [candidate('Ready-to-build')] })[0],
     { stages: values }), false, 'a display label must not pass the screen — that is the bug');
 });
 
@@ -105,7 +105,7 @@ test('the risk appetite emits a wire value, not its button label', async () => {
 
 test('percent spinners emit fractions, not whole percent', () => {
   for (const [name, shown, expected] of [
-    ['maxMerchant', 35, 0.35], ['maxCountry', 35, 0.35], ['maxProject', 15, 0.15],
+    ['maxMerchantShare', 35, 0.35], ['maxCountryShare', 35, 0.35], ['maxProjectShare', 15, 0.15],
   ]) {
     const value = emitted(controls.numberField,
       { name, value: shown, min: 0, max: 100, step: 5, scale: 100 },
@@ -116,7 +116,8 @@ test('percent spinners emit fractions, not whole percent', () => {
 });
 
 test('fields that are not percentages are emitted unscaled', () => {
-  for (const [name, shown] of [['hold', 10], ['minDscr', 1.25], ['codFrom', 2027], ['codTo', 2032]]) {
+  for (const [name, shown] of [['holdYears', 10], ['minDscr', 1.25],
+    ['codFrom', 2027], ['codTo', 2032]]) {
     const value = emitted(controls.numberField, { name, value: shown }, () => {});
     assert.equal(value.value, shown, `${name} is not a percentage and must not be divided`);
   }
@@ -128,7 +129,8 @@ test('every percentage control on the page declares a scale of 100', async () =>
   dom.window.close();
 
   // Every rate and share in the mandate: the two sliders and the three spinners.
-  for (const name of ['hurdle', 'minLev', 'maxMerchant', 'maxCountry', 'maxProject']) {
+  for (const name of ['targetIrr', 'minLeverage', 'maxMerchantShare',
+    'maxCountryShare', 'maxProjectShare']) {
     const declaration = html.match(new RegExp(`name: '${name}'[^}]*}`));
     assert.ok(declaration, `${name} is missing from the page`);
     assert.match(declaration[0], /scale: 100/,
@@ -142,23 +144,34 @@ test('the whole mandate round-trips into a pool feasibility can screen', () => {
   // The values the page emits, assembled as the optimiser would receive them.
   const mandate = {
     countries: ['ES'], stages: ['greenfield', 'ready_to_build', 'construction'],
-    codFrom: 2027, codTo: 2032, minDscr: 1.25, risk: 'balanced',
-    gridOnly: false, omOnly: false, hedged: false, excluded: [], locked: [],
-    capital: 1200, target: 1500, solarShare: 0.45, minLev: 0.6,
-    maxMerchant: 0.35, maxCountry: 0.35, maxProject: 0.15,
+    codFrom: 2027, codTo: 2032, minDscr: 1.25, riskAppetite: 'balanced',
+    gridSecuredOnly: false, omContractedOnly: false, eurRevenueOnly: false,
+    availableCapital_m: 1200, capacityTargetMw: 1500, solarShare: 0.45, minLeverage: 0.6,
+    maxMerchantShare: 0.35, maxCountryShare: 0.35, maxProjectShare: 0.15, holdYears: 10,
   };
   const payload = {
-    candidates: [{ id: 'P01', country: 'ES', stage: 'ready_to_build', technology: 'solar',
-      mw: 100, cod: 2029, min_dscr: 1.4, dev_risk: 2.2, grid_secured: true, om_partner: true,
-      currency: 'EUR', capex_m: 100, senior_debt_m: 70, equity_m: 30 }],
-    assumptions: { risk_caps: { low: 2.6, balanced: 3.6, high: 5 } },
+    projects: [{ id: 'P01', countryCode: 'ES', stage: 'ready_to_build', technology: 'solar',
+      capacityMw: 100, codYear: 2029, minDscr: 1.4, developmentRiskScore: 2.2,
+      gridSecured: true, omContracted: true, currency: 'EUR',
+      totalCapex_m: 100, seniorDebt_m: 70, equity_m: 30 }],
+    assumptions: { riskCaps: { low: 2.6, balanced: 3.6, high: 5 } },
   };
-  const result = F.feasibility(payload, mandate);
+  const result = F.feasibility(payload, mandate, { lockedIds: [], excludedIds: [] });
   assert.equal(result.pool.length, 1,
-    'the mandate the page emits must admit a candidate that matches it');
-  for (const rate of [mandate.solarShare, mandate.minLev, mandate.maxMerchant,
-    mandate.maxCountry, mandate.maxProject]) {
-    assert.ok(rate > 0 && rate <= 1, `${rate} is not a fraction; D13 requires fractions throughout`);
+    'the mandate the page emits must admit a project that matches it');
+  for (const rate of [mandate.solarShare, mandate.minLeverage, mandate.maxMerchantShare,
+    mandate.maxCountryShare, mandate.maxProjectShare]) {
+    assert.ok(rate > 0 && rate <= 1,
+      `${rate} is not a fraction; api.md §1 says the wire never carries a percentage`);
+  }
+
+  // Every name the page emits must be a field api.md §6.1 defines.
+  const FIELDS = new Set(['availableCapital_m', 'capacityTargetMw', 'solarShare', 'targetIrr',
+    'holdYears', 'countries', 'stages', 'minLeverage', 'minDscr', 'maxMerchantShare',
+    'maxCountryShare', 'maxProjectShare', 'codFrom', 'codTo', 'riskAppetite',
+    'gridSecuredOnly', 'eurRevenueOnly', 'omContractedOnly']);
+  for (const name of Object.keys(mandate)) {
+    assert.ok(FIELDS.has(name), `${name} is not in api.md §6.1's mandate object`);
   }
 });
 

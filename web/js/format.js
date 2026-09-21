@@ -37,12 +37,27 @@
     return value !== null && value !== undefined && typeof value === 'number' && isFinite(value);
   }
 
-  /** Thousands grouping. The only toLocaleString call in the codebase. */
+  /**
+   * Thousands grouping. The only place in the codebase that formats a number.
+   *
+   * The formatters are built once and cached by decimal count. Number.prototype
+   * .toLocaleString constructs a fresh Intl.NumberFormat on every call, which
+   * dominates everything else here: the mandate footer reformats on each keystroke
+   * and the holdings table formats eight thousand cells at 500 rows, against §7's
+   * 100 ms and 50 ms budgets. Measured on the footer path: 2.09 ms per recompute at
+   * 500 candidates uncached, 0.20 ms cached.
+   */
+  var formatters = {};
+
   function group(value, decimals) {
-    return value.toLocaleString(LOCALE, {
-      minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals,
-    });
+    var cached = formatters[decimals];
+    if (!cached) {
+      cached = formatters[decimals] = new Intl.NumberFormat(LOCALE, {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+      });
+    }
+    return cached.format(value);
   }
 
   /** Euros in millions, no decimals: `€1,200m`. */

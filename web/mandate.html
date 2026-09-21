@@ -39,8 +39,8 @@
         constraint below.</p>
     </div>
     <p class="m-0 font-condensed text-h5 uppercase tracking-wide text-muted">
-      Pipeline: <span data-field="pipeline-count">&#8212;</span> screened candidates
-      &#183; <span data-field="pipeline-mw">&#8212;</span>
+      Pipeline: <span data-field="totalCount">&#8212;</span> screened candidates
+      &#183; <span data-field="totalCapacityMw">&#8212;</span>
     </p>
   </div>
 
@@ -54,7 +54,7 @@
 
       <div class="flex flex-col gap-[18px]">
 
-        <div x-data="rangeField({ name: 'capital', value: 1200, min: 200, max: 4000, step: 50, format: 'eurM' })">
+        <div x-data="rangeField({ name: 'availableCapital_m', value: 1200, min: 200, max: 4000, step: 50, format: 'eurM' })">
           <div class="mb-[5px] flex items-baseline justify-between gap-3">
             <label :for="id" class="text-body font-medium tracking-tight">Available equity capital</label>
             <output :for="id" class="num text-num" x-text="display">&#8212;</output>
@@ -64,7 +64,7 @@
                  class="h-[26px] w-full cursor-pointer">
         </div>
 
-        <div x-data="rangeField({ name: 'target', value: 1500, min: 200, max: 4000, step: 50, format: 'mw' })">
+        <div x-data="rangeField({ name: 'capacityTargetMw', value: 1500, min: 200, max: 4000, step: 50, format: 'mw' })">
           <div class="mb-[5px] flex items-baseline justify-between gap-3">
             <label :for="id" class="text-body font-medium tracking-tight">Capacity target</label>
             <output :for="id" class="num text-num" x-text="display">&#8212;</output>
@@ -100,7 +100,7 @@
           </div>
         </div>
 
-        <div x-data="rangeField({ name: 'hurdle', value: 11, min: 6, max: 18, step: 0.5, format: 'irr', scale: 100 })">
+        <div x-data="rangeField({ name: 'targetIrr', value: 11, min: 6, max: 18, step: 0.5, format: 'irr', scale: 100 })">
           <div class="mb-[5px] flex items-baseline justify-between gap-3">
             <label :for="id" class="text-body font-medium tracking-tight">Target equity IRR (hurdle)</label>
             <output :for="id" class="num text-num" x-text="display">&#8212;</output>
@@ -110,7 +110,7 @@
                  class="h-[26px] w-full cursor-pointer">
         </div>
 
-        <div class="grid grid-cols-2 gap-4" x-data="numberField({ name: 'hold', value: 10, min: 5, max: 30, step: 1 })">
+        <div class="grid grid-cols-2 gap-4" x-data="numberField({ name: 'holdYears', value: 10, min: 5, max: 30, step: 1 })">
           <div>
             <label :for="id" class="mb-[6px] block text-label text-neutral-800">Hold period (yrs)</label>
             <input class="input" type="number" :id="id" x-model.number="value"
@@ -150,7 +150,7 @@
           </div>
         </div>
 
-        <div x-data="rangeField({ name: 'minLev', value: 60, min: 0, max: 85, step: 1, format: 'percent', scale: 100 })">
+        <div x-data="rangeField({ name: 'minLeverage', value: 60, min: 0, max: 85, step: 1, format: 'percent', scale: 100 })">
           <div class="mb-[5px] flex items-baseline justify-between gap-3">
             <label :for="id" class="text-body font-medium tracking-tight">Min portfolio leverage</label>
             <output :for="id" class="num text-num" x-text="display">&#8212;</output>
@@ -166,17 +166,17 @@
             <input class="input" type="number" :id="id" x-model.number="value"
                    :min="min" :max="max" :step="step" @input="changed($event)">
           </div>
-          <div x-data="numberField({ name: 'maxMerchant', value: 35, min: 0, max: 100, step: 5 , scale: 100})">
+          <div x-data="numberField({ name: 'maxMerchantShare', value: 35, min: 0, max: 100, step: 5 , scale: 100})">
             <label :for="id" class="mb-[6px] block text-label text-neutral-800">Max merchant %</label>
             <input class="input" type="number" :id="id" x-model.number="value"
                    :min="min" :max="max" :step="step" @input="changed($event)">
           </div>
-          <div x-data="numberField({ name: 'maxCountry', value: 35, min: 10, max: 100, step: 5 , scale: 100})">
+          <div x-data="numberField({ name: 'maxCountryShare', value: 35, min: 10, max: 100, step: 5 , scale: 100})">
             <label :for="id" class="mb-[6px] block text-label text-neutral-800">Max / country %</label>
             <input class="input" type="number" :id="id" x-model.number="value"
                    :min="min" :max="max" :step="step" @input="changed($event)">
           </div>
-          <div x-data="numberField({ name: 'maxProject', value: 15, min: 5, max: 100, step: 5 , scale: 100})">
+          <div x-data="numberField({ name: 'maxProjectShare', value: 15, min: 5, max: 100, step: 5 , scale: 100})">
             <label :for="id" class="mb-[6px] block text-label text-neutral-800">Max / project %</label>
             <input class="input" type="number" :id="id" x-model.number="value"
                    :min="min" :max="max" :step="step" @input="changed($event)">
@@ -204,7 +204,7 @@
       <div class="flex flex-col gap-[18px]">
 
         <fieldset class="border-0 p-0"
-                  x-data="segmented({ name: 'risk', value: 'balanced', options: ['low','balanced','high'], labels: { low: 'Low', balanced: 'Balanced', high: 'High' }, notes: { low: 'Excludes anything above risk score 2.6 — mostly RTB and construction assets.', balanced: 'Admits development assets up to risk score 3.6.', high: 'Full pipeline, including early-stage greenfield.' } })">
+                  x-data="segmented({ name: 'riskAppetite', value: 'balanced', options: ['low','balanced','high'], labels: { low: 'Low', balanced: 'Balanced', high: 'High' }, notes: { low: 'Excludes anything above risk score 2.6 — mostly RTB and construction assets.', balanced: 'Admits development assets up to risk score 3.6.', high: 'Full pipeline, including early-stage greenfield.' } })">
           <legend class="mb-[9px] block p-0 text-body font-medium tracking-tight">Development risk appetite</legend>
           <div class="grid grid-cols-3 border border-edge">
             <template x-for="opt in options" :key="opt">
@@ -233,7 +233,7 @@
         </div>
 
         <div class="flex flex-col gap-[2px] border-t border-divider pt-4">
-          <div x-data="switchControl({ name: 'gridOnly', on: false })">
+          <div x-data="switchControl({ name: 'gridSecuredOnly', on: false })">
             <button type="button" role="switch" :aria-checked="on ? 'true' : 'false'" @click="toggle($event)"
                     class="flex min-h-[44px] w-full cursor-pointer items-center justify-between gap-4 border-0 bg-transparent px-[2px] py-3 text-left hover:bg-accent-100">
               <span>
@@ -247,7 +247,7 @@
               </span>
             </button>
           </div>
-          <div x-data="switchControl({ name: 'hedged', on: false })">
+          <div x-data="switchControl({ name: 'eurRevenueOnly', on: false })">
             <button type="button" role="switch" :aria-checked="on ? 'true' : 'false'" @click="toggle($event)"
                     class="flex min-h-[44px] w-full cursor-pointer items-center justify-between gap-4 border-0 bg-transparent px-[2px] py-3 text-left hover:bg-accent-100">
               <span>
@@ -261,7 +261,7 @@
               </span>
             </button>
           </div>
-          <div x-data="switchControl({ name: 'omOnly', on: false })">
+          <div x-data="switchControl({ name: 'omContractedOnly', on: false })">
             <button type="button" role="switch" :aria-checked="on ? 'true' : 'false'" @click="toggle($event)"
                     class="flex min-h-[44px] w-full cursor-pointer items-center justify-between gap-4 border-0 bg-transparent px-[2px] py-3 text-left hover:bg-accent-100">
               <span>
@@ -296,33 +296,24 @@
       <div>
         <dt class="text-micro-lg uppercase tracking-micro text-muted">Candidates passing screens</dt>
         <dd class="num m-0 text-num-xl">
-          <span data-field="eligible-count">&#8212;</span>
-          <span class="text-num-sm text-muted">of <span data-field="pipeline-count">&#8212;</span></span>
+          <span data-field="eligibleCount">&#8212;</span>
+          <span class="text-num-sm text-muted">of <span data-field="totalCount">&#8212;</span></span>
         </dd>
       </div>
       <div>
         <dt class="text-micro-lg uppercase tracking-micro text-muted">Eligible capacity</dt>
-        <dd class="num m-0 text-num-xl" data-field="eligible-mw">&#8212;</dd>
+        <dd class="num m-0 text-num-xl" data-field="eligibleCapacityMw">&#8212;</dd>
       </div>
       <div>
         <dt class="text-micro-lg uppercase tracking-micro text-muted">Equity required at full draw</dt>
-        <dd class="num m-0 text-num-xl" data-field="eligible-equity">&#8212;</dd>
-      </div>
-      <div>
-        <dt class="text-micro-lg uppercase tracking-micro text-muted">Eligible pool mix and leverage</dt>
-        <dd class="num m-0 text-num-xl">
-          <span data-field="eligible-solar-mix">&#8212;</span>
-          <span class="text-num-sm text-muted">solar &#183;</span>
-          <span data-field="eligible-leverage">&#8212;</span>
-          <span class="text-num-sm text-muted">lev</span>
-        </dd>
+        <dd class="num m-0 text-num-xl" data-field="eligibleEquity_m">&#8212;</dd>
       </div>
     </dl>
 
     <div class="flex items-center gap-4">
       <ul class="flex max-w-[460px] flex-col gap-1" data-region="feasibility-warnings"
           aria-live="polite" aria-label="Feasibility warnings"></ul>
-      <button type="submit" form="mandate" data-action="run"
+      <button type="submit" form="mandate" data-action="run" data-disabled-when="not-runnable"
               class="blueprint min-h-[44px] cursor-pointer whitespace-nowrap border-accent-700 bg-accent-700 px-[26px] py-3 font-condensed text-body font-semibold tracking-cta text-bg hover:bg-accent-800 disabled:cursor-not-allowed disabled:opacity-45">
         RUN OPTIMISATION
       </button>

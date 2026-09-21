@@ -1,6 +1,11 @@
 /**
  * One test per screen predicate and one per warning, as issue #5 requires, plus the
- * footer figures and the module's loading contract.
+ * preview figures and the module's loading contract.
+ *
+ * Written against api.md §5 (POST /mandate/preview) and ui-contract.md §3.4–3.6, which
+ * are normative: api.md says the client and the server must agree field for field, and
+ * that if they diverge the client is wrong. The warning order is §5.4's order of
+ * severity, which is NOT the order the design mockup emits them in (decisions A-5).
  *
  * The fixtures are deliberately tiny and named: a screen test that needs a realistic
  * project to make its point is testing something other than the screen.
@@ -10,28 +15,28 @@ const assert = require('node:assert/strict');
 const F = require('../js/feasibility.js');
 const fmt = require('../js/format.js');
 
-/** A candidate that passes every screen, in /pipeline wire shape. */
+/** A project that passes every screen, in GET /pipeline wire shape (api.md §2). */
 function candidate(overrides = {}) {
   return {
     id: 'P01',
-    country: 'ES',
+    countryCode: 'ES',
     stage: 'ready_to_build',
     technology: 'solar',
-    mw: 100,
-    cod: 2029,
-    min_dscr: 1.4,
-    dev_risk: 2.2,
-    grid_secured: true,
-    om_partner: true,
+    capacityMw: 100,
+    codYear: 2029,
+    minDscr: 1.4,
+    developmentRiskScore: 2.2,
+    gridSecured: true,
+    omContracted: true,
     currency: 'EUR',
-    capex_m: 100,
-    senior_debt_m: 70,
+    totalCapex_m: 100,
+    seniorDebt_m: 70,
     equity_m: 30,
     ...overrides,
   };
 }
 
-/** A mandate that admits the candidate above. Rates are fractions, not whole percent. */
+/** A mandate that admits the project above — api.md §6.1 names, fractions throughout. */
 function mandate(overrides = {}) {
   return {
     countries: ['ES', 'PT', 'DE'],
@@ -39,38 +44,39 @@ function mandate(overrides = {}) {
     codFrom: 2027,
     codTo: 2032,
     minDscr: 1.25,
-    risk: 'Balanced',
-    gridOnly: false,
-    omOnly: false,
-    hedged: false,
-    excluded: [],
-    locked: [],
-    capital: 1200,
-    target: 1500,
+    riskAppetite: 'balanced',
+    gridSecuredOnly: false,
+    omContractedOnly: false,
+    eurRevenueOnly: false,
+    availableCapital_m: 1200,
+    capacityTargetMw: 1500,
     solarShare: 0.45,
-    minLev: 0.6,
+    minLeverage: 0.6,
+    maxMerchantShare: 0.35,
+    maxCountryShare: 0.35,
+    maxProjectShare: 0.15,
     ...overrides,
   };
 }
 
-/** Risk caps come off the payload, never out of this file — epic §5. */
-const ASSUMPTIONS = { risk_caps: { Low: 2.6, Balanced: 3.6, High: 5 } };
+/** Locks and exclusions ride beside the mandate, not inside it (api.md §5). */
+const locks = (overrides = {}) => ({ lockedIds: [], excludedIds: [], ...overrides });
 
-function payload(candidates, assumptions = ASSUMPTIONS) {
-  return { candidates, assumptions };
-}
-
-const capFor = (m) => ASSUMPTIONS.risk_caps[m.risk];
-const adapt = (raw) => F.candidates(payload([raw]))[0];
+/** Caps come off the payload's resolved assumption set, never out of the code. */
+const ASSUMPTIONS = { riskCaps: { low: 2.6, balanced: 3.6, high: 5 } };
+const payload = (projects, assumptions = ASSUMPTIONS) => ({ projects, assumptions });
+const capFor = (m) => ASSUMPTIONS.riskCaps[m.riskAppetite];
+const adapt = (raw) => F.projects(payload([raw]))[0];
+const preview = (projects, m = mandate(), l = locks()) => F.feasibility(payload(projects), m, l);
 
 /* ── The nine screens ───────────────────────────────────────────────────────── */
 
 test('screen 1 — country: only projects in an eligible country pass', () => {
   const m = mandate({ countries: ['ES', 'PT'] });
-  assert.equal(F.screens.country(adapt(candidate({ country: 'ES' })), m), true);
-  assert.equal(F.screens.country(adapt(candidate({ country: 'DE' })), m), false);
+  assert.equal(F.screens.country(adapt(candidate({ countryCode: 'ES' })), m), true);
+  assert.equal(F.screens.country(adapt(candidate({ countryCode: 'DE' })), m), false);
   assert.equal(F.screens.country(adapt(candidate()), mandate({ countries: [] })), false,
-    'an empty country list admits nothing, rather than everything');
+    'an empty country list admits nothing, and previews as NO_CANDIDATES (api.md §6.1)');
 });
 
 test('screen 2 — stage: only stages in scope pass', () => {
@@ -78,266 +84,328 @@ test('screen 2 — stage: only stages in scope pass', () => {
   assert.equal(F.screens.stage(adapt(candidate({ stage: 'ready_to_build' })), m), true);
   assert.equal(F.screens.stage(adapt(candidate({ stage: 'construction' })), m), true);
   assert.equal(F.screens.stage(adapt(candidate({ stage: 'greenfield' })), m), false);
+  assert.equal(F.screens.stage(adapt(candidate({ stage: 'Ready-to-build' })), m), false,
+    'a display label is not a stage; the mandate emits the enum (decisions A-16)');
 });
 
 test('screen 3 — COD window: inclusive at both ends', () => {
   const m = mandate({ codFrom: 2028, codTo: 2030 });
-  assert.equal(F.screens.codWindow(adapt(candidate({ cod: 2027 })), m), false, 'before the window');
-  assert.equal(F.screens.codWindow(adapt(candidate({ cod: 2028 })), m), true, 'the opening year is in');
-  assert.equal(F.screens.codWindow(adapt(candidate({ cod: 2029 })), m), true);
-  assert.equal(F.screens.codWindow(adapt(candidate({ cod: 2030 })), m), true, 'the closing year is in');
-  assert.equal(F.screens.codWindow(adapt(candidate({ cod: 2031 })), m), false, 'after the window');
+  assert.equal(F.screens.codWindow(adapt(candidate({ codYear: 2027 })), m), false);
+  assert.equal(F.screens.codWindow(adapt(candidate({ codYear: 2028 })), m), true, 'opening year is in');
+  assert.equal(F.screens.codWindow(adapt(candidate({ codYear: 2030 })), m), true, 'closing year is in');
+  assert.equal(F.screens.codWindow(adapt(candidate({ codYear: 2031 })), m), false);
 });
 
-test('screen 4 — min DSCR: the floor is inclusive', () => {
+test('screen 4 — min DSCR: the floor is inclusive, and an unlevered project passes', () => {
   const m = mandate({ minDscr: 1.25 });
-  assert.equal(F.screens.minDscr(adapt(candidate({ min_dscr: 1.24 })), m), false);
-  assert.equal(F.screens.minDscr(adapt(candidate({ min_dscr: 1.25 })), m), true,
+  assert.equal(F.screens.minDscr(adapt(candidate({ minDscr: 1.24 })), m), false);
+  assert.equal(F.screens.minDscr(adapt(candidate({ minDscr: 1.25 })), m), true,
     'a project exactly on the floor is not a breach');
-  assert.equal(F.screens.minDscr(adapt(candidate({ min_dscr: 1.4 })), m), true);
+  // api.md §2: minDscr is null where the project carries no debt. It has no debt
+  // service to fail to cover, so the screen must not reject it (decisions A-21).
+  assert.equal(F.screens.minDscr(adapt(candidate({ minDscr: null })), m), true,
+    'an unlevered project has no coverage ratio, not a failing one');
 });
 
 test('screen 5 — risk cap: the ceiling comes from the payload, not this file', () => {
-  const m = mandate({ risk: 'Balanced' });
-  const cap = capFor(m);
-  assert.equal(F.screens.riskCap(adapt(candidate({ dev_risk: 3.6 })), m, cap), true, 'inclusive');
-  assert.equal(F.screens.riskCap(adapt(candidate({ dev_risk: 3.7 })), m, cap), false);
-  // Low admits less, High admits everything — and both come off the assumption set.
-  assert.equal(F.screens.riskCap(adapt(candidate({ dev_risk: 3.0 })), m, ASSUMPTIONS.risk_caps.Low), false);
-  assert.equal(F.screens.riskCap(adapt(candidate({ dev_risk: 5 })), m, ASSUMPTIONS.risk_caps.High), true);
+  const m = mandate({ riskAppetite: 'balanced' });
+  assert.equal(F.screens.riskCap(adapt(candidate({ developmentRiskScore: 3.6 })), m, capFor(m)), true,
+    'inclusive at the ceiling');
+  assert.equal(F.screens.riskCap(adapt(candidate({ developmentRiskScore: 3.7 })), m, capFor(m)), false);
+  assert.equal(F.screens.riskCap(adapt(candidate({ developmentRiskScore: 3.0 })), m,
+    ASSUMPTIONS.riskCaps.low), false, 'low admits less');
+  assert.equal(F.screens.riskCap(adapt(candidate({ developmentRiskScore: 5 })), m,
+    ASSUMPTIONS.riskCaps.high), true, 'high admits the whole pipeline');
 });
 
-test('screen 5 — an appetite the assumption set does not define is an error, not a pass', () => {
-  assert.throws(() => F.riskCap(payload([]), 'Reckless'), /no risk cap configured/);
-  assert.throws(() => F.riskCap({ candidates: [] }, 'Balanced'), /no risk cap configured/,
-    'a payload with no assumptions block must not silently admit everything');
+test('screen 5 — an appetite the assumption set does not define raises, never passes', () => {
+  assert.throws(() => F.riskCap(payload([]), 'reckless'), /no risk cap configured/);
+  assert.throws(() => F.riskCap({ projects: [] }, 'balanced'), /no risk cap configured/,
+    'a payload with no assumptions must not silently admit everything');
+  assert.throws(() => F.riskCap(payload([]), 'Balanced'), /no risk cap configured/,
+    'the caps are keyed by the enum, not by the button label');
 });
 
 test('screen 6 — grid secured: only screens when the mandate asks', () => {
-  const unsecured = adapt(candidate({ grid_secured: false }));
-  assert.equal(F.screens.gridSecured(unsecured, mandate({ gridOnly: false })), true, 'off by default');
-  assert.equal(F.screens.gridSecured(unsecured, mandate({ gridOnly: true })), false);
-  assert.equal(F.screens.gridSecured(adapt(candidate({ grid_secured: true })),
-    mandate({ gridOnly: true })), true);
+  const unsecured = adapt(candidate({ gridSecured: false }));
+  assert.equal(F.screens.gridSecured(unsecured, mandate({ gridSecuredOnly: false })), true);
+  assert.equal(F.screens.gridSecured(unsecured, mandate({ gridSecuredOnly: true })), false);
+  assert.equal(F.screens.gridSecured(adapt(candidate()), mandate({ gridSecuredOnly: true })), true);
 });
 
-test('screen 7 — O&M partner: only screens when the mandate asks', () => {
-  const uncontracted = adapt(candidate({ om_partner: false }));
-  assert.equal(F.screens.omPartner(uncontracted, mandate({ omOnly: false })), true);
-  assert.equal(F.screens.omPartner(uncontracted, mandate({ omOnly: true })), false);
-  assert.equal(F.screens.omPartner(adapt(candidate({ om_partner: true })),
-    mandate({ omOnly: true })), true);
+test('screen 7 — O&M contracted: only screens when the mandate asks', () => {
+  const uncontracted = adapt(candidate({ omContracted: false }));
+  assert.equal(F.screens.omContracted(uncontracted, mandate({ omContractedOnly: false })), true);
+  assert.equal(F.screens.omContracted(uncontracted, mandate({ omContractedOnly: true })), false);
+  assert.equal(F.screens.omContracted(adapt(candidate()), mandate({ omContractedOnly: true })), true);
 });
 
 test('screen 8 — currency: a non-EUR project is screened out, never converted', () => {
-  const zloty = adapt(candidate({ country: 'PL', currency: 'PLN' }));
-  assert.equal(F.screens.currency(zloty, mandate({ hedged: false })), true, 'off by default');
-  assert.equal(F.screens.currency(zloty, mandate({ hedged: true })), false);
-  assert.equal(F.screens.currency(adapt(candidate()), mandate({ hedged: true })), true);
+  const zloty = adapt(candidate({ countryCode: 'PL', currency: 'PLN' }));
+  assert.equal(F.screens.currency(zloty, mandate({ eurRevenueOnly: false })), true);
+  assert.equal(F.screens.currency(zloty, mandate({ eurRevenueOnly: true })), false);
+  assert.equal(F.screens.currency(adapt(candidate()), mandate({ eurRevenueOnly: true })), true);
 });
 
 test('screen 9 — not excluded: a hand-excluded project never returns', () => {
-  assert.equal(F.screens.notExcluded(adapt(candidate({ id: 'P07' })),
-    mandate({ excluded: [] })), true);
-  assert.equal(F.screens.notExcluded(adapt(candidate({ id: 'P07' })),
-    mandate({ excluded: ['P07'] })), false);
-  assert.equal(F.screens.notExcluded(adapt(candidate({ id: 'P07' })),
-    mandate({ excluded: ['P08'] })), true);
+  const p = adapt(candidate({ id: 'P07' }));
+  assert.equal(F.screens.notExcluded(p, mandate(), 3.6, []), true);
+  assert.equal(F.screens.notExcluded(p, mandate(), 3.6, ['P07']), false);
+  assert.equal(F.screens.notExcluded(p, mandate(), 3.6, ['P08']), true);
 });
 
 test('there are exactly nine screens, and passes() applies all of them', () => {
   assert.equal(F.SCREEN_ORDER.length, 9);
   assert.deepEqual(F.SCREEN_ORDER, [
     'country', 'stage', 'codWindow', 'minDscr', 'riskCap',
-    'gridSecured', 'omPartner', 'currency', 'notExcluded',
+    'gridSecured', 'omContracted', 'currency', 'notExcluded',
   ]);
   for (const name of F.SCREEN_ORDER) {
     assert.equal(typeof F.screens[name], 'function', `${name} must be individually testable`);
   }
   const m = mandate();
-  assert.equal(F.passes(adapt(candidate()), m, capFor(m)), true);
-  assert.equal(F.passes(adapt(candidate({ country: 'XX' })), m, capFor(m)), false,
-    'failing one screen fails the candidate');
+  assert.equal(F.passes(adapt(candidate()), m, capFor(m), []), true);
+  assert.equal(F.passes(adapt(candidate({ countryCode: 'XX' })), m, capFor(m), []), false);
 });
 
-test('failedScreens names every screen a candidate misses', () => {
-  const m = mandate({ gridOnly: true, hedged: true });
-  const bad = adapt(candidate({ country: 'XX', grid_secured: false, currency: 'GBP' }));
-  assert.deepEqual(F.failedScreens(bad, m, capFor(m)), ['country', 'gridSecured', 'currency']);
-  assert.deepEqual(F.failedScreens(adapt(candidate()), m, capFor(m)), [],
-    'a passing candidate fails nothing');
+test('failedScreens names every screen a project misses', () => {
+  const m = mandate({ gridSecuredOnly: true, eurRevenueOnly: true });
+  const bad = adapt(candidate({ countryCode: 'XX', gridSecured: false, currency: 'GBP' }));
+  assert.deepEqual(F.failedScreens(bad, m, capFor(m), []), ['country', 'gridSecured', 'currency']);
+  assert.deepEqual(F.failedScreens(adapt(candidate()), m, capFor(m), []), []);
 });
 
 /* ── Canonical ordering ─────────────────────────────────────────────────────── */
 
-test('candidates come back ordered by id ascending, whatever order they arrived in', () => {
-  const out = F.candidates(payload([
+test('projects come back ordered by id ascending, whatever order they arrived in', () => {
+  const out = F.projects(payload([
     candidate({ id: 'P10' }), candidate({ id: 'P02' }), candidate({ id: 'P01' }),
   ]));
-  assert.deepEqual(out.map((c) => c.id), ['P01', 'P02', 'P10'],
+  assert.deepEqual(out.map((p) => p.id), ['P01', 'P02', 'P10'],
     'the GA indexes PRNG draws by position, so order is a determinism requirement');
 });
 
-/* ── The four footer figures ────────────────────────────────────────────────── */
+/* ── The preview figures (api.md §5, ui-contract.md §3.4) ───────────────────── */
 
-test('footer figures: candidates passing screens, out of the whole pipeline', () => {
-  const r = F.feasibility(payload([
-    candidate({ id: 'P01' }),
-    candidate({ id: 'P02', country: 'XX' }),
-    candidate({ id: 'P03' }),
-  ]), mandate());
-  assert.equal(r.figures.candidates.value, 2);
-  assert.equal(r.figures.candidates.of, 3);
-  assert.equal(r.figures.candidates.display, '2');
-  assert.equal(r.figures.candidates.ofDisplay, '3');
+test('preview: candidates passing screens, out of the whole pipeline', () => {
+  const r = preview([
+    candidate({ id: 'P01' }), candidate({ id: 'P02', countryCode: 'XX' }), candidate({ id: 'P03' }),
+  ]);
+  assert.equal(r.eligibleCount, 2);
+  assert.equal(r.totalCount, 3);
+  assert.equal(r.display.eligibleCount, '2');
+  assert.equal(r.display.totalCount, '3');
 });
 
-test('footer figures: eligible capacity sums only the pool', () => {
-  const r = F.feasibility(payload([
-    candidate({ id: 'P01', mw: 120 }),
-    candidate({ id: 'P02', mw: 900, country: 'XX' }),
-    candidate({ id: 'P03', mw: 80 }),
-  ]), mandate());
-  assert.equal(r.figures.capacity.value, 200);
-  assert.equal(r.figures.capacity.display, '200 MW');
+test('preview: eligible capacity sums only the pool', () => {
+  const r = preview([
+    candidate({ id: 'P01', capacityMw: 120 }),
+    candidate({ id: 'P02', capacityMw: 900, countryCode: 'XX' }),
+    candidate({ id: 'P03', capacityMw: 80 }),
+  ]);
+  assert.equal(r.eligibleCapacityMw, 200);
+  assert.equal(r.display.eligibleCapacityMw, '200 MW');
 });
 
-test('footer figures: equity required at full draw', () => {
-  const r = F.feasibility(payload([
-    candidate({ id: 'P01', equity_m: 30 }),
-    candidate({ id: 'P02', equity_m: 45 }),
-  ]), mandate());
-  assert.equal(r.figures.equity.value, 75);
-  assert.equal(r.figures.equity.display, '€75m');
+test('preview: equity required at full draw', () => {
+  const r = preview([
+    candidate({ id: 'P01', equity_m: 30 }), candidate({ id: 'P02', equity_m: 45 }),
+  ]);
+  assert.equal(r.eligibleEquity_m, 75);
+  assert.equal(r.display.eligibleEquity_m, '\u20AC75m');
 });
 
-test('footer figures: the pool\'s own solar mix and supportable leverage', () => {
-  const r = F.feasibility(payload([
-    candidate({ id: 'P01', technology: 'solar', mw: 300, capex_m: 100, senior_debt_m: 70 }),
-    candidate({ id: 'P02', technology: 'onshore_wind', mw: 100, capex_m: 100, senior_debt_m: 50 }),
-  ]), mandate());
-  assert.equal(r.figures.mixAndLeverage.solarMix, 0.75, 'capacity-weighted, as the portfolio reports it');
-  assert.equal(r.figures.mixAndLeverage.leverage, 0.6, 'cost-weighted');
-  assert.equal(r.figures.mixAndLeverage.solarDisplay, '75%');
-  assert.equal(r.figures.mixAndLeverage.leverageDisplay, '60%');
+test("preview: the pool's own solar share and gearing", () => {
+  const r = preview([
+    candidate({ id: 'P01', technology: 'solar', capacityMw: 300, totalCapex_m: 100, seniorDebt_m: 70 }),
+    candidate({ id: 'P02', technology: 'onshore_wind', capacityMw: 100, totalCapex_m: 100, seniorDebt_m: 50 }),
+  ]);
+  assert.equal(r.eligibleSolarShare, 0.75, 'capacity-weighted, as the portfolio reports it');
+  assert.equal(r.eligibleGearing, 0.6, 'cost-weighted');
+  assert.equal(r.display.eligibleSolarShare, '75%');
+  assert.equal(r.display.eligibleGearing, '60%');
 });
 
-test('an empty pool has no mix and no leverage, and says so with an em dash', () => {
-  const r = F.feasibility(payload([candidate({ country: 'XX' })]), mandate());
-  assert.ok(Number.isNaN(r.aggregate.solarMix), 'there is no mix without a pool');
-  assert.ok(Number.isNaN(r.aggregate.leverage));
-  assert.equal(r.figures.mixAndLeverage.solarDisplay, fmt.DASH, 'never 0%');
-  assert.equal(r.figures.mixAndLeverage.leverageDisplay, fmt.DASH);
-  assert.equal(r.figures.capacity.display, '0 MW', 'but a capacity of zero is a real zero');
+test('an empty pool has no share and no gearing, and says so with an em dash', () => {
+  const r = preview([candidate({ countryCode: 'XX' })]);
+  assert.ok(Number.isNaN(r.eligibleSolarShare), 'there is no mix without a pool');
+  assert.ok(Number.isNaN(r.eligibleGearing));
+  assert.equal(r.display.eligibleSolarShare, fmt.DASH, 'never 0%');
+  assert.equal(r.display.eligibleGearing, fmt.DASH);
+  assert.equal(r.display.eligibleCapacityMw, '0 MW', 'but a capacity of zero is a real zero');
 });
 
-/* ── The six warnings ───────────────────────────────────────────────────────── */
+/* ── The warnings (api.md §5, ui-contract.md §3.5–3.6) ──────────────────────── */
 
-const ids = (r) => r.warnings.map((w) => w.id);
-const byId = (r, id) => r.warnings.find((w) => w.id === id);
+const codes = (r) => r.warnings.map((w) => w.code);
+const byCode = (r, code) => r.warnings.find((w) => w.code === code);
 
-test('warning 1 — no candidates pass the screens', () => {
-  const r = F.feasibility(payload([candidate({ country: 'XX' })]), mandate());
-  const w = byId(r, 'no-candidates');
-  assert.ok(w, 'an empty pool must be reported');
-  assert.equal(w.severity, 'breach');
-  assert.equal(w.mark, '×');
-  assert.equal(w.text,
+test('warning — NO_CANDIDATES blocks the run', () => {
+  const r = preview([candidate({ countryCode: 'XX' })]);
+  const w = byCode(r, 'NO_CANDIDATES');
+  assert.ok(w);
+  assert.equal(w.severity, 'blocking');
+  assert.equal(w.mark, '\u00D7');
+  assert.equal(w.message,
     'No candidates pass the current screens. Widen countries, stages or the COD window.');
-  assert.deepEqual(ids(r), ['no-candidates'],
-    'with no pool, the pool-dependent warnings must stay silent');
+  assert.equal(r.runnable, false, 'this is one of exactly two conditions that disable the run');
+  assert.deepEqual(codes(r), ['NO_CANDIDATES'],
+    'with no pool, the pool-dependent warnings stay silent');
 });
 
-test('warning 2 — eligible pipeline is below the capacity target', () => {
-  const r = F.feasibility(payload([candidate({ mw: 400 })]), mandate({ target: 1500 }));
-  const w = byId(r, 'below-target');
+test('warning — LOCKS_EXCEED_CAPITAL blocks, and names the locks to release', () => {
+  const r = F.feasibility(
+    payload([candidate({ id: 'P01', equity_m: 800 }), candidate({ id: 'P02', equity_m: 620 })]),
+    mandate({ availableCapital_m: 1200, capacityTargetMw: 1 }),
+    locks({ lockedIds: ['P01', 'P02'] }));
+
+  const w = byCode(r, 'LOCKS_EXCEED_CAPITAL');
+  assert.ok(w, '§13 requires this one case to block rather than warn');
+  assert.equal(w.severity, 'blocking');
+  assert.equal(w.message,
+    'Locked projects need \u20AC1,420m of equity against \u20AC1,200m available. Release a lock to run.');
+  assert.equal(w.detail.excess_m, 220);
+  assert.deepEqual(w.detail.lockedIds, ['P01', 'P02']);
+  assert.equal(r.lockedEquity_m, 1420);
+  assert.equal(r.runnable, false);
+
+  const affordable = F.feasibility(payload([candidate({ id: 'P01', equity_m: 800 })]),
+    mandate({ availableCapital_m: 1200, capacityTargetMw: 1 }), locks({ lockedIds: ['P01'] }));
+  assert.equal(byCode(affordable, 'LOCKS_EXCEED_CAPITAL'), undefined);
+  assert.equal(affordable.runnable, true);
+});
+
+test('warning — CAPACITY_BELOW_TARGET', () => {
+  const r = preview([candidate({ capacityMw: 400 })], mandate({ capacityTargetMw: 1500 }));
+  const w = byCode(r, 'CAPACITY_BELOW_TARGET');
   assert.ok(w);
-  assert.equal(w.severity, 'breach');
-  assert.equal(w.mark, '!');
-  assert.equal(w.text, 'Eligible pipeline is 400 MW — below the 1,500 MW target.');
-  assert.ok(w.text.includes('—'), 'an em dash, not a hyphen');
+  assert.equal(w.severity, 'alert');
+  assert.equal(w.message, 'Eligible pipeline is 400 MW \u2014 below the 1,500 MW target.');
+  assert.ok(w.message.includes('\u2014'), 'an em dash, not a hyphen');
+  assert.equal(r.runnable, true, 'advisory: the user may run it and see how close the optimiser gets');
 
-  const met = F.feasibility(payload([candidate({ mw: 1500 })]), mandate({ target: 1500 }));
-  assert.equal(byId(met, 'below-target'), undefined, 'exactly on target is not below it');
+  const met = preview([candidate({ capacityMw: 1500 })], mandate({ capacityTargetMw: 1500 }));
+  assert.equal(byCode(met, 'CAPACITY_BELOW_TARGET'), undefined, 'exactly on target is not below it');
 });
 
-test('warning 3 — the full pipeline absorbs less than 90% of the capital', () => {
-  const r = F.feasibility(payload([candidate({ mw: 2000, equity_m: 500 })]),
-    mandate({ capital: 1200, target: 1500 }));
-  const w = byId(r, 'under-absorbed');
+test('warning — LEVERAGE_UNREACHABLE', () => {
+  const r = preview([candidate({ capacityMw: 2000, totalCapex_m: 100, seniorDebt_m: 45 })],
+    mandate({ minLeverage: 0.6, capacityTargetMw: 500, availableCapital_m: 100 }));
+  const w = byCode(r, 'LEVERAGE_UNREACHABLE');
   assert.ok(w);
-  assert.equal(w.severity, 'note');
-  assert.equal(w.text, 'Full pipeline absorbs only €500m of the €1,200m available.');
+  assert.equal(w.severity, 'alert');
+  assert.equal(w.message, 'Minimum leverage of 60% exceeds what the eligible pool supports (45%).');
 
-  // It is suppressed while capacity is short: that is the more urgent message.
-  const short = F.feasibility(payload([candidate({ mw: 400, equity_m: 500 })]),
-    mandate({ capital: 1200, target: 1500 }));
-  assert.equal(byId(short, 'under-absorbed'), undefined);
-  assert.ok(byId(short, 'below-target'), 'the capacity shortfall is reported instead');
-
-  const full = F.feasibility(payload([candidate({ mw: 2000, equity_m: 1100 })]),
-    mandate({ capital: 1200, target: 1500 }));
-  assert.equal(byId(full, 'under-absorbed'), undefined, '1,100 of 1,200 is above the 90% floor');
+  const ok = preview([candidate({ capacityMw: 2000, totalCapex_m: 100, seniorDebt_m: 60 })],
+    mandate({ minLeverage: 0.6, capacityTargetMw: 500, availableCapital_m: 100 }));
+  assert.equal(byCode(ok, 'LEVERAGE_UNREACHABLE'), undefined, 'exactly on the floor is not a breach');
 });
 
-test('warning 4 — the solar target may be out of reach for this pool', () => {
-  const r = F.feasibility(payload([
-    candidate({ id: 'P01', technology: 'onshore_wind', mw: 900 }),
-    candidate({ id: 'P02', technology: 'solar', mw: 100 }),
-  ]), mandate({ solarShare: 0.45, target: 500 }));
-  const w = byId(r, 'solar-unreachable');
+test('warning — SOLAR_MIX_UNREACHABLE fires only when the pool is short of solar', () => {
+  const short = preview([
+    candidate({ id: 'P01', technology: 'onshore_wind', capacityMw: 900 }),
+    candidate({ id: 'P02', technology: 'solar', capacityMw: 100 }),
+  ], mandate({ solarShare: 0.45, capacityTargetMw: 500 }));
+  const w = byCode(short, 'SOLAR_MIX_UNREACHABLE');
   assert.ok(w);
-  assert.equal(w.severity, 'note');
-  assert.equal(w.text, 'Solar target of 45% may be unreachable: eligible pool is 10% solar.');
+  assert.equal(w.severity, 'info');
+  assert.equal(w.message, 'Solar target of 45% may be unreachable: eligible pool is 10% solar.');
 
-  // Within 20 points is close enough to stay quiet.
-  const close = F.feasibility(payload([
-    candidate({ id: 'P01', technology: 'onshore_wind', mw: 700 }),
-    candidate({ id: 'P02', technology: 'solar', mw: 300 }),
-  ]), mandate({ solarShare: 0.45, target: 500 }));
-  assert.equal(byId(close, 'solar-unreachable'), undefined);
+  const close = preview([
+    candidate({ id: 'P01', technology: 'onshore_wind', capacityMw: 700 }),
+    candidate({ id: 'P02', technology: 'solar', capacityMw: 300 }),
+  ], mandate({ solarShare: 0.45, capacityTargetMw: 500 }));
+  assert.equal(byCode(close, 'SOLAR_MIX_UNREACHABLE'), undefined, 'within 20 points stays quiet');
+
+  // A solar-rich pool can still reach a low target by selecting fewer solar projects,
+  // so the test is one-sided on purpose (decisions A-22).
+  const rich = preview([candidate({ technology: 'solar', capacityMw: 1000 })],
+    mandate({ solarShare: 0.2, capacityTargetMw: 500 }));
+  assert.equal(byCode(rich, 'SOLAR_MIX_UNREACHABLE'), undefined,
+    'a pool with more solar than the target is not unreachable');
 });
 
-test('warning 5 — minimum leverage exceeds what the pool supports', () => {
-  const r = F.feasibility(payload([candidate({ mw: 2000, capex_m: 100, senior_debt_m: 45 })]),
-    mandate({ minLev: 0.6, target: 500, capital: 100 }));
-  const w = byId(r, 'leverage-unsupported');
+test('warning — CAPITAL_UNDERUSED fires on its own, not only when capacity is met', () => {
+  const r = preview([candidate({ capacityMw: 2000, equity_m: 500 })],
+    mandate({ availableCapital_m: 1200, capacityTargetMw: 1500 }));
+  const w = byCode(r, 'CAPITAL_UNDERUSED');
   assert.ok(w);
-  assert.equal(w.severity, 'breach');
-  assert.equal(w.text,
-    'Minimum leverage of 60% exceeds what the eligible pool supports (45%).');
+  assert.equal(w.severity, 'info');
+  assert.equal(w.message, 'Full pipeline absorbs only \u20AC500m of the \u20AC1,200m available.');
 
-  const ok = F.feasibility(payload([candidate({ mw: 2000, capex_m: 100, senior_debt_m: 60 })]),
-    mandate({ minLev: 0.6, target: 500, capital: 100 }));
-  assert.equal(byId(ok, 'leverage-unsupported'), undefined, 'exactly on the floor is not a breach');
+  // ui-contract.md §3.5's trigger is the capital test alone. The mockup additionally
+  // gated this on capacity being met; the contract does not (decisions A-5).
+  const alsoShort = preview([candidate({ capacityMw: 400, equity_m: 500 })],
+    mandate({ availableCapital_m: 1200, capacityTargetMw: 1500 }));
+  assert.ok(byCode(alsoShort, 'CAPITAL_UNDERUSED'),
+    'both conditions can hold, and both are reported');
+  assert.ok(byCode(alsoShort, 'CAPACITY_BELOW_TARGET'));
+
+  const full = preview([candidate({ capacityMw: 2000, equity_m: 1100 })],
+    mandate({ availableCapital_m: 1200, capacityTargetMw: 1500 }));
+  assert.equal(byCode(full, 'CAPITAL_UNDERUSED'), undefined, '1,100 of 1,200 is above the 90% floor');
 });
 
-test('warning 6 — locked and excluded projects are reported as a running note', () => {
+test('warning — LOCKS_PRESENT counts locks and exclusions', () => {
   const r = F.feasibility(payload([candidate({ id: 'P01' }), candidate({ id: 'P02' })]),
-    mandate({ locked: ['P01'], excluded: ['P09'], target: 1, capital: 1 }));
-  const w = byId(r, 'locked-excluded');
+    mandate({ capacityTargetMw: 1, availableCapital_m: 1 }),
+    locks({ lockedIds: ['P01'], excludedIds: ['P09'] }));
+  const w = byCode(r, 'LOCKS_PRESENT');
   assert.ok(w);
-  assert.equal(w.severity, 'note');
-  assert.equal(w.mark, '•');
-  assert.equal(w.text, '1 project(s) locked in; 1 excluded.');
+  assert.equal(w.severity, 'info');
+  assert.equal(w.mark, '\u2022');
+  assert.equal(w.message, '1 project(s) locked in; 1 excluded.');
 
-  const none = F.feasibility(payload([candidate()]), mandate({ target: 1, capital: 1 }));
-  assert.equal(byId(none, 'locked-excluded'), undefined, 'silent when nothing is locked');
+  // ui-contract.md §3.5: "any lock or exclusion set" — an exclusion alone is enough.
+  const excludedOnly = F.feasibility(payload([candidate({ id: 'P01' })]),
+    mandate({ capacityTargetMw: 1, availableCapital_m: 1 }), locks({ excludedIds: ['P09'] }));
+  assert.ok(byCode(excludedOnly, 'LOCKS_PRESENT'));
+
+  const none = preview([candidate()], mandate({ capacityTargetMw: 1, availableCapital_m: 1 }));
+  assert.equal(byCode(none, 'LOCKS_PRESENT'), undefined, 'silent when nothing is set');
 });
 
-test('warnings arrive in severity order and never rely on colour alone', () => {
+test('warnings arrive in the §5.4 severity order, not the mockup order', () => {
   const r = F.feasibility(payload([
-    candidate({ id: 'P01', technology: 'onshore_wind', mw: 40, capex_m: 100, senior_debt_m: 45 }),
-  ]), mandate({ target: 1500, capital: 1200, solarShare: 0.45, minLev: 0.6, locked: ['P01'] }));
+    candidate({ id: 'P01', technology: 'onshore_wind', capacityMw: 40,
+      totalCapex_m: 100, seniorDebt_m: 45, equity_m: 55 }),
+  ]), mandate({ capacityTargetMw: 1500, availableCapital_m: 1200, solarShare: 0.45, minLeverage: 0.6 }),
+  locks({ lockedIds: ['P01'] }));
 
-  assert.deepEqual(ids(r),
-    ['below-target', 'solar-unreachable', 'leverage-unsupported', 'locked-excluded']);
+  // Spec order: capacity, then leverage, then solar, then capital. The mockup emits
+  // capacity, capital, solar, leverage (decisions A-5).
+  assert.deepEqual(codes(r), [
+    'CAPACITY_BELOW_TARGET', 'LEVERAGE_UNREACHABLE',
+    'SOLAR_MIX_UNREACHABLE', 'CAPITAL_UNDERUSED', 'LOCKS_PRESENT',
+  ]);
+});
+
+test('every warning carries a severity and a mark, so none is colour-only', () => {
+  const r = F.feasibility(payload([
+    candidate({ id: 'P01', technology: 'onshore_wind', capacityMw: 40,
+      totalCapex_m: 100, seniorDebt_m: 45, equity_m: 55 }),
+  ]), mandate({ capacityTargetMw: 1500 }), locks({ lockedIds: ['P01'] }));
 
   for (const w of r.warnings) {
-    assert.ok(['breach', 'note'].includes(w.severity), `${w.id} must carry a severity`);
-    assert.ok(w.mark.length > 0, `${w.id} must carry a mark, so colour is never the only signal`);
-    assert.ok(w.text.length > 0);
+    assert.ok(['blocking', 'alert', 'info'].includes(w.severity), `${w.code} severity`);
+    assert.ok(['alert', 'neutral'].includes(w.tone), `${w.code} tone`);
+    assert.ok(w.mark.length > 0, `${w.code} must carry a mark (epic §5, decisions A-10)`);
+    assert.ok(w.message.length > 0);
   }
+});
+
+test('runnable is false if and only if a warning is blocking', () => {
+  const clean = preview([candidate({ capacityMw: 2000, equity_m: 1150 })],
+    mandate({ capacityTargetMw: 1500, availableCapital_m: 1200 }));
+  assert.equal(clean.runnable, true);
+
+  const advisoryOnly = preview([candidate({ capacityMw: 40 })]);
+  assert.ok(advisoryOnly.warnings.length > 0, 'it has warnings');
+  assert.ok(advisoryOnly.warnings.every((w) => w.severity !== 'blocking'));
+  assert.equal(advisoryOnly.runnable, true, 'advisory warnings never disable the run');
+
+  const blocked = preview([candidate({ countryCode: 'XX' })]);
+  assert.equal(blocked.runnable, false);
 });
 
 /* ── The loading contract ───────────────────────────────────────────────────── */
@@ -347,9 +415,9 @@ test('feasibility.js requires nothing but format.js', () => {
     require('node:path').join(__dirname, '..', 'js', 'feasibility.js'), 'utf8');
   const requires = [...source.matchAll(/require\((['"])(.*?)\1\)/g)].map((m) => m[2]);
   assert.deepEqual(requires, ['./format.js'],
-    'issue #12 imports this in node to check it against the Python; keep it free of dependencies');
-  // Strip comments and string literals first: this guard is about code, not prose.
-  // Without it, the warning text "...or the COD window." reads as a DOM access.
+    'issue #12 imports this in node to check it against the Python; keep it dependency-free');
+
+  // Strip comments and string literals: this guard is about code, not prose.
   const code = source
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/\/\/.*$/gm, ' ')
@@ -357,16 +425,22 @@ test('feasibility.js requires nothing but format.js', () => {
     .replace(/"(?:\\.|[^"\\])*"/g, '""');
   for (const forbidden of [/\bdocument\s*\./, /\bwindow\s*\./, /\bAlpine\b/, /querySelector/]) {
     assert.ok(!forbidden.test(code),
-      `it must stay a pure function of (payload, mandate); found ${forbidden}`);
+      `it must stay a pure function of (payload, mandate, locks); found ${forbidden}`);
   }
 });
 
 test('feasibility.js loads under bare node with no flags', () => {
   const { execFileSync } = require('node:child_process');
   const out = execFileSync(process.execPath, [
-    '-e',
-    "const f = require('./js/feasibility.js');" +
-    "process.stdout.write(String(f.SCREEN_ORDER.length));",
+    '-e', "process.stdout.write(String(require('./js/feasibility.js').SCREEN_ORDER.length));",
   ], { cwd: require('node:path').join(__dirname, '..'), encoding: 'utf8' });
   assert.equal(out, '9');
+});
+
+test('the preview response carries every field api.md §5 pins', () => {
+  const r = preview([candidate()]);
+  for (const field of ['eligibleCount', 'totalCount', 'eligibleCapacityMw', 'eligibleEquity_m',
+    'eligibleSolarShare', 'eligibleGearing', 'lockedEquity_m', 'warnings', 'runnable']) {
+    assert.ok(field in r, `POST /mandate/preview returns ${field}; the client must match it`);
+  }
 });

@@ -93,7 +93,7 @@
           <span data-field="cost-sub">&#8212; senior debt</span>
         </p>
       </div>
-      <div class="tile bg-highlight" x-data="kpiTile()" data-tile="irr">
+      <div class="tile bg-highlight" x-data="kpiTile()" data-tile="irr" data-series="cashflowHold_m">
         <p class="m-0 text-micro-lg uppercase tracking-micro text-muted">Equity IRR</p>
         <p class="num mt-[3px] text-num-2xl" data-field="irr">&#8212;</p>
         <p class="mt-[2px] text-note" :class="subClass">
@@ -155,11 +155,11 @@
   <div class="mb-[18px] flex flex-wrap items-stretch gap-[18px]">
 
     <!-- ── Cash flow ─────────────────────────────────────────────────────────
-         The 30-year series. It carries NO terminal value: it is the plain sum of
-         per-project FCFE. The hold-truncated series that IRR and MOIC are computed
-         from is a different array and lives on the IRR tile — see data-series
-         below. Keeping the two apart is epic §5's most easily lost invariant. -->
-    <figure class="panel m-0 min-w-0 flex-[2.15_1_520px] !p-5" data-series="fcfe30">
+         cashflow30Y_m: exactly 30 elements, no terminal value (api.md §1.3, decisions A-6).
+         The hold-truncated cashflowHold_m, which folds the terminal value into its last
+         element, drives equityIrr and moic and nothing else. They never share a name and
+         neither is ever derived from the other by slicing. -->
+    <figure class="panel m-0 min-w-0 flex-[2.15_1_520px] !p-5" data-series="cashflow30Y_m">
       <figcaption class="mb-1 flex flex-wrap items-baseline justify-between gap-[10px]">
         <h2 class="m-0 text-h6 uppercase tracking-caps text-muted">Free cash flow to equity &#8212; 30 years</h2>
         <span class="text-meta text-muted">&#8364;m, nominal, post debt service and tax
