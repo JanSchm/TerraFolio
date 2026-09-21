@@ -391,3 +391,11 @@ def test_mutating_the_fixture_does_not_leak_between_tests(raw: dict[str, Any]) -
     before = copy.deepcopy(raw)
     raw["id"] = "MUTATED"
     assert json.loads(EXAMPLE_PATH.read_text(encoding="utf-8")) == before
+
+
+def test_a_whole_file_error_renders_without_a_bare_colon(raw: dict[str, Any]) -> None:
+    """The reject-derived rule has no ``loc``; it should not render as ``: message``."""
+    raw["irr"] = 0.12
+    first = _messages(raw)[0]
+    assert not first.startswith(":")
+    assert "a project file carries what an analyst declares" in first

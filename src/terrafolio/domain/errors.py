@@ -14,10 +14,17 @@ __all__ = ["format_validation_error", "render_validation_error"]
 
 
 def render_validation_error(error: ValidationError) -> list[str]:
-    """One ``path: message`` line per problem, in the order pydantic found them."""
-    return [
-        f"{'.'.join(str(part) for part in item['loc'])}: {item['msg']}" for item in error.errors()
-    ]
+    """One ``path: message`` line per problem, in the order pydantic found them.
+
+    A whole-file rule — the reject-derived check is the one that matters here —
+    has an empty ``loc``, so it renders as the message alone rather than with a
+    bare ``:`` in front of it.
+    """
+    lines: list[str] = []
+    for item in error.errors():
+        path = ".".join(str(part) for part in item["loc"])
+        lines.append(f"{path}: {item['msg']}" if path else str(item["msg"]))
+    return lines
 
 
 def format_validation_error(source: str, error: ValidationError) -> str:
