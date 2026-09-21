@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Searching — TerraFolio</title>
+<link rel="stylesheet" href="dist/app.css">
+<script defer src="js/format.js"></script>
+<script defer src="js/controls.js"></script>
+<script defer src="vendor/alpine.min.js"></script>
+</head>
+<body class="min-h-screen bg-bg text-text">
+    <!-- nav:start — identical on all four pages except which step carries aria-current.
+         tools/splice-nav.mjs writes this block; tests/nav.test.js guards it. -->
+    <header class="sticky top-0 z-nav flex flex-wrap items-center justify-between gap-4 border-b border-divider bg-bg px-7 py-[12px]">
+      <div class="flex items-baseline gap-4">
+        <span class="font-condensed text-[19px] font-bold tracking-tight">TERRAFOLIO</span>
+        <span class="text-micro uppercase tracking-brand text-muted">Renewables portfolio optimiser</span>
+      </div>
+      <ol class="flex items-center gap-[18px] font-condensed text-micro uppercase tracking-micro" aria-label="Progress">
+        <li><span data-step="mandate" class="text-muted aria-[current=step]:font-semibold aria-[current=step]:text-accent-700">01 Mandate</span></li>
+        <li aria-hidden="true" class="text-neutral-400">&#8212;</li>
+        <li><span data-step="search" aria-current="step" class="text-muted aria-[current=step]:font-semibold aria-[current=step]:text-accent-700">02 Search</span></li>
+        <li aria-hidden="true" class="text-neutral-400">&#8212;</li>
+        <li><span data-step="portfolio" class="text-muted aria-[current=step]:font-semibold aria-[current=step]:text-accent-700">03 Portfolio</span></li>
+      </ol>
+    </header>
+    <!-- nav:end -->
+
+<main class="mx-auto max-w-search px-7 py-[72px]">
+
+  <div class="mb-1 flex items-baseline gap-4">
+    <span class="inline-block h-[13px] w-[13px] flex-none rounded-full border-2 border-accent-700 border-t-transparent motion-safe:animate-spin360"
+          aria-hidden="true"></span>
+    <h1 class="m-0 text-h2">Searching the solution space</h1>
+  </div>
+  <p class="mb-[30px] m-0 text-muted">Many candidate portfolios are scored against the mandate at once, the strongest
+    carried forward each round, until the best stops improving.</p>
+
+  <section class="panel !p-[22px]" aria-labelledby="s-convergence">
+    <div class="mb-4 flex items-baseline justify-between gap-3">
+      <h2 id="s-convergence" class="m-0 text-h6 uppercase tracking-caps text-muted">Portfolio score by round</h2>
+      <p class="m-0 font-condensed text-note tracking-wide">
+        ROUND <span class="num" data-field="generation">&#8212;</span> /
+        <span class="num" data-field="generation-total">&#8212;</span>
+      </p>
+    </div>
+
+    <!-- The two curves are drawn by issue #11 from the run's event stream.
+         preserveAspectRatio is none on purpose: the box stretches, the strokes do not. -->
+    <svg viewBox="0 0 600 150" preserveAspectRatio="none" role="img"
+         aria-labelledby="s-chart-title s-chart-desc"
+         class="block h-[170px] w-full border-b border-l border-divider">
+      <title id="s-chart-title">Best and mean portfolio score by round</title>
+      <desc id="s-chart-desc">The figures beneath the chart carry the same values as text.</desc>
+      <polyline data-series="mean" points="" fill="none" stroke="currentColor"
+                class="text-accent-300" stroke-width="1.5" vector-effect="non-scaling-stroke"></polyline>
+      <polyline data-series="best" points="" fill="none" stroke="currentColor"
+                class="text-accent-700" stroke-width="2" vector-effect="non-scaling-stroke"></polyline>
+    </svg>
+
+    <ul class="mt-[10px] flex gap-[18px] text-micro-lg text-muted">
+      <li class="flex items-center gap-[6px]">
+        <span class="inline-block h-[2px] w-[14px] bg-accent-700" aria-hidden="true"></span>Best score
+      </li>
+      <li class="flex items-center gap-[6px]">
+        <span class="inline-block h-[2px] w-[14px] bg-accent-300" aria-hidden="true"></span>Average score
+      </li>
+    </ul>
+
+    <div class="my-[18px] mt-[22px] h-1 bg-neutral-300" role="progressbar"
+         aria-labelledby="s-convergence" aria-valuemin="0" aria-valuemax="100"
+         data-field="progress">
+      <div class="h-full w-0 bg-accent-700" data-field="progress-fill"></div>
+    </div>
+
+    <dl class="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-[18px]" data-region="live-stats">
+      <div>
+        <dt class="text-micro-lg uppercase tracking-micro text-muted">Best score</dt>
+        <dd class="num m-0 text-num-lg" data-field="best-score">&#8212;</dd>
+      </div>
+      <div>
+        <dt class="text-micro-lg uppercase tracking-micro text-muted">Capacity</dt>
+        <dd class="num m-0 text-num-lg" data-field="best-mw">&#8212;</dd>
+      </div>
+      <div>
+        <dt class="text-micro-lg uppercase tracking-micro text-muted">Projects</dt>
+        <dd class="num m-0 text-num-lg" data-field="best-count">&#8212;</dd>
+      </div>
+      <div>
+        <dt class="text-micro-lg uppercase tracking-micro text-muted">Equity drawn</dt>
+        <dd class="num m-0 text-num-lg" data-field="best-equity">&#8212;</dd>
+      </div>
+      <div>
+        <dt class="text-micro-lg uppercase tracking-micro text-muted">Blended IRR</dt>
+        <dd class="num m-0 text-num-lg" data-field="best-irr">&#8212;</dd>
+      </div>
+    </dl>
+  </section>
+
+  <p class="mt-[18px] font-condensed text-meta tracking-cta text-muted motion-safe:animate-blink"
+     aria-live="polite" data-field="progress-note"></p>
+
+</main>
+</body>
+</html>
