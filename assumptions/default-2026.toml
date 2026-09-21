@@ -1,0 +1,329 @@
+# TerraFolio assumption set — the portfolio-level calibration.
+#
+# Every rate, weight, floor, clamp, tolerance and band in the system lives here
+# and nowhere else (spec §9.4, §10.2). Changing one must be an auditable event,
+# which is why this file is in git and why its content — not its filename —
+# determines `assumption_set_id`.
+#
+# What is NOT here: per-project rates. With statements ingested, each project
+# file declares its own tax rate, debt terms, escalators and degradation, so
+# per-fund rate configuration has narrowed to what is genuinely portfolio-level.
+# See docs/decisions.md.
+#
+# Units: money in euros unless a key says otherwise, shares and rates as
+# fractions of one, energy in GWh, prices in EUR/MWh.
+
+[meta]
+# Metadata is deliberately EXCLUDED from assumption_set_id. Fixing a typo in a
+# label must not invalidate the comparability of every run stored against it.
+label = "Default 2026"
+version = 1
+created_by = "terrafolio"
+supersedes = ""
+
+# --- Portfolio-level economics ------------------------------------------------
+
+[exit_multiples]
+# EV/EBITDA at exit, by technology (§9.4). Keyed by the Technology enum.
+solar = 9.0
+onshore_wind = 8.5
+offshore_wind = 9.5
+
+[lcoe]
+real_discount_rate = 0.06
+
+[emissions]
+co2_t_per_mwh = 0.32
+
+# --- The objective (§10.2) ----------------------------------------------------
+#
+# Floors and clamps apply to the NORMALISED term, before the weight multiplies:
+# capacity scores `1 - |mw - target| / target` floored at -0.6, so the term
+# bottoms out at 3.2 x -0.6 = -1.92.
+
+[objective]
+capacity_weight = 3.2
+capacity_score_floor = -0.6
+
+tech_split_weight = 3.0
+tech_split_score_floor = -0.5
+# The bare 0.35 in §10.2's tech-split term. It is a tolerance, so it is
+# configuration exactly as much as the weights are.
+tech_split_tolerance = 0.35
+
+return_weight = 2.6
+return_clamp = 1.2
+# The 5-point scale the IRR-vs-hurdle gap is normalised by.
+return_scale = 0.05
+
+utilisation_weight = 0.9
+
+# Penalties, stated signed: the objective adds `weight * breach`.
+leverage_weight = -7.0
+merchant_weight = -14.0
+country_concentration_weight = -8.0
+project_concentration_weight = -8.0
+risk_weight = -1.6
+
+# An empty portfolio has equity 0 and is therefore technically feasible, so it
+# is checked first and scored exactly this (§10.2).
+empty_portfolio_score = -50.0
+
+# Epic §6.2. A single rejection constant makes every over-budget chromosome
+# indistinguishable and leaves selection nothing to work with; the mockup's
+# graded `-20 - equity/capital` sits ABOVE the worst feasible score of about
+# -44, so an infeasible portfolio could outrank a feasible one. This grade is
+# always below -50 and monotone in the overshoot.
+reject_base = -1000.0
+reject_slope = -100.0
+# The utilisation reward actively pushes portfolios onto the equity cap, so a
+# portfolio landing exactly on it must not be rejected by a rounding artefact.
+equity_cap_tolerance_eur = 1.0
+
+# The GA trajectory turns on `f[a] >= f[b]`. One last-bit BLAS difference flips
+# a tournament and diverges the entire run, so fitness is quantised before any
+# comparison.
+quantisation_dp = 6
+
+# --- The genetic algorithm (§10.1, epic §6.1) ---------------------------------
+
+[ga]
+mutation_rate = 0.025
+tournament_size = 2
+elite_count = 2
+
+# Epic §6.1. §10.1's flat 0.35 is calibrated for the mockup's 48-project
+# pipeline; at 300-500 candidates it selects far more projects than any budget
+# can fund, every chromosome lands in the rejection band, and the run returns
+# garbage while looking converged. Inclusion is scaled from the mandate instead,
+# with 0.35 surviving as the ceiling.
+inclusion_ceiling = 0.35
+inclusion_floor = 0.005
+
+[ga.effort.fast]
+population = 50
+generations = 35
+
+[ga.effort.standard]
+population = 90
+generations = 60
+
+[ga.effort.exhaustive]
+population = 160
+generations = 110
+
+# --- Risk appetite (§5.3) -----------------------------------------------------
+#
+# Two different caps. The project cap is a hard pre-screen on a single project's
+# development risk score; the portfolio cap is a soft, capex-weighted penalty.
+
+[risk_caps.project]
+low = 2.6
+balanced = 3.6
+high = 5.0
+
+[risk_caps.portfolio]
+low = 2.4
+balanced = 3.2
+high = 4.2
+
+# --- Live feasibility feedback (§5.4) -----------------------------------------
+
+[feasibility]
+# "the solar target is more than 20 points away from the eligible pool's mix"
+solar_divergence_tolerance = 0.20
+# "the eligible pool absorbs less than 90% of available capital"
+capital_absorption_floor = 0.90
+
+# --- The tie-out validator (docs/pipeline-schema.md §7, §10) -------------------
+
+[validation]
+# Whichever is looser. Cited by the schema document under exactly these keys.
+tolerance_abs_m = 0.01
+tolerance_rel = 0.001
+
+[validation.capacity_factor]
+low = 0.05
+high = 0.60
+
+[validation.min_dscr_band]
+# The band stabilised-EBITDA sizing produces (epic §6.3).
+low = 1.20
+high = 2.50
+
+[validation.capex_per_kw.solar]
+low = 560.0
+high = 950.0
+
+[validation.capex_per_kw.onshore_wind]
+low = 1050.0
+high = 1700.0
+
+[validation.capex_per_kw.offshore_wind]
+low = 2200.0
+high = 3400.0
+
+[validation.stage_gearing_ceiling]
+greenfield = 0.65
+ready_to_build = 0.72
+construction = 0.75
+
+# --- Interpretations the specification leaves open ----------------------------
+#
+# Both are flags rather than code so issue 2C's sweep can test each combination
+# against the reference and pin the one that matches.
+
+[interpretation]
+# Does the exit year's own FCFE count alongside the terminal value?
+exit_year_fcfe_included = true
+# Real opex discounted from COD, or nominal opex from the base year?
+lcoe_opex_basis = "real_from_cod"
+
+# --- The seed-pipeline generator (§9.1-9.4) -----------------------------------
+#
+# Used to produce the shipped pipeline and to check ingested files. Values match
+# the JavaScript reference so that, seeded to match, the generator reproduces
+# its 48 projects field for field.
+
+[generator]
+base_year = 2027
+cod_first_year = 2027
+cod_last_year = 2033
+# 8760 hours with the MWh-to-GWh division folded in, exactly as the reference
+# writes it: MW x 8.760 x capacity factor is GWh. Kept folded so the parity test
+# holds bit-for-bit rather than to within a rounding.
+hours_per_year_gwh = 8.760
+# The first operating year is partial (§9.2).
+ramp_factor = 0.55
+tax_rate = 0.20
+depreciation_years = 25
+debt_rate = 0.055
+debt_tenor_years = 18
+# Epic §6.3: sized off stabilised first-full-year EBITDA, then capped by the
+# stage gearing ceiling, so min DSCR lands two-sided around this figure.
+target_dscr = 1.40
+price_escalation = 0.005
+merchant_escalation = 0.021
+opex_escalation = 0.021
+# Entry yield is jittered +/- this, in fractions of one (§9.1).
+entry_yield_jitter = 0.007
+# Capacity factor is jittered by this multiplicative band.
+capacity_factor_jitter_low = 0.94
+capacity_factor_jitter_high = 1.06
+contract_price_factor_low = 0.86
+contract_price_factor_high = 1.00
+contract_tenor_choices = [10, 12, 15, 15, 20]
+
+[generator.degradation]
+solar = 0.005
+onshore_wind = 0.002
+offshore_wind = 0.002
+
+[generator.capture_factor]
+solar = 0.68
+onshore_wind = 0.88
+offshore_wind = 0.86
+
+[generator.entry_yield]
+# By stage, with offshore wind overriding the stage figure (§9.1).
+greenfield = 0.116
+ready_to_build = 0.103
+construction = 0.095
+offshore_override = 0.090
+
+[generator.opex_per_kw_year.solar]
+low = 12.0
+high = 16.0
+
+[generator.opex_per_kw_year.onshore_wind]
+low = 42.0
+high = 54.0
+
+[generator.opex_per_kw_year.offshore_wind]
+low = 78.0
+high = 98.0
+
+[generator.offshore_capacity_factor]
+low = 0.49
+high = 0.55
+
+[generator.contracted_share.greenfield]
+low = 0.15
+high = 0.65
+
+[generator.contracted_share.ready_to_build]
+low = 0.45
+high = 0.85
+
+[generator.contracted_share.construction]
+low = 0.65
+high = 0.95
+
+[generator.development_risk_base]
+greenfield = 3.4
+ready_to_build = 2.2
+construction = 1.5
+
+[generator.development_risk]
+offshore_premium = 0.8
+jitter = 1.2
+low = 1.0
+high = 5.0
+
+[generator.probability]
+# Probability a greenfield project has a firm grid connection; non-greenfield
+# projects always do.
+grid_secured_greenfield = 0.55
+# Probability of a signed O&M agreement; construction projects always have one.
+om_contracted = 0.65
+
+# Market data: the long-term baseload curve and P50 capacity factors by market.
+# GB is the ISO code; files written as UK are normalised to it on load.
+
+[generator.baseload_price]
+ES = 58.0
+PT = 56.0
+IT = 92.0
+GR = 84.0
+FR = 67.0
+DE = 73.0
+PL = 80.0
+RO = 80.0
+NL = 74.0
+DK = 59.0
+IE = 85.0
+SE = 42.0
+FI = 45.0
+GB = 82.0
+
+[generator.capacity_factor.solar]
+ES = 0.245
+PT = 0.235
+IT = 0.215
+GR = 0.222
+FR = 0.172
+DE = 0.128
+PL = 0.118
+RO = 0.158
+NL = 0.120
+DK = 0.118
+IE = 0.108
+SE = 0.108
+FI = 0.098
+GB = 0.110
+
+[generator.capacity_factor.onshore_wind]
+ES = 0.271
+PT = 0.262
+IT = 0.231
+GR = 0.283
+FR = 0.268
+DE = 0.281
+PL = 0.292
+RO = 0.284
+NL = 0.318
+DK = 0.402
+IE = 0.381
+SE = 0.348
+FI = 0.336
+GB = 0.362

@@ -133,13 +133,9 @@ def parse_to_unicode(objs: dict[int, bytes], num: int) -> dict[int, str]:
     cmap: dict[int, str] = {}
     for block in re.findall(rb"beginbfchar(.*?)endbfchar", stream, re.DOTALL):
         for src, dst in re.findall(rb"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>", block):
-            cmap[int(src, 16)] = bytes.fromhex(dst.decode()).decode(
-                "utf-16-be", "replace"
-            )
+            cmap[int(src, 16)] = bytes.fromhex(dst.decode()).decode("utf-16-be", "replace")
     for block in re.findall(rb"beginbfrange(.*?)endbfrange", stream, re.DOTALL):
-        matches = re.findall(
-            rb"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>", block
-        )
+        matches = re.findall(rb"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>", block)
         for lo_h, hi_h, dst_h in matches:
             lo, hi, dst = int(lo_h, 16), int(hi_h, 16), int(dst_h, 16)
             for code in range(lo, hi + 1):
@@ -184,9 +180,7 @@ def find_catalog(objs: dict[int, bytes], data: bytes) -> int:
     return int(pages.group(1))
 
 
-def font_map(
-    objs: dict[int, bytes], page: int
-) -> dict[str, tuple[bool, dict[int, str]]]:
+def font_map(objs: dict[int, bytes], page: int) -> dict[str, tuple[bool, dict[int, str]]]:
     """Per-page resource name -> (is two-byte, code -> text).
 
     ``/Subtype /Type0`` is Identity-H and uses two-byte CIDs; the ``/Type3``
@@ -336,14 +330,10 @@ def read_page(
     bullets: list[Bullet] = []
     for path in PATH_RE.finditer(stream):
         px, py = float(path.group(1)), float(path.group(2))
-        numbers = [
-            float(v) for v in re.findall(rb"(" + NUM.encode() + rb")", path.group(3))
-        ]
+        numbers = [float(v) for v in re.findall(rb"(" + NUM.encode() + rb")", path.group(3))]
         xs, ys = numbers[0::2] + [px], numbers[1::2] + [py]
         if max(xs) - min(xs) < 10.0 and max(ys) - min(ys) < 10.0:
-            bullets.append(
-                Bullet(index, round(min(xs), 1), round((min(ys) + max(ys)) / 2, 1))
-            )
+            bullets.append(Bullet(index, round(min(xs), 1), round((min(ys) + max(ys)) / 2, 1)))
 
     cards: list[Card] = []
     if ticks:
@@ -387,9 +377,7 @@ def join(parts: list[str]) -> str:
             continue
         if not out:
             out = piece
-        elif out.endswith(("-", "\u2013")) and (
-            piece[:1].islower() or piece[:1].isdigit()
-        ):
+        elif out.endswith(("-", "\u2013")) and (piece[:1].islower() or piece[:1].isdigit()):
             out += piece
         else:
             out += " " + piece
@@ -409,22 +397,15 @@ def cell_text(
     lands on a boundary or outside every column falls through to prose instead
     of being silently deleted.
     """
-    inside = [
-        (i, c) for i, c in chunks if top < c.y < bottom and lo - 1.0 <= c.x < hi - 1.0
-    ]
+    inside = [(i, c) for i, c in chunks if top < c.y < bottom and lo - 1.0 <= c.x < hi - 1.0]
     lines: dict[float, list[Chunk]] = {}
     for _, chunk in inside:
         lines.setdefault(chunk.y, []).append(chunk)
-    parts = [
-        "".join(c.text for c in sorted(lines[y], key=lambda c: c.x))
-        for y in sorted(lines)
-    ]
+    parts = ["".join(c.text for c in sorted(lines[y], key=lambda c: c.x)) for y in sorted(lines)]
     return join(parts).replace("|", r"\|"), {i for i, _ in inside}
 
 
-def render_table(
-    table: Table, chunks: list[Chunk]
-) -> tuple[float, list[str], set[int]]:
+def render_table(table: Table, chunks: list[Chunk]) -> tuple[float, list[str], set[int]]:
     """Render one table: its anchor y, its rows, and the chunks it consumed."""
     columns = table.columns
     page_chunks = [(i, c) for i, c in enumerate(chunks) if c.page == table.page]
@@ -442,9 +423,7 @@ def render_table(
     for top, bottom in bands:
         row: list[str] = []
         for i in range(len(columns) - 1):
-            text, taken = cell_text(
-                page_chunks, columns[i], columns[i + 1], top, bottom
-            )
+            text, taken = cell_text(page_chunks, columns[i], columns[i + 1], top, bottom)
             row.append(text)
             used |= taken
         rows.append(row)
@@ -466,9 +445,7 @@ def render_cards(
             (
                 (i, c)
                 for i, c in enumerate(chunks)
-                if c.page == card.page
-                and card.y0 < c.y < card.y1
-                and card.x0 <= c.x < card.x1
+                if c.page == card.page and card.y0 < c.y < card.y1 and card.x0 <= c.x < card.x1
             ),
             key=lambda pair: (pair[1].y, pair[1].x),
         )
