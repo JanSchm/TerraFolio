@@ -9,6 +9,7 @@ file is edited by hand by people who are not reading a stack trace.
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from collections.abc import Callable, Mapping
 from enum import StrEnum
@@ -42,6 +43,7 @@ from terrafolio.domain.enums import Effort, RiskAppetite, Stage, Technology
 __all__ = [
     "DEFAULT_ASSUMPTION_SET",
     "ENV_ASSUMPTIONS_DIR",
+    "MARKET_CAPACITY_FACTOR_TECHNOLOGIES",
     "AssumptionError",
     "assumptions_dir",
     "load_assumption_set",
@@ -52,6 +54,17 @@ ENV_ASSUMPTIONS_DIR: Final = "TERRAFOLIO_ASSUMPTIONS_DIR"
 DEFAULT_ASSUMPTION_SET: Final = "default-2026"
 _METADATA_SECTION: Final = "meta"
 _PACKAGED_DIR: Final = "_assumptions"
+_MARKET_CODE: Final = re.compile(r"[A-Z]{2}")
+
+MARKET_CAPACITY_FACTOR_TECHNOLOGIES: Final[frozenset[Technology]] = frozenset(
+    {Technology.SOLAR_PV, Technology.ONSHORE_WIND}
+)
+"""Technologies whose capacity factor varies by market.
+
+Offshore wind is drawn from a single band rather than a market table (§9.2),
+so it is permitted here but not required — while a missing solar or onshore
+table is named at load rather than surfacing as a KeyError mid-generation.
+"""
 
 
 class AssumptionError(ValueError):
@@ -143,6 +156,20 @@ def _band(parent: Mapping[str, Any], key: str, where: str = "") -> Band:
     return band
 
 
+def _market_keyed(table: Mapping[str, Any], where: str) -> Mapping[str, float]:
+    """Read a table keyed by ISO 3166-1 alpha-2 market code.
+
+    The key shape is checked because a market table is looked up by a project's
+    own ``countryCode``: a typo such as ``Es`` or ``SPAIN`` would sit here
+    unused and surface much later as a missing market for a project that looks
+    perfectly valid.
+    """
+    for code in table:
+        if not _MARKET_CODE.fullmatch(code):
+            raise AssumptionError(f"{where}.{code}: expected an ISO 3166-1 alpha-2 market code")
+    return MappingProxyType({code: _float(table, code, where) for code in sorted(table)})
+
+
 def _keyed_by[E: StrEnum, V](
     table: Mapping[str, Any],
     members: type[E],
@@ -161,6 +188,31 @@ def _keyed_by[E: StrEnum, V](
     if unknown:
         raise AssumptionError(f"{where}: unknown key(s) {', '.join(sorted(unknown))}")
     return MappingProxyType({member: read(table, member.value, where) for member in members})
+
+
+def _keyed_by_some[E: StrEnum, V](
+    table: Mapping[str, Any],
+    members: type[E],
+    read: Callable[[Mapping[str, Any], str, str], V],
+    where: str,
+    *,
+    required: frozenset[E],
+) -> Mapping[E, V]:
+    """Read a table keyed by an enumeration where only some members apply.
+
+    Still rejects unknown keys, and still names a missing required member at
+    load time. Skipping whatever is absent instead would return a seemingly
+    valid assumption set and fail as a ``KeyError`` deep in a generation run, at
+    which point nothing points back at the file that caused it.
+    """
+    known = {member.value: member for member in members}
+    unknown = set(table) - set(known)
+    if unknown:
+        raise AssumptionError(f"{where}: unknown key(s) {', '.join(sorted(unknown))}")
+    missing = sorted(member.value for member in required if member.value not in table)
+    if missing:
+        raise AssumptionError(f"{where}: missing key(s) {', '.join(missing)}")
+    return MappingProxyType({known[key]: read(table, key, where) for key in sorted(table)})
 
 
 # --------------------------------------------------------------------------
@@ -375,30 +427,15 @@ def _generator(raw: Mapping[str, Any]) -> GeneratorParams:
             probability, "grid_secured_greenfield", "generator.probability"
         ),
         om_contracted_probability=_float(probability, "om_contracted", "generator.probability"),
-        baseload_price=MappingProxyType(
-            {
-                code: _float(
-                    _table(table, "baseload_price", "generator"),
-                    code,
-                    "generator.baseload_price",
-                )
-                for code in _table(table, "baseload_price", "generator")
-            }
+        baseload_price=_market_keyed(
+            _table(table, "baseload_price", "generator"), "generator.baseload_price"
         ),
-        capacity_factor=MappingProxyType(
-            {
-                Technology(key): MappingProxyType(
-                    {
-                        code: _float(
-                            _table(capacity_factor, key, "generator.capacity_factor"),
-                            code,
-                            f"generator.capacity_factor.{key}",
-                        )
-                        for code in _table(capacity_factor, key, "generator.capacity_factor")
-                    }
-                )
-                for key in capacity_factor
-            }
+        capacity_factor=_keyed_by_some(
+            capacity_factor,
+            Technology,
+            lambda parent, key, where: _market_keyed(_table(parent, key, where), f"{where}.{key}"),
+            "generator.capacity_factor",
+            required=MARKET_CAPACITY_FACTOR_TECHNOLOGIES,
         ),
     )
 

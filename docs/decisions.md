@@ -142,6 +142,18 @@ ordinal that shifted would silently rewrite the meaning of every run already
 stored. `WarningCodeName` in `domain/results.py` serialises the name and
 validates from it, and a test asserts no stored artefact contains the ordinal.
 
+**The ordinal is refused on the way in as well.** Found in review: the first
+version accepted `1010` and `"1010"` and resolved them through the enum, which
+made the guarantee one-directional and worthless — a record written before a
+code was inserted could be reinterpreted as a different warning after one was.
+
+**`severity` cannot contradict its code.** It is a property of the code, not of
+the occurrence; it appears on the wire because `docs/api.md` puts it there. It
+may be omitted when constructing a warning in Python, in which case it is
+derived, and a supplied value that disagrees is rejected. Otherwise a client
+could render a blocking condition in an informational tone while the rest of the
+system still treated it as blocking.
+
 `WarningSeverity` has the two values `docs/api.md` allows, `alert` and `info`.
 Blocking is not a severity: `WarningCode.disables_run` carries it, and it is
 true for exactly `NO_CANDIDATES` and `LOCKS_EXCEED_CAPITAL` — the latter added
@@ -199,12 +211,56 @@ carry `NaN` revenue — and once a NaN can mean "corrupt input" as well as
 model now fails at the boundary that owes the conversion, rather than becoming a
 plausible zero three layers later.
 
-### C-13 — statement series are tuples, not lists
+### C-13 — immutability reaches the contents, not just the attributes
 
-`frozen=True` freezes attribute assignment, not a list's contents:
-`file.statements.cashFlow.fcfe.append(0.0)` would succeed on a "frozen" model,
-and the pipeline snapshot hash would stop describing what is in memory. Tuples
-serialise to JSON arrays identically and cost nothing.
+`frozen=True` freezes attribute *assignment* and nothing more. Both container
+kinds on these models needed closing:
+
+- **Series are tuples, not lists.** `file.statements.cashFlow.fcfe.append(0.0)`
+  would otherwise succeed on a "frozen" model, and the pipeline snapshot hash
+  would stop describing what is in memory. Tuples serialise to JSON arrays
+  identically and cost nothing.
+- **Mappings are frozen after validation.** `provenance.fields`,
+  `aggregates.countryShares` and `provenance.fileHashes` were plain `dict`s, so
+  `file.provenance.fields.pop(...)` worked. They are now declared as
+  `Mapping[...]` — so type checkers withhold `pop` and `__setitem__` — backed by
+  a `mappingproxy` at runtime and serialised back to a `dict`. The two result
+  mappings are also sorted on validation, because two identical results should
+  not differ by insertion order.
+
+Found in review; the first version of this issue claimed immutability it did not
+have.
+
+### C-14 — numbers are validated strictly, not coerced
+
+Pydantic's default lax mode accepts `"180"` where a `float` is declared, and
+converts `true` to `1.0`. For a file an analyst writes by hand — or exports from
+a spreadsheet, where a column formatted as text is an ordinary accident — that
+turns a type error into a *plausible financial input* that satisfies every
+tie-out.
+
+All numeric fields on files, mandates and results are therefore strict. `int`
+for `float` is still accepted, because JSON has one number type and `34` is how
+a spreadsheet writes `34.0`; everything else is refused. Integer fields reject
+`18.5`, `18.0` and `"18"` alike, and booleans reject `1` and `"true"`.
+
+Model-wide `strict=True` was not used: it also rejects the string forms of
+enums and dates, which are how `technology` and `preparedOn` legitimately
+arrive.
+
+### C-15 — sign conventions are enforced, not just documented
+
+`docs/pipeline-schema.md` §2 states `opex`, `depreciation`, `interestExpense`,
+`taxExpense`, `capex` and `debtRepayment` as positive magnitudes that carry
+their sign through the identity consuming them, and the debt schedule as all
+positive. Those lines now reject negatives, along with the physicals and the
+PP&E balance.
+
+This is worth enforcing at the schema rather than leaving to the tie-outs: the
+identities are all linear, so a negative `opex` satisfies every one of them
+while making EBITDA — and therefore the whole portfolio's earnings — look better
+than it is. `revenue`, `ebitda`, `ebit`, `pbt`, `netIncome`, `fcfe` and `dscr`
+stay signed, matching what the schema document annotates.
 
 ---
 
@@ -225,6 +281,29 @@ bands, and the generator's parameters.
 The per-project rates have not become unconfigurable — they have become *inputs*
 that the investment team does not turn, which is what makes the cross-file
 dispersion report load-bearing rather than a nicety (A-7, A-8).
+
+---
+
+### C-16 — `holdings` is the run's own candidate snapshot
+
+Conforming to 1B's A-14 rather than a decision of 1A's, recorded here because
+1A's models changed shape after it landed. `holdings` carries **every project in
+the run's eligible candidate set** — each with the full per-project scalar
+record of `GET /pipeline`, plus `selected` and `locked` — not one row per
+selected project projected onto the sixteen §7.4 columns.
+
+The reason is §11's "a run ID reopens the exact result": §7.4's *show all
+candidates* toggle, §7.3's map and §7.5's drawer all need more than the selected
+rows, and none of them can be reconstructed by merging against a live pipeline
+that has since moved. `ProjectScalars` models the shared record so `GET
+/pipeline` and a stored holding cannot drift apart, and `Holding` is that plus
+the two flags.
+
+Three consistency rules come with it, all stated in `docs/api.md` §8.2 and none
+of them previously checked: holdings are ordered by `id`, the `selected` flags
+agree with `selectedIds`, and the two cash-flow series carry their documented
+lengths — thirty years for `cashflow30Y_m`, the mandate's hold period for
+`cashflowHold_m`. A run still in flight has no aggregates and is exempt.
 
 ---
 

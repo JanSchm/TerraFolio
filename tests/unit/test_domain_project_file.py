@@ -399,3 +399,125 @@ def test_a_whole_file_error_renders_without_a_bare_colon(raw: dict[str, Any]) ->
     first = _messages(raw)[0]
     assert not first.startswith(":")
     assert "a project file carries what an analyst declares" in first
+
+
+# --------------------------------------------------------------------------
+# Strictness: a type error must not become a plausible number
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("block", "key", "value"),
+    [
+        ("asset", "capacityMw", "180"),
+        ("asset", "capacityMw", True),
+        ("asset", "netCapacityFactor", "0.23"),
+        ("revenue", "ppaPrice", "34"),
+        ("capitalStructure", "totalCapex", "103.32"),
+        ("assumptions", "taxRate", "0.2"),
+    ],
+)
+def test_a_number_is_never_conjured_from_a_string_or_a_flag(
+    raw: dict[str, Any], block: str, key: str, value: object
+) -> None:
+    """``True`` would otherwise validate as ``1.0``, which ties out and is wrong."""
+    raw[block][key] = value
+    assert _messages(raw) != []
+
+
+@pytest.mark.parametrize(
+    ("block", "key", "value"),
+    [
+        ("asset", "codYear", 2028.0),
+        ("asset", "codYear", "2028"),
+        ("revenue", "ppaTenorYears", 10.0),
+        ("assumptions", "depreciationYears", "25"),
+        ("assumptions", "debtTenorYears", 18.5),
+    ],
+)
+def test_an_integer_field_rejects_decimals_and_strings(
+    raw: dict[str, Any], block: str, key: str, value: object
+) -> None:
+    raw[block][key] = value
+    assert _messages(raw) != []
+
+
+@pytest.mark.parametrize("key", ["gridSecured", "omContracted"])
+def test_a_flag_rejects_one_and_the_word_true(raw: dict[str, Any], key: str) -> None:
+    for value in (1, "true"):
+        payload = copy.deepcopy(raw)
+        payload["execution"][key] = value
+        assert _messages(payload) != []
+
+
+def test_a_year_written_as_a_float_is_rejected(raw: dict[str, Any]) -> None:
+    raw["statements"]["years"][0] = 2027.0
+    assert _messages(raw) != []
+
+
+# --------------------------------------------------------------------------
+# Sign conventions
+# --------------------------------------------------------------------------
+
+_MAGNITUDE_LINES: Final = [
+    ("incomeStatement", "opex"),
+    ("incomeStatement", "depreciation"),
+    ("incomeStatement", "interestExpense"),
+    ("incomeStatement", "taxExpense"),
+    ("cashFlow", "interestPaid"),
+    ("cashFlow", "debtRepayment"),
+    ("cashFlow", "taxPaid"),
+    ("cashFlow", "capex"),
+    ("cashFlow", "debtDrawdown"),
+    ("cashFlow", "equityDrawdown"),
+    ("debtSchedule", "opening"),
+    ("debtSchedule", "drawdown"),
+    ("debtSchedule", "repayment"),
+    ("debtSchedule", "closing"),
+    ("balanceSheet", "ppe"),
+    ("physicals", "generationGwh"),
+    ("physicals", "achievedPrice"),
+]
+
+
+@pytest.mark.parametrize(("block", "line"), _MAGNITUDE_LINES)
+def test_a_magnitude_line_rejects_a_negative_value(
+    raw: dict[str, Any], block: str, line: str
+) -> None:
+    """These lines are stated positive and carry their sign through the identity.
+
+    A negative one still satisfies every tie-out — the identities are linear —
+    while making earnings look better than they are.
+    """
+    raw["statements"][block][line][7] = -1.0
+    messages = _messages(raw)
+    assert any(f"statements.{block}.{line}.7" in m for m in messages), messages
+
+
+@pytest.mark.parametrize("line", ["fcfe"])
+def test_signed_cash_flow_lines_still_accept_negatives(raw: dict[str, Any], line: str) -> None:
+    """FCFE is signed: negative means an outflow, and construction years are."""
+    assert raw["statements"]["cashFlow"][line][0] < 0
+    ProjectFile.model_validate(raw)
+
+
+@pytest.mark.parametrize("line", ["pbt", "netIncome"])
+def test_signed_income_lines_still_accept_negatives(raw: dict[str, Any], line: str) -> None:
+    raw["statements"]["incomeStatement"][line][7] = -1.0
+    ProjectFile.model_validate(raw)
+
+
+# --------------------------------------------------------------------------
+# Immutability reaches the contents
+# --------------------------------------------------------------------------
+
+
+def test_provenance_groups_cannot_be_removed_after_validation(
+    raw: dict[str, Any],
+) -> None:
+    """A dict field on a frozen model is still mutable, and the hash is over the file."""
+    project = ProjectFile.model_validate(raw)
+    with pytest.raises(AttributeError):
+        project.provenance.fields.pop(ProvenanceGroup.CAPEX)  # type: ignore[attr-defined]
+    with pytest.raises(TypeError):
+        project.provenance.fields[ProvenanceGroup.GRID] = None  # type: ignore[index]

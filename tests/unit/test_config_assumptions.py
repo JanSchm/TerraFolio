@@ -283,3 +283,53 @@ def test_an_override_pointing_nowhere_says_so(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setenv(ENV_ASSUMPTIONS_DIR, "/nonexistent/assumptions")
     with pytest.raises(AssumptionError, match="not a directory"):
         assumptions_dir()
+
+
+# --------------------------------------------------------------------------
+# Tables that only cover part of an enumeration
+# --------------------------------------------------------------------------
+
+
+def test_offshore_wind_may_be_absent_from_the_market_capacity_factors() -> None:
+    """It is drawn from a single band, not a market table (§9.2)."""
+    tables = load_default().generator.capacity_factor
+    assert set(tables) == {Technology.SOLAR_PV, Technology.ONSHORE_WIND}
+    assert load_default().generator.offshore_capacity_factor.low > 0
+
+
+def test_a_required_technology_table_may_not_be_absent(tmp_path: Path, text: str) -> None:
+    """Skipping it would return a valid-looking set and fail mid-generation."""
+    with pytest.raises(AssumptionError, match=r"missing key.*solar_pv"):
+        _load_variant(
+            tmp_path,
+            _edited(
+                text,
+                "[generator.capacity_factor.solar_pv]",
+                "[generator.capacity_factor.offshore_wind]",
+            ),
+        )
+
+
+def test_a_typo_in_a_partial_table_is_not_ignored(tmp_path: Path, text: str) -> None:
+    with pytest.raises(AssumptionError, match="unknown key"):
+        _load_variant(
+            tmp_path,
+            _edited(
+                text,
+                "[generator.capacity_factor.onshore_wind]",
+                "[generator.capacity_factor.onshore]",
+            ),
+        )
+
+
+@pytest.mark.parametrize("code", ["Es", "SPAIN", "E"])
+def test_a_market_key_must_be_an_alpha_two_code(tmp_path: Path, text: str, code: str) -> None:
+    with pytest.raises(AssumptionError, match="alpha-2 market code"):
+        _load_variant(tmp_path, _edited(text, "\nES = 58.0", f"\n{code} = 58.0"))
+
+
+def test_market_tables_are_frozen_and_ordered() -> None:
+    generator = load_default().generator
+    assert list(generator.baseload_price) == sorted(generator.baseload_price)
+    with pytest.raises(TypeError):
+        generator.baseload_price["XX"] = 1.0  # type: ignore[index]

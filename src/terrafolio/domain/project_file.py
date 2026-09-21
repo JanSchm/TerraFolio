@@ -16,7 +16,7 @@ import datetime as dt
 from collections.abc import Mapping, Sequence
 from typing import Annotated, Any, Final
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, model_validator
 from pydantic.alias_generators import to_camel
 
 from terrafolio.domain import file_bounds as fb
@@ -28,6 +28,16 @@ from terrafolio.domain.enums import (
     ProvenanceGroup,
     Stage,
     Technology,
+)
+from terrafolio.domain.fields import (
+    FREEZE_MAPPING,
+    Count,
+    Flag,
+    MagnitudeSeries30,
+    Number,
+    Series30,
+    Series30Opt,
+    Years30,
 )
 
 __all__ = [
@@ -47,10 +57,7 @@ __all__ = [
     "ProvenanceEntry",
     "Ratios",
     "RevenueTerms",
-    "Series30",
-    "Series30Opt",
     "Statements",
-    "Years30",
 ]
 
 FILE_CONFIG: Final = ConfigDict(
@@ -70,39 +77,6 @@ FILE_CONFIG: Final = ConfigDict(
     # the only NaN in the system (epic §5).
     allow_inf_nan=False,
 )
-
-
-def _exact_years[T](values: tuple[T, ...]) -> tuple[T, ...]:
-    """Require exactly 30 annual values.
-
-    The error carries the count but not the field name — pydantic prepends the
-    alias path (``statements.incomeStatement.revenue``), which is what the
-    analyst sees in their own file.
-    """
-    if len(values) != YEARS:
-        raise ValueError(f"must have exactly {YEARS} annual values, got {len(values)}")
-    return values
-
-
-Series30 = Annotated[tuple[float, ...], AfterValidator(_exact_years)]
-"""A 30-element annual series in €m, GWh or €/MWh.
-
-A tuple, not a list. ``frozen=True`` freezes attribute *assignment*, not a
-list's contents, so a list field would leave every "immutable" file quietly
-mutable — ``file.statements.cashFlow.fcfe.append(0.0)`` would work, and the
-snapshot hash would then no longer describe what is in memory.
-
-(This makes the statement blocks hashable but not :class:`ProjectFile` itself,
-whose ``provenance.fields`` is a mapping. Nothing needs to hash a file;
-:class:`~terrafolio.domain.mandate.Mandate` is the model that does, and it is
-built from tuples throughout for that reason.)
-"""
-
-Series30Opt = Annotated[tuple[float | None, ...], AfterValidator(_exact_years)]
-"""A 30-element series permitting nulls. Only ``ratios.dscr`` uses it (§5.7)."""
-
-Years30 = Annotated[tuple[int, ...], AfterValidator(_exact_years)]
-"""The 30 calendar years the arrays are indexed by."""
 
 
 # --------------------------------------------------------------------------
@@ -212,8 +186,8 @@ class Location(BaseModel):
     country: str = Field(min_length=1, max_length=fb.COUNTRY_NAME_MAX_LEN)
     country_code: str = Field(pattern=fb.COUNTRY_CODE_PATTERN)
     iso3: str = Field(pattern=fb.ISO3_PATTERN)
-    lat: float = Field(ge=-fb.LATITUDE_ABS_MAX, le=fb.LATITUDE_ABS_MAX)
-    lon: float = Field(ge=-fb.LONGITUDE_ABS_MAX, le=fb.LONGITUDE_ABS_MAX)
+    lat: Number = Field(ge=-fb.LATITUDE_ABS_MAX, le=fb.LATITUDE_ABS_MAX)
+    lon: Number = Field(ge=-fb.LONGITUDE_ABS_MAX, le=fb.LONGITUDE_ABS_MAX)
 
 
 class Asset(BaseModel):
@@ -223,10 +197,10 @@ class Asset(BaseModel):
 
     technology: Technology
     stage: Stage
-    capacity_mw: float = Field(gt=0, le=fb.CAPACITY_MW_MAX)
-    cod_year: int
-    net_capacity_factor: float = Field(gt=0, le=fb.NET_CAPACITY_FACTOR_MAX)
-    opex_per_kw_year: float = Field(gt=0, le=fb.OPEX_PER_KW_YEAR_MAX)
+    capacity_mw: Number = Field(gt=0, le=fb.CAPACITY_MW_MAX)
+    cod_year: Count
+    net_capacity_factor: Number = Field(gt=0, le=fb.NET_CAPACITY_FACTOR_MAX)
+    opex_per_kw_year: Number = Field(gt=0, le=fb.OPEX_PER_KW_YEAR_MAX)
 
 
 class RevenueTerms(BaseModel):
@@ -234,11 +208,11 @@ class RevenueTerms(BaseModel):
 
     model_config = FILE_CONFIG
 
-    ppa_share: float = Field(ge=0, le=fb.SHARE_MAX)
-    ppa_price: float = Field(ge=0, le=fb.PRICE_EUR_PER_MWH_MAX)
-    ppa_tenor_years: int = Field(ge=0, le=fb.PPA_TENOR_YEARS_MAX)
-    country_baseload_price: float = Field(gt=0, le=fb.PRICE_EUR_PER_MWH_MAX)
-    capture_factor: float = Field(gt=0, le=fb.CAPTURE_FACTOR_MAX)
+    ppa_share: Number = Field(ge=0, le=fb.SHARE_MAX)
+    ppa_price: Number = Field(ge=0, le=fb.PRICE_EUR_PER_MWH_MAX)
+    ppa_tenor_years: Count = Field(ge=0, le=fb.PPA_TENOR_YEARS_MAX)
+    country_baseload_price: Number = Field(gt=0, le=fb.PRICE_EUR_PER_MWH_MAX)
+    capture_factor: Number = Field(gt=0, le=fb.CAPTURE_FACTOR_MAX)
 
     @model_validator(mode="after")
     def _tenor_agrees_with_share(self) -> RevenueTerms:
@@ -256,11 +230,11 @@ class Execution(BaseModel):
 
     model_config = FILE_CONFIG
 
-    development_risk_score: float = Field(
+    development_risk_score: Number = Field(
         ge=fb.DEVELOPMENT_RISK_SCORE_MIN, le=fb.DEVELOPMENT_RISK_SCORE_MAX
     )
-    grid_secured: bool
-    om_contracted: bool
+    grid_secured: Flag
+    om_contracted: Flag
     currency: Currency
 
     @model_validator(mode="after")
@@ -282,9 +256,9 @@ class CapitalStructure(BaseModel):
 
     model_config = FILE_CONFIG
 
-    total_capex: float = Field(gt=0)
-    senior_debt: float = Field(ge=0)
-    max_gearing: float = Field(ge=0, le=fb.GEARING_MAX)
+    total_capex: Number = Field(gt=0)
+    senior_debt: Number = Field(ge=0)
+    max_gearing: Number = Field(ge=0, le=fb.GEARING_MAX)
 
     @model_validator(mode="after")
     def _debt_within_cost(self) -> CapitalStructure:
@@ -312,16 +286,16 @@ class DeclaredAssumptions(BaseModel):
 
     model_config = FILE_CONFIG
 
-    base_year: int = Field(ge=fb.BASE_YEAR_MIN, le=fb.BASE_YEAR_MAX)
-    tax_rate: float = Field(ge=0, le=fb.TAX_RATE_MAX)
-    depreciation_years: int = Field(ge=fb.DEPRECIATION_YEARS_MIN, le=fb.DEPRECIATION_YEARS_MAX)
-    debt_rate: float = Field(ge=0, le=fb.DEBT_RATE_MAX)
-    debt_tenor_years: int = Field(ge=0, le=fb.DEBT_TENOR_YEARS_MAX)
-    degradation_rate: float = Field(ge=0, le=fb.DEGRADATION_RATE_MAX)
-    price_escalation: float = Field(ge=fb.ESCALATION_MIN, le=fb.ESCALATION_MAX)
-    merchant_escalation: float = Field(ge=fb.ESCALATION_MIN, le=fb.ESCALATION_MAX)
-    opex_escalation: float = Field(ge=fb.ESCALATION_MIN, le=fb.ESCALATION_MAX)
-    target_dscr: float = Field(ge=fb.TARGET_DSCR_MIN, le=fb.TARGET_DSCR_MAX)
+    base_year: Count = Field(ge=fb.BASE_YEAR_MIN, le=fb.BASE_YEAR_MAX)
+    tax_rate: Number = Field(ge=0, le=fb.TAX_RATE_MAX)
+    depreciation_years: Count = Field(ge=fb.DEPRECIATION_YEARS_MIN, le=fb.DEPRECIATION_YEARS_MAX)
+    debt_rate: Number = Field(ge=0, le=fb.DEBT_RATE_MAX)
+    debt_tenor_years: Count = Field(ge=0, le=fb.DEBT_TENOR_YEARS_MAX)
+    degradation_rate: Number = Field(ge=0, le=fb.DEGRADATION_RATE_MAX)
+    price_escalation: Number = Field(ge=fb.ESCALATION_MIN, le=fb.ESCALATION_MAX)
+    merchant_escalation: Number = Field(ge=fb.ESCALATION_MIN, le=fb.ESCALATION_MAX)
+    opex_escalation: Number = Field(ge=fb.ESCALATION_MIN, le=fb.ESCALATION_MAX)
+    target_dscr: Number = Field(ge=fb.TARGET_DSCR_MIN, le=fb.TARGET_DSCR_MAX)
 
 
 # --------------------------------------------------------------------------
@@ -334,8 +308,8 @@ class Physicals(BaseModel):
 
     model_config = FILE_CONFIG
 
-    generation_gwh: Series30
-    achieved_price: Series30
+    generation_gwh: MagnitudeSeries30
+    achieved_price: MagnitudeSeries30
 
 
 class IncomeStatement(BaseModel):
@@ -344,13 +318,13 @@ class IncomeStatement(BaseModel):
     model_config = FILE_CONFIG
 
     revenue: Series30
-    opex: Series30
+    opex: MagnitudeSeries30
     ebitda: Series30
-    depreciation: Series30
+    depreciation: MagnitudeSeries30
     ebit: Series30
-    interest_expense: Series30
+    interest_expense: MagnitudeSeries30
     pbt: Series30
-    tax_expense: Series30
+    tax_expense: MagnitudeSeries30
     net_income: Series30
 
 
@@ -359,12 +333,12 @@ class CashFlow(BaseModel):
 
     model_config = FILE_CONFIG
 
-    interest_paid: Series30
-    debt_repayment: Series30
-    tax_paid: Series30
-    capex: Series30
-    debt_drawdown: Series30
-    equity_drawdown: Series30
+    interest_paid: MagnitudeSeries30
+    debt_repayment: MagnitudeSeries30
+    tax_paid: MagnitudeSeries30
+    capex: MagnitudeSeries30
+    debt_drawdown: MagnitudeSeries30
+    equity_drawdown: MagnitudeSeries30
     fcfe: Series30
 
 
@@ -373,10 +347,10 @@ class DebtSchedule(BaseModel):
 
     model_config = FILE_CONFIG
 
-    opening: Series30
-    drawdown: Series30
-    repayment: Series30
-    closing: Series30
+    opening: MagnitudeSeries30
+    drawdown: MagnitudeSeries30
+    repayment: MagnitudeSeries30
+    closing: MagnitudeSeries30
 
 
 class BalanceSheet(BaseModel):
@@ -388,7 +362,7 @@ class BalanceSheet(BaseModel):
 
     model_config = FILE_CONFIG
 
-    ppe: Series30
+    ppe: MagnitudeSeries30
 
 
 class Ratios(BaseModel):
@@ -434,6 +408,19 @@ class ProvenanceEntry(BaseModel):
     note: str | None = Field(default=None, max_length=fb.NOTE_MAX_LEN)
 
 
+ProvenanceFields = Annotated[
+    Mapping[ProvenanceGroup, ProvenanceEntry],
+    FREEZE_MAPPING,
+    PlainSerializer(dict, return_type=dict[ProvenanceGroup, ProvenanceEntry]),
+]
+"""The seven provenance groups, read-only once validated.
+
+A plain ``dict`` here would still accept ``file.provenance.fields.pop(...)`` on
+a model whose whole point is that it is frozen — and the snapshot hash is taken
+over the file, so a mutated file is one the hash no longer describes.
+"""
+
+
 class Provenance(BaseModel):
     """Who produced the file, when, and how much of it is prediction (§8).
 
@@ -446,7 +433,7 @@ class Provenance(BaseModel):
     prepared_by: str = Field(min_length=1, max_length=fb.TEXT_MAX_LEN)
     prepared_on: dt.date
     model_version: str = Field(min_length=1, max_length=fb.TEXT_MAX_LEN)
-    fields: dict[ProvenanceGroup, ProvenanceEntry]
+    fields: ProvenanceFields
 
     @model_validator(mode="after")
     def _covers_every_group(self) -> Provenance:

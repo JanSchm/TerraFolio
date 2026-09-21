@@ -18,8 +18,10 @@ from typing import Annotated, Final
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
+from terrafolio.domain import file_bounds as fb
 from terrafolio.domain import mandate_bounds as mb
 from terrafolio.domain.enums import RiskAppetite, Stage
+from terrafolio.domain.fields import Count, Flag, Number
 
 __all__ = ["Mandate"]
 
@@ -50,8 +52,17 @@ def _sorted_unique[T: (str, Stage)](values: tuple[T, ...]) -> tuple[T, ...]:
     return tuple(sorted(set(values)))
 
 
+CountryCode = Annotated[str, Field(pattern=fb.COUNTRY_CODE_PATTERN)]
+"""An ISO 3166-1 alpha-2 code, the same domain the file schema uses.
+
+Worth validating rather than passing through: ``"Germany"`` or ``"de"`` would
+otherwise be accepted, hashed into the mandate, and then match nothing — and the
+user would be told no candidates pass the screens, which sends them hunting
+through the other eight rather than fixing the country list.
+"""
+
 CountrySet = Annotated[
-    tuple[str, ...],
+    tuple[CountryCode, ...],
     Field(min_length=1),
     AfterValidator(_sorted_unique),
 ]
@@ -74,28 +85,28 @@ class Mandate(BaseModel):
     model_config = MANDATE_CONFIG
 
     # §5.1 Objective.
-    available_capital_m: float = Field(
+    available_capital_m: Number = Field(
         alias="availableCapital_m",
         ge=mb.AVAILABLE_CAPITAL_M.lo,
         le=mb.AVAILABLE_CAPITAL_M.hi,
         json_schema_extra=mb.AVAILABLE_CAPITAL_M.multiple_of,
     )
-    capacity_target_mw: float = Field(
+    capacity_target_mw: Number = Field(
         ge=mb.CAPACITY_TARGET_MW.lo,
         le=mb.CAPACITY_TARGET_MW.hi,
         json_schema_extra=mb.CAPACITY_TARGET_MW.multiple_of,
     )
-    solar_share: float = Field(
+    solar_share: Number = Field(
         ge=mb.SOLAR_SHARE.lo,
         le=mb.SOLAR_SHARE.hi,
         json_schema_extra=mb.SOLAR_SHARE.multiple_of,
     )
-    target_irr: float = Field(
+    target_irr: Number = Field(
         ge=mb.TARGET_IRR.lo,
         le=mb.TARGET_IRR.hi,
         json_schema_extra=mb.TARGET_IRR.multiple_of,
     )
-    hold_years: int = Field(
+    hold_years: Count = Field(
         ge=int(mb.HOLD_YEARS.lo),
         le=int(mb.HOLD_YEARS.hi),
         json_schema_extra=mb.HOLD_YEARS.multiple_of,
@@ -104,37 +115,37 @@ class Mandate(BaseModel):
     # §5.2 Hard constraints.
     countries: CountrySet
     stages: StageSet
-    min_leverage: float = Field(
+    min_leverage: Number = Field(
         ge=mb.MIN_LEVERAGE.lo,
         le=mb.MIN_LEVERAGE.hi,
         json_schema_extra=mb.MIN_LEVERAGE.multiple_of,
     )
-    min_dscr: float = Field(
+    min_dscr: Number = Field(
         ge=mb.MIN_DSCR.lo,
         le=mb.MIN_DSCR.hi,
         json_schema_extra=mb.MIN_DSCR.multiple_of,
     )
-    max_merchant_share: float = Field(
+    max_merchant_share: Number = Field(
         ge=mb.MAX_MERCHANT_SHARE.lo,
         le=mb.MAX_MERCHANT_SHARE.hi,
         json_schema_extra=mb.MAX_MERCHANT_SHARE.multiple_of,
     )
-    max_country_share: float = Field(
+    max_country_share: Number = Field(
         ge=mb.MAX_COUNTRY_SHARE.lo,
         le=mb.MAX_COUNTRY_SHARE.hi,
         json_schema_extra=mb.MAX_COUNTRY_SHARE.multiple_of,
     )
-    max_project_share: float = Field(
+    max_project_share: Number = Field(
         ge=mb.MAX_PROJECT_SHARE.lo,
         le=mb.MAX_PROJECT_SHARE.hi,
         json_schema_extra=mb.MAX_PROJECT_SHARE.multiple_of,
     )
-    cod_from: int = Field(
+    cod_from: Count = Field(
         ge=int(mb.COD_FROM.lo),
         le=int(mb.COD_FROM.hi),
         json_schema_extra=mb.COD_FROM.multiple_of,
     )
-    cod_to: int = Field(
+    cod_to: Count = Field(
         ge=int(mb.COD_TO.lo),
         le=int(mb.COD_TO.hi),
         json_schema_extra=mb.COD_TO.multiple_of,
@@ -142,9 +153,9 @@ class Mandate(BaseModel):
 
     # §5.3 Risk and execution screens.
     risk_appetite: RiskAppetite
-    grid_secured_only: bool = False
-    eur_revenue_only: bool = False
-    om_contracted_only: bool = False
+    grid_secured_only: Flag = False
+    eur_revenue_only: Flag = False
+    om_contracted_only: Flag = False
 
     @model_validator(mode="after")
     def _cod_window_is_ordered(self) -> Mandate:

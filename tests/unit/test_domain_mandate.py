@@ -177,3 +177,42 @@ def test_the_reduction_is_frozen() -> None:
     scalars = mandate_to_scalars(Mandate.model_validate(VALID))
     with pytest.raises(AttributeError):
         scalars.min_dscr = 2.0  # type: ignore[misc]
+
+
+# --------------------------------------------------------------------------
+# Strictness
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("value", ["Germany", "de", "ESP", "E", "D3"])
+def test_a_country_must_be_an_alpha_two_code(value: str) -> None:
+    """Otherwise it is hashed into the mandate and then matches nothing.
+
+    The screen would report no candidates pass, which sends the user hunting
+    through the other eight rather than fixing the country list.
+    """
+    with pytest.raises(ValidationError):
+        Mandate.model_validate(_with(countries=[value]))
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("minDscr", "1.25"),
+        ("availableCapital_m", "1200"),
+        ("solarShare", True),
+        ("holdYears", 10.0),
+        ("holdYears", "10"),
+        ("codFrom", 2027.0),
+        ("gridSecuredOnly", 1),
+        ("eurRevenueOnly", "true"),
+    ],
+)
+def test_mandate_numbers_are_not_coerced(key: str, value: object) -> None:
+    with pytest.raises(ValidationError):
+        Mandate.model_validate(_with(**{key: value}))
+
+
+def test_an_integer_is_still_a_valid_float() -> None:
+    """JSON has one number type; ``1200`` is how a client writes ``1200.0``."""
+    assert Mandate.model_validate(_with(availableCapital_m=1200)).available_capital_m == 1200.0
