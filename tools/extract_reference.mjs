@@ -314,9 +314,18 @@ const REF = Object.freeze({
   taxRate: 0.20,
   depreciationYears: 25,
   rampYearFactor: 0.55,
+  // Multipliers, used in the arithmetic exactly as the reference writes them.
   ppaEscalation: 1.005,
   merchantEscalation: 1.021,
   opexEscalation: 1.021,
+  // The same escalators as RATES, which is how a file states them: schema §2,
+  // "shares and rates are fractions of one, never percentages", and it is what
+  // every other rate in the file already looks like (taxRate 0.2, debtRate
+  // 0.055). Declared as literals rather than derived: `1.021 - 1` is
+  // 0.020999999999999908, which is not the number anyone means.
+  ppaEscalationRate: 0.005,
+  merchantEscalationRate: 0.021,
+  opexEscalationRate: 0.021,
   lcoeDiscountRate: 0.06,
   degradation: { Solar: 0.005, default: 0.002 },
   captureFactor: { Solar: 0.68, Wind: 0.88, 'Offshore wind': 0.86 },
@@ -324,6 +333,17 @@ const REF = Object.freeze({
 });
 
 const ANNUITY_FACTOR = REF.debtRate / (1 - Math.pow(1 + REF.debtRate, -REF.debtTenorYears));
+
+// The rate form and the multiplier form must describe the same escalator.
+for (const [rate, multiplier, what] of [
+  [REF.ppaEscalationRate, REF.ppaEscalation, 'PPA'],
+  [REF.merchantEscalationRate, REF.merchantEscalation, 'merchant'],
+  [REF.opexEscalationRate, REF.opexEscalation, 'opex'],
+]) {
+  if (1 + rate !== multiplier) {
+    throw new Error(`${what} escalation rate ${rate} does not match its multiplier ${multiplier}`);
+  }
+}
 
 const degradationFor = (tech) => (tech === 'Solar' ? REF.degradation.Solar : REF.degradation.default);
 const buildYearsFor = (p) => Math.max(1, p.cod - REF.firstYear);
@@ -544,8 +564,73 @@ const debtSizingBasisOf = (p) =>
 // of one.  Costs are positive magnitudes; only `fcfe` is signed.
 // ===========================================================================
 
-const TECHNOLOGY = { Solar: 'solar', Wind: 'onshore_wind', 'Offshore wind': 'offshore_wind' };
+// ---------------------------------------------------------------------------
+// The project-file contract is not settled.  1B's docs/pipeline-schema.md and
+// 1A's pydantic ProjectFile have landed incompatible, in two places:
+//
+//   * the technology enum — `solar` (schema §4.2) vs `solar_pv` (1A's model);
+//   * five `assumptions` fields 1A requires that 1B's template does not carry.
+//     Since schema §3 makes unknown keys a validation error, no single file
+//     satisfies both.
+//
+// 1B's own templates/project-template.json fails 1A's model with exactly the
+// six errors 1C's files do, so this is a disagreement between those two and
+// not a defect in either's implementation of one contract.  Raised on #1:
+//   https://github.com/JanSchm/TerraFolio/issues/1#issuecomment-5766794430
+//
+// Rather than guess, the contract is a parameter.  `--contract=<name>` selects
+// one; the committed fixtures are emitted under the default.  When the epic
+// settles it, the change is the DEFAULT_CONTRACT constant and nothing else —
+// and if the resolution is the recommended one (1B's spelling, 1A's fields),
+// it is a new three-line entry here.
+// ---------------------------------------------------------------------------
+
 const STAGE = { Greenfield: 'greenfield', 'Ready-to-build': 'ready_to_build', Construction: 'construction' };
+
+const CONTRACTS = {
+  // docs/pipeline-schema.md §4.2 / templates/project-template.json. The epic
+  // calls that document Normative and puts docs/ and templates/ in 1B's
+  // ownership row, so it is the default until the epic says otherwise.
+  'pipeline-schema-1.0': {
+    describe: "1B's docs/pipeline-schema.md §4.2 and templates/project-template.json",
+    technology: { Solar: 'solar', Wind: 'onshore_wind', 'Offshore wind': 'offshore_wind' },
+    assumptionsExtras: false,
+  },
+  // 1A's src/terrafolio/domain/project_file.py, which is what actually rejects
+  // a file at load. Its five extra assumptions are real reference values, not
+  // padding: a validator that wants to REPRODUCE the physicals rather than
+  // take them on trust needs the degradation rate and the three escalators,
+  // and targetDscr records the sizing basis epic §6.3 fixes.
+  'domain-model-1a': {
+    describe: "1A's pydantic ProjectFile in src/terrafolio/domain/project_file.py",
+    technology: { Solar: 'solar_pv', Wind: 'onshore_wind', 'Offshore wind': 'offshore_wind' },
+    assumptionsExtras: true,
+  },
+  // What 1C recommends the epic settle on: 1B's spelling, 1A's fields.
+  'reconciled': {
+    describe: "1C's recommendation on #1 — 1B's enum spelling with 1A's five assumptions",
+    technology: { Solar: 'solar', Wind: 'onshore_wind', 'Offshore wind': 'offshore_wind' },
+    assumptionsExtras: true,
+  },
+};
+
+const DEFAULT_CONTRACT = 'pipeline-schema-1.0';
+
+// The contract that templates/project-template.json describes. The closed-shape
+// check is 1B's oracle, so it governs that contract and no other.
+const TEMPLATE_CONTRACT = 'pipeline-schema-1.0';
+
+let CONTRACT = CONTRACTS[DEFAULT_CONTRACT];
+
+const contractNameOf = (c) => Object.keys(CONTRACTS).find((k) => CONTRACTS[k] === c);
+
+function selectContract(name) {
+  if (!Object.prototype.hasOwnProperty.call(CONTRACTS, name)) {
+    fail(`unknown contract '${name}'; known: ${Object.keys(CONTRACTS).join(', ')}`);
+  }
+  CONTRACT = CONTRACTS[name];
+  return name;
+}
 
 // Fixed, never `new Date()`: the emitted bytes must be identical on every
 // machine and in every CI image. This is the date 1C first extracted the
@@ -621,7 +706,7 @@ function toProjectFile(p, series) {
       lon: p.lon,
     },
     asset: {
-      technology: TECHNOLOGY[p.tech],
+      technology: CONTRACT.technology[p.tech],
       stage: STAGE[p.stage],
       capacityMw: p.mw,
       codYear: p.cod,
@@ -654,6 +739,15 @@ function toProjectFile(p, series) {
       depreciationYears: REF.depreciationYears,
       debtRate: REF.debtRate,
       debtTenorYears: REF.debtTenorYears,
+      // Present only under a contract that asks for them. Every value is the
+      // reference's own: they are not invented to satisfy a model.
+      ...(CONTRACT.assumptionsExtras ? {
+        degradationRate: degradationFor(p.tech),
+        priceEscalation: REF.ppaEscalationRate,
+        merchantEscalation: REF.merchantEscalationRate,
+        opexEscalation: REF.opexEscalationRate,
+        targetDscr: REF.sizingDSCR,
+      } : {}),
     },
     statements: {
       years: series.year,
@@ -1712,8 +1806,10 @@ const slug = (name) => name
 
 const PUBLISHED_TOTALS = { mw: 6300, capex: 7673.072, equity: 2956.812, gwh: 17159.720 };
 const PUBLISHED_COMPOSITION = {
-  // docs/pipeline-schema §4.2 enum values, not the reference's display strings.
-  technology: { solar: 22, onshore_wind: 22, offshore_wind: 4 },
+  // Counts are per the reference's own technology names; the expected enum
+  // values are taken from the active contract, so this check does not have to
+  // be edited when the contract changes.
+  technologyCounts: { Solar: 22, Wind: 22, 'Offshore wind': 4 },
   stage: { ready_to_build: 20, greenfield: 17, construction: 11 },
   countries: 14,
   codFrom: 2027,
@@ -1723,8 +1819,12 @@ const PUBLISHED_COMPOSITION = {
 function checkPipeline(projects, files) {
   const report = { tieOuts: [], totals: {}, worstTieOut: { name: null, residual: 0 } };
 
-  TEMPLATE_SHAPE = loadTemplateShape();
+  const templateGoverns = contractNameOf(CONTRACT) === TEMPLATE_CONTRACT;
+  TEMPLATE_SHAPE = templateGoverns ? loadTemplateShape() : null;
   report.templateShapeChecked = TEMPLATE_SHAPE !== null;
+  report.templateShapeSkippedReason = templateGoverns
+    ? (TEMPLATE_SHAPE === null ? 'templates/project-template.json is absent (lands with #3)' : null)
+    : `contract '${contractNameOf(CONTRACT)}' is not the one templates/project-template.json describes`;
 
   if (projects.length !== 48) fail(`expected 48 projects, got ${projects.length}`);
   const ids = projects.map((p) => p.id);
@@ -1758,7 +1858,8 @@ function checkPipeline(projects, files) {
   };
   const tech = tally('tech', (f) => f.asset.technology);
   const stage = tally('stage', (f) => f.asset.stage);
-  for (const [k, v] of Object.entries(PUBLISHED_COMPOSITION.technology)) {
+  for (const [refName, v] of Object.entries(PUBLISHED_COMPOSITION.technologyCounts)) {
+    const k = CONTRACT.technology[refName];
     if (tech[k] !== v) fail(`technology split: ${k} is ${tech[k]}, expected ${v}`);
   }
   for (const [k, v] of Object.entries(PUBLISHED_COMPOSITION.stage)) {
@@ -1894,6 +1995,7 @@ async function build(outDir) {
     $schemaId: 'terrafolio/golden-manifest/v1',
     tool: `tools/extract_reference.mjs@${TOOL_VERSION}`,
     schemaVersion: SCHEMA_VERSION,
+    contract: contractNameOf(CONTRACT),
     bundle: { name: BUNDLE_NAME, sha256: BUNDLE_SHA256 },
     // Deliberately no timestamp and no runtime version: this file must be
     // byte-identical across machines and CI images.
@@ -1954,9 +2056,10 @@ function summarise(built) {
   lines.push(`  generation ${t.gwh.toFixed(3)} GWh/y`);
   lines.push('');
   lines.push(`Tie-outs: ${report.tieOuts.length} checks x 48 files, all pass.`);
+  lines.push(`Contract: ${contractNameOf(CONTRACT)} - ${CONTRACT.describe}`);
   lines.push(report.templateShapeChecked
     ? '  closed-template shape: ENFORCED against templates/project-template.json'
-    : '  closed-template shape: NOT CHECKED - templates/project-template.json is absent (lands with #3)');
+    : `  closed-template shape: NOT CHECKED - ${report.templateShapeSkippedReason}`);
   lines.push(`  worst residual: ${report.worstTieOut.residual.toExponential(3)}  (${report.worstTieOut.name})`);
   const top = [...report.tieOuts].sort((a, b) => b.worstResidual - a.worstResidual).slice(0, 5);
   for (const x of top) lines.push(`  ${x.worstResidual.toExponential(3).padStart(10)}  ${x.name}`);
@@ -1984,6 +2087,23 @@ async function main(argv) {
   const major = Number(process.versions.node.split('.')[0]);
   if (!Number.isFinite(major) || major < MIN_NODE_MAJOR) {
     fail(`this tool needs Node ${MIN_NODE_MAJOR} or newer; running on ${process.versions.node}`);
+  }
+
+  if (argv.includes('--help') || argv.includes('-h')) {
+    process.stdout.write(usage());
+    return 0;
+  }
+
+  const contractArg = argv.find((a) => a.startsWith('--contract='));
+  const contractName = selectContract(contractArg ? contractArg.slice('--contract='.length) : DEFAULT_CONTRACT);
+
+  // --out lets a non-default contract be emitted somewhere else for
+  // validation, so the committed fixtures only ever carry the default.
+  const outArg = argv.find((a) => a.startsWith('--out='));
+  if (outArg && contractName === DEFAULT_CONTRACT && !argv.includes('--force-default-out')) {
+    // Guard against a stray --out quietly writing the default set elsewhere
+    // and leaving the committed one stale.
+    process.stderr.write('note: --out with the default contract writes a copy, not the committed set\n');
   }
 
   const check = argv.includes('--check');
@@ -2027,9 +2147,18 @@ async function main(argv) {
     return 0;
   }
 
+  const target = outArg ? path.resolve(ROOT, outArg.slice('--out='.length)) : FIXTURES_DIR;
+  if (contractName !== DEFAULT_CONTRACT && target === FIXTURES_DIR) {
+    fail(
+      `refusing to write the committed fixtures under contract '${contractName}'.\n` +
+      `The committed set is emitted under '${DEFAULT_CONTRACT}'. To try another contract, ` +
+      `pass --out=<dir> as well; to change what is committed, change DEFAULT_CONTRACT.`
+    );
+  }
+
   // Build and validate in a staging directory, then swap it in. Nothing touches
   // the committed fixtures until every assertion has passed.
-  const staging = stagingPathFor(FIXTURES_DIR);
+  const staging = stagingPathFor(target);
   fs.rmSync(staging, { recursive: true, force: true });
   let built;
   try {
@@ -2040,16 +2169,35 @@ async function main(argv) {
     throw err;
   }
 
-  const before = new Set(listFixtureFiles(FIXTURES_DIR));
-  commitStaged(FIXTURES_DIR, staging);
+  const before = new Set(listFixtureFiles(target));
+  commitStaged(target, staging);
   const removed = [...before].filter((rel) => !built.artefacts.has(rel)).sort();
 
   process.stdout.write(`${summarise(built)}\n`);
   if (removed.length) {
     process.stdout.write(`Removed ${removed.length} stale file(s):\n${removed.map((r) => `  ${r}`).join('\n')}\n`);
   }
-  process.stdout.write(`Written to ${path.relative(ROOT, FIXTURES_DIR)}/\n`);
+  process.stdout.write(`Written to ${path.relative(ROOT, target)}/ under contract '${contractName}'\n`);
   return 0;
+}
+
+function usage() {
+  const contracts = Object.entries(CONTRACTS)
+    .map(([k, v]) => `    ${k.padEnd(22)}${v.describe}${k === DEFAULT_CONTRACT ? '  [default]' : ''}`)
+    .join('\n');
+  return [
+    'Usage: node tools/extract_reference.mjs [options]',
+    '',
+    '  (no options)          emit every fixture under the default contract',
+    '  --check               re-extract and byte-compare against the committed fixtures',
+    '  --stdout-manifest     print the manifest only, for cross-process determinism checks',
+    '  --contract=<name>     emit under a different project-file contract (needs --out)',
+    '  --out=<dir>           write somewhere other than tests/golden/fixtures',
+    '',
+    '  Contracts:',
+    contracts,
+    '',
+  ].join('\n');
 }
 
 function listFixtureFiles(dir, prefix = '') {

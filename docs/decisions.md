@@ -336,3 +336,55 @@ it. The result carries the gradation §8.3 describes — 17 greenfield projects 
 `low` for capex and debt terms, 11 construction projects at `binding_offer`, `grid` at
 `placeholder` for the 11 without a secured connection — so a consumer displaying provenance has
 something real to display, and the fixtures exercise the vocabulary rather than flat-lining it.
+
+### 1C-20 · The project-file contract is a parameter until the epic settles it
+
+1A's pydantic `ProjectFile` and 1B's `docs/pipeline-schema.md` landed incompatible. **1B's own
+`templates/project-template.json` fails 1A's model with exactly the six errors 1C's files did**, so
+this is a disagreement between those two contracts rather than a defect in either's
+implementation of one. Raised on #1; no resolution yet.
+
+Two disagreements, and after investigation only one survives:
+
+1. **The technology enum** — `solar` (schema §4.2) against `solar_pv` (1A's model). Genuinely
+   arbitrary, genuinely irreconcilable: one file cannot carry both.
+2. **Five `assumptions` fields** — `degradationRate`, `priceEscalation`, `merchantEscalation`,
+   `opexEscalation`, `targetDscr`, required by 1A and absent from 1B's template. Since §3 makes
+   unknown keys an error, no single file satisfies both **as they stand** — but every value is in
+   the reference, so this is a gap 1B can close by adding five fields rather than a conflict.
+
+So 1C does not guess. `--contract=<name>` selects one, the committed fixtures are emitted under
+`DEFAULT_CONTRACT`, and settling the question is a one-constant change:
+
+| Contract | Emits | Verified |
+|---|---|---|
+| `pipeline-schema-1.0` *(default)* | 1B's enum, no extra assumptions | 48/48 against `templates/project-template.json`, key for key |
+| `domain-model-1a` | 1A's enum, five extra assumptions | **48/48 against 1A's pydantic `ProjectFile`** |
+| `reconciled` | 1B's enum, five extra assumptions | 26/48 against 1A — only the 22 solar projects fail, on the enum alone |
+
+The default is `pipeline-schema-1.0` because the epic calls that document Normative and puts `docs/`
+and `templates/` in 1B's ownership row, so where the two merely differ in spelling, 1B's wins by
+construction.
+
+The closed-template check is 1B's oracle, so it governs `pipeline-schema-1.0` and is skipped — with
+its reason printed — under any other contract. A non-default contract cannot overwrite the committed
+fixtures; it requires `--out`.
+
+**What this reduces the disagreement to.** `domain-model-1a` validating 48/48 and `reconciled`
+failing only on `asset.technology` together prove the entire remaining gap is one enum value. Every
+other difference is now closed.
+
+### 1C-21 · Escalation is a rate in a file, a multiplier in the arithmetic
+
+Emitting the escalators, 1C first wrote the reference's literals — `1.005`, `1.021` — and 1A's model
+rejected them: `Input should be less than or equal to 0.25`. It is right, and so is schema §2:
+"shares and rates are fractions of one, never percentages". Every other rate in the file already
+reads that way — `taxRate` 0.2, `debtRate` 0.055, `degradationRate` 0.005.
+
+Files carry `0.005` and `0.021`; the arithmetic keeps `1.005` and `1.021`, exactly as the reference
+writes them. Both are declared as literals and the tool asserts `1 + rate === multiplier` at
+startup, because deriving one from the other gives `1.021 - 1 = 0.020999999999999908` — not the
+number anyone means, and not one that would survive a validator's bounds check cleanly.
+
+**If 1B adds the five fields, they should be rates.** That is what 1A expects and what §2 already
+requires of everything else in the block.

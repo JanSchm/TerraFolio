@@ -2,6 +2,7 @@
   "$schemaId": "terrafolio/golden-manifest/v1",
   "tool": "tools/extract_reference.mjs@1.1.0",
   "schemaVersion": "1.0",
+  "contract": "pipeline-schema-1.0",
   "bundle": {
     "name": "Portfolio Optimiser (standalone).html",
     "sha256": "bc4722f836d1274a4351c1c986f7661ae0ef399c5f915cad758dbce4f10a7463"
