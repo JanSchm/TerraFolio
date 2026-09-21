@@ -1435,6 +1435,196 @@ because epic §2 says files carry a balance sheet and 1C reports it can already
 emit one that balances to 4.8e-13 — so the cost looks close to zero, and the
 "balance sheet" in a file is currently a single line.
 
+## 2B — the run store and the CSV exports
+
+Issue #7. The store behind §11's addressable run and §12's audit trail, and the
+two exports §7.7 asks for.
+
+### 2B-1 — the CSV cells carry raw numbers; §14 formatting goes in the header
+
+Two landed documents disagree. [`api.md` §9](api.md#9-exports) says money
+columns "carry raw numbers, not formatted strings — a CSV is for a spreadsheet,
+not for reading". [`ui-contract.md` §2](ui-contract.md) says these numbers are
+"formatted twice: client-side in `js/format.js`, and server-side for
+`holdings.csv`". Issue #7 asks for §14 formatting and for "€ signs and
+thousands separators intact" in Excel.
+
+**Decided: raw cells, formatted header.** `api.md` is the contract the endpoint
+implements and is specific to the export, so it wins for the cells. Three
+reasons beyond precedence:
+
+- A CSV cannot carry cell *formatting* at all. `€1,200m` in a cell is a string,
+  and Excel imports it as text — so the column stops summing, which is the one
+  thing a spreadsheet is for.
+- #7's own acceptance criterion requires `cashflow.csv` totals to match
+  `cashflow30Y_m`. Rounded display values cannot sum to the stored number; raw
+  ones do, exactly.
+- The euro signs and separators the criterion asks for **are** in the file, in
+  the `#` comment lines carrying the run reference and the mandate, where a
+  human reads them. The UTF-8 BOM is what keeps them intact in Excel, and
+  `api.md` §9 already requires the BOM for exactly that reason.
+
+The §14 half-up formatter is implemented and exported from `export/csv.py`, so
+`ui-contract.md` §2's requirement is met where it applies — the header now, the
+committee pack and #12's client/server parity tests next. Rounding is `Decimal`
+with `ROUND_HALF_UP`: Python's `round` is half-even, so left to the default the
+same stored run shows `1.13×` on screen and `1.12×` in its own export.
+
+**`ui-contract.md` §2's sentence about `holdings.csv` needs narrowing to the
+committee pack.** That file is #3's and then #10's; raised on #1 rather than
+edited here.
+
+### 2B-2 — `holdings.csv` has seventeen columns, not the eighteen in issue #7
+
+Issue #7's scope says "emit **eighteen** columns, not §7.4's sixteen: split
+project name, country and internal ID into their own columns".
+[`api.md` §9.1](api.md#91-holdingscsv-columns) had already answered the same
+question and got seventeen, by the same reasoning: of §7.4's sixteen, the first
+is the lock control — a button rather than a value — and the second packs three
+fields into one cell, so `16 − 1 + 2 = 17`. The Log already records it.
+
+**Decided: seventeen, per `api.md`.** The wire contract names and orders them,
+#9 serves them and #11 tests against them; forking it for one extra column
+would be a contract change with no beneficiary. The issue's count appears to
+predate `api.md` §9.1 rather than to disagree with it.
+
+### 2B-3 — the run reference is an integer; `run_ref` is its label
+
+§7.6 says "each run gets an incrementing reference used in the export", and
+`RunRecord.run_ref` is a string whose only published example is `api.md` §8's
+`"A-4"`. Nothing defines the letter.
+
+**Decided.** `run_reference` is the monotonic integer and the ordering key for
+every list query — never `created_at`, whose clock can skew between worker
+hosts and silently reorder history. `run_ref` is `f"{series}-{reference}"`,
+which reproduces `A-4` for run 4.
+
+The series letter is a **store-generation marker**, fixed at `A` for v1, and it
+is the primary key of the `run_sequence` table rather than a hardcoded prefix.
+It exists so that a store rebuilt from a backup, or a reference that ever has
+to be scoped per fund, can start a distinct series instead of minting labels
+that collide with references a committee has already been shown.
+
+### 2B-4 — the reference is claimed from a counter, not from `AUTOINCREMENT`
+
+`POST /optimisations` answers **202 with a run id** before any result exists,
+and a run still in flight answers `GET /optimisations/{id}` with a valid body.
+So the queued `RunRecord` already carries its `runRef`, and the reference has
+to exist *before* the row is written.
+
+**Decided: a one-row `run_sequence` table, incremented by
+`UPDATE … RETURNING` as the first statement of an IMMEDIATE transaction.** This
+is a fifth table beyond the four #7 names, and it is worth it:
+
+- `INTEGER PRIMARY KEY AUTOINCREMENT` can only report a value *after* the
+  insert, which forces a nullable `run_ref` and `result_json` plus a second
+  UPDATE — so the row would be briefly invalid, in a table whose whole point is
+  that its rows are not.
+- `MAX(run_reference) + 1` is correct only while nothing is ever deleted. That
+  is enforced by a trigger, which is a policy rather than a law; a counter does
+  not reuse a number even if the policy is someday relaxed.
+
+Under WAL there is one writer at a time database-wide, and IMMEDIATE takes the
+write lock at `BEGIN`, so the read-modify-write is serialised. A *deferred*
+transaction would take its snapshot first and fail with `SQLITE_BUSY_SNAPSHOT`,
+which the busy handler does not retry — so the store never uses one. Asserted
+by four writer processes minting a contiguous 1…20.
+
+### 2B-5 — a run carries its inputs; only its outcome is written later
+
+`queued → running → succeeded | failed | cancelled` is a lifecycle, not
+mutation, but everything fixed at submission is frozen by a trigger: the id,
+the reference, the mandate, the lock and exclusion sets, the eligible set, the
+seed, the pipeline hash and the assumption snapshot. Without that, finishing a
+run could quietly re-point it at a different mandate and leave a stored pair
+that is internally consistent and historically false.
+
+**A second `finish_run` on a finished run raises** — unless the bytes are
+byte-identical, which is a redelivered acknowledgement after a crash between
+commit and reply, and is returned unchanged. Differing bytes mean two workers
+believe they own the run, and that must reach a human rather than overwrite an
+audit record.
+
+`eligible_ids` is recorded at submission rather than derived from `holdings`
+afterwards: the screens have already run by then (§13 makes `NO_CANDIDATES` a
+422 at submission), min DSCR is a *derived* screen so the set is not
+recoverable from the mandate, and the search indexes it by position.
+
+### 2B-6 — the assumption snapshot is keyed on its own bytes, and both digests are kept
+
+An assumption set is copied into the database on first use. The table is keyed
+on the digest of **the payload stored here**, not on `assumption_set_id`,
+because [C-10](#c-10) excludes `[meta]` from the loader's id by design — so
+fixing a typo in a label yields the same id and different bytes. Keying on the
+id would silently keep the first `[meta]` and misattribute every later run.
+
+The payload's digest is **not** `assumption_set_hash`, by construction: the
+dataclass tree flattens the TOML's nesting and the payload keeps `meta`. The
+schema records `snapshot_hash`, `assumption_set_id` and `assumption_set_hash`
+separately, under names that cannot be mistaken for one another, and a test
+asserts the first differs from the third so that nobody later "fixes" them into
+one value.
+
+`dataclasses.asdict` cannot produce the payload — it deep-copies anything that
+is not a dataclass or a builtin container, and `AssumptionSet`'s mappings are
+`MappingProxyType`, which is unpicklable. The recursion is hand-rolled, and it
+is also what renders an enum *key* as `solar` rather than `Technology.SOLAR`. A
+test walks `dataclasses.fields` recursively and asserts no field is missing, so
+a field added to the tree and forgotten by the serialiser cannot leave an audit
+record that merely looks whole.
+
+**Not** passed through `numbers_as_floats`: by the time an `AssumptionSet`
+exists, int-ness is a typed fact, and `generations: 110.0` in an audit payload
+would be both wrong-looking and lossy.
+
+### 2B-7 — `pipeline_snapshot` records 2A's verdict without knowing its shape
+
+#7 requires the "validation status of the loaded set", and #6 owns the loader
+and its report type while running in parallel with this.
+
+**Decided.** The store defines a four-value `ValidationStatus`
+(`valid | warnings | invalid | unknown`) that answers only the question the
+store has to answer — may a run cite this snapshot? — and keeps #6's report
+beside it as an opaque JSON object it stores, checks for well-formedness and
+never parses. Mapping one onto the other belongs above both, in `runner`.
+`unknown` is the only status allowed to carry no report, so a caller written
+before #6 lands is visibly uncertain rather than silently clean.
+
+### 2B-8 — the base year lives on the snapshot, because nothing else carries it
+
+`cashflow.csv` needs "one row per year from the base year". Neither
+`RunRecord` nor `Mandate` carries a base year — only `GET /pipeline` does — and
+[A-13](#a-13) makes it one value for the whole loaded set, enforced at load.
+
+**Decided: `pipeline_snapshot.base_year`**, returned on `StoredRun`, so the
+exports stay pure functions of a stored run. This is a gap in the wire contract
+rather than in the store: `ui-contract.md` §5.2's thirty bars are "one per year
+from the base year", so #11 cannot label the chart of a reopened run either.
+Raised on #1 for #3 and #9; adding `baseYear` to `GET /optimisations/{id}` would
+close it for everyone.
+
+### 2B-9 — ULIDs on the standard library
+
+No ULID package exists in the lock file, CI runs `uv sync --frozen`, and a new
+dependency has to be argued on the epic first. The encoding is thirty lines,
+and taking one would make every run's id depend on a library version that
+nothing in the run record names.
+
+Crockford's base32 drops I, L, O and U, so an id read aloud from a committee
+pack cannot be retyped into a different run. Ids minted inside one millisecond
+step the random component rather than redrawing it, so a burst still sorts in
+submission order — though `run_reference` remains the authoritative order, since
+a ULID is only as monotonic as the clock that minted it.
+
+Worth recording for #12: none of this needed a `# structural:` escape. The
+numbers a naive implementation writes — 5, 10, 16, 80 — are all in the
+assumption set, and deriving them (`RANDOM_BITS = ULID_BITS - TIMESTAMP_BITS`,
+`len(_ALPHABET)`) is both cheaper and clearer than an opt-out. The one
+collision that did surface, a `3` inside a SQLite version tuple, was resolved by
+storing the floor as text.
+
+---
+
 ## Log
 
 | Date | Issue | Entry |
@@ -1493,3 +1683,11 @@ emit one that balances to 4.8e-13 — so the cost looks close to zero, and the
 | 2026-09-21 | #2 | C-17…C-19 — result models carry the file's domains; the two guards cannot be switched off quietly; `nan` and `inf` are not calibration values. |
 | 2026-09-21 | #2 | C-1 **reversed** — `asset.technology` is `solar` after all; the cost argument for `solar_pv` stopped holding once #3, #4 and #5 merged. 1C's `reconciled` contract is what the epic should settle on. |
 | 2026-09-21 | #2 | C-15 extended — balances (`debtSchedule.opening`/`closing`, `balanceSheet.ppe`) carry a 1e-9 floor; a flow gets none. All 48 golden files validate and round-trip under `reconciled`. |
+| 2026-09-22 | #7 | 2B-1 — CSV cells carry raw numbers per `api.md` §9; §14 formatting serves the comment header, where the euro signs survive on the BOM. `ui-contract.md` §2 needs narrowing. |
+| 2026-09-22 | #7 | 2B-2 — `holdings.csv` is the seventeen columns `api.md` §9.1 names, not the eighteen in #7's body. |
+| 2026-09-22 | #7 | 2B-3/2B-4 — `run_reference` is the monotonic integer and the sort key; `run_ref` is its `A-4` label; both come from a `run_sequence` counter claimed under an IMMEDIATE transaction. |
+| 2026-09-22 | #7 | 2B-5 — inputs are frozen at submission by trigger; a second finish raises unless the bytes are identical, which is a redelivery. |
+| 2026-09-22 | #7 | 2B-6 — the assumption snapshot is keyed on its own payload digest, and `snapshot_hash` ≠ `assumption_set_hash` by construction. |
+| 2026-09-22 | #7 | 2B-7 — `ValidationStatus` is the store's own four-value vocabulary; #6's report is stored opaquely beside it. |
+| 2026-09-22 | #7 | 2B-8 — `base_year` lives on `pipeline_snapshot`; the run result carries none, which also blocks #11's chart labels. Raised on #1. |
+| 2026-09-22 | #7 | 2B-9 — ULIDs on the standard library, no new dependency, and no `# structural:` escape spent. |
