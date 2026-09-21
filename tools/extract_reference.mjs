@@ -62,7 +62,9 @@ const TOOL_VERSION = '1.1.0';
 // Node 18 is the first release where everything this tool relies on is stable:
 // ESM, node:test, structuredClone-free stdlib use, and fs.rmSync/cpSync.
 const MIN_NODE_MAJOR = 18;
-const SCHEMA_VERSION = '0.1.0-interim';
+// The version string 1B's schema requires: docs/pipeline-schema §4 rejects a
+// file at any other version, naming it.
+const SCHEMA_VERSION = '1.0';
 
 // ===========================================================================
 // 1. EXTRACTION
@@ -330,148 +332,142 @@ const buildYearsFor = (p) => Math.max(1, p.cod - REF.firstYear);
 // 3. STATEMENT RECONSTRUCTION
 //
 // The reference stores only EBITDA, generation and signed equity cash flow per
-// year.  Everything else in a statement file — revenue, opex, depreciation,
-// interest, principal, tax, and the balance-sheet roll-forward — is recomputed
-// here from the same inputs and the same formulas, then asserted against the
-// reference's own arrays before use.
+// year.  Everything else in a statement file — revenue, achieved price, opex,
+// depreciation, interest, principal, tax, the debt schedule and the PP&E
+// roll-forward — is recomputed here from the same inputs and the same formulas,
+// then asserted against the reference's own arrays before use.
 //
-// Two constructions are ours, both recorded in docs/decisions.md:
+// The construction-funding schedule is NOT ours to choose: docs/pipeline-schema
+// §6 fixes it, because the rendering changes FCFE timing and therefore every
+// IRR.  Equity funds the construction period pro rata; debt is drawn in one go
+// at COD; an already-operating project books everything in year one.  That
+// makes `capex[t] = debtDrawdown[t] + equityDrawdown[t]` true in every year,
+// and because `−capex + debtDrawdown = −equityDrawdown` the signed FCFE it
+// produces is byte-identical to the reference's own `cfEquity` — asserted with
+// Object.is, all 48 × 30 values.
 //
-//  * Construction funding.  The reference draws equity over the build years but
-//    never books capex or a debt drawdown at all, so `Σ drawdown = seniorDebt`
-//    and the debt roll-forward cannot both hold.  We book capex pro-rata over
-//    exactly the years the reference draws equity, making
-//    `drawdown_t = capex_t − equityDrawdown_t = seniorDebt / buildYears`.  The
-//    signed equity cash flow is untouched.  No interest during construction,
-//    matching the reference (zero IDC).
-//
-//  * Ramp-year shortfall.  Post-COD operating FCFE is negative in exactly the
-//    ramp year, for every project: 55% generation against a full year of debt
-//    service.  We split it into `distributions >= 0` and `equitySupport >= 0`,
-//    so no statement line carries an implausible sign and
-//    `fcfe = distributions − equityDrawdown − equitySupport` still reproduces
-//    the reference exactly.
+// The reference books no interest during construction, so no IDC is
+// capitalised.  Interest in the COD year accrues on `opening + drawdown`,
+// because that is the year the facility is drawn.
 // ===========================================================================
 
 function buildSeries(p) {
   const N = REF.years;
   const deg = degradationFor(p.tech);
-  const build = buildYearsFor(p);
+  const buildYears = buildYearsFor(p);
+  const equity = p.capex - p.debt;
   const annuity = p.debt * ANNUITY_FACTOR;
   const depreciationCharge = p.capex / REF.depreciationYears;
+  const alreadyOperating = p.cod <= REF.firstYear;
 
   const s = {
     year: [], age: [],
-    generationGWh: [], achievedPriceEURPerMWh: [],
+    generationGwh: [], achievedPrice: [],
     revenue: [], opex: [], ebitda: [], depreciation: [], ebit: [],
-    interest: [], profitBeforeTax: [], tax: [], netIncome: [],
-    capex: [], debtDrawdown: [], equityDrawdown: [], equitySupport: [],
-    distributions: [], operatingFcfe: [], fcfe: [],
-    taxPaid: [], interestPaid: [], principalRepaid: [],
-    debtOpening: [], debtClosing: [],
-    ppeGross: [], accumulatedDepreciation: [], ppeNet: [], cash: [], totalAssets: [],
-    seniorDebtOutstanding: [], shareCapital: [], retainedEarnings: [],
-    totalEquity: [], totalLiabilitiesAndEquity: [],
-    dscr: [], gearing: [], interestCoverage: [], ebitdaMargin: [],
+    interestExpense: [], pbt: [], taxExpense: [], netIncome: [],
+    interestPaid: [], debtRepayment: [], taxPaid: [],
+    capex: [], debtDrawdown: [], equityDrawdown: [], fcfe: [],
+    debtOpening: [], debtDraw: [], debtRepay: [], debtClosing: [],
+    ppe: [],
+    dscr: [],
   };
 
-  let outstanding = p.debt;
-  let ppeGross = 0, accDep = 0, shareCapital = 0, retainedEarnings = 0, debtBalance = 0;
+  let closing = 0;
+  let ppe = 0;
 
   for (let t = 0; t < N; t++) {
-    const yr = REF.firstYear + t;
-    const age = yr - p.cod;
+    const year = REF.firstYear + t;
+    const age = year - p.cod;
+    const inDebtLife = age >= 0 && age < REF.debtTenorYears;
 
-    // ── funding ───────────────────────────────────────────────────────────
-    // The reference draws equity in the years before COD, or wholly in year 0
-    // when COD is the first modelled year.  We mirror that split exactly.
-    let equityDrawdown = 0;
-    if (yr < p.cod) equityDrawdown = p.equity / build;
-    else if (t === 0 && p.cod <= REF.firstYear) equityDrawdown = p.equity;
-    const fundingShare = equityDrawdown === 0 ? 0 : (p.equity === 0 ? 0 : equityDrawdown / p.equity);
-    const capexSpend = p.capex * fundingShare;
-    const debtDrawdown = capexSpend - equityDrawdown;
+    // ── funding, per docs/pipeline-schema §6 ──────────────────────────────
+    let capex = 0, equityDrawdown = 0, debtDrawdown = 0;
+    if (alreadyOperating) {
+      if (t === 0) { capex = p.capex; equityDrawdown = equity; debtDrawdown = p.debt; }
+    } else if (year < p.cod) {
+      capex = equity / buildYears;
+      equityDrawdown = equity / buildYears;
+    } else if (year === p.cod) {
+      capex = p.debt;
+      debtDrawdown = p.debt;
+    }
 
     // ── operations ────────────────────────────────────────────────────────
-    let generationGWh = 0, price = 0, revenue = 0, opex = 0, ebitda = 0;
-    let interest = 0, principal = 0, depreciation = 0, tax = 0;
+    let generationGwh = 0, achievedPrice = 0, revenue = 0, opex = 0, ebitda = 0;
+    let depreciation = 0, interest = 0, repayment = 0, tax = 0;
 
+    const opening = closing;
     if (age >= 0) {
-      generationGWh = p.mw * 8.760 * p.cf * Math.pow(1 - deg, age) * (age === 0 ? REF.rampYearFactor : 1);
+      generationGwh = p.mw * 8.760 * p.cf * Math.pow(1 - deg, age) * (age === 0 ? REF.rampYearFactor : 1);
       const underPpa = p.ppaTenor > 0 && age < p.ppaTenor;
-      price = underPpa
+      achievedPrice = underPpa
         ? p.ppaShare * p.ppaPrice * Math.pow(REF.ppaEscalation, age)
           + (1 - p.ppaShare) * p.merchant * Math.pow(REF.merchantEscalation, age)
         : p.merchant * Math.pow(REF.merchantEscalation, age);
-      revenue = generationGWh * 1000 * price / 1e6;
+      revenue = generationGwh * 1000 * achievedPrice / 1e6;
       opex = p.mw * 1000 * p.opexKw * Math.pow(REF.opexEscalation, age) / 1e6;
       ebitda = revenue - opex;
-      interest = age < REF.debtTenorYears ? outstanding * REF.debtRate : 0;
-      principal = age < REF.debtTenorYears ? Math.max(0, annuity - interest) : 0;
-      if (age < REF.debtTenorYears) outstanding = Math.max(0, outstanding - principal);
+      // Interest accrues on the balance after that year's drawdown: at COD the
+      // facility is drawn and carries a full year's interest.
+      interest = inDebtLife ? (opening + debtDrawdown) * REF.debtRate : 0;
+      repayment = inDebtLife ? Math.max(0, annuity - interest) : 0;
       depreciation = age < REF.depreciationYears ? depreciationCharge : 0;
-      // The reference takes no tax-loss carryforward: a loss year is simply
-      // untaxed and never relieved later.  Preserved as-is (decision 3).
+      // No tax-loss carryforward: the reference leaves a loss year untaxed and
+      // never relieves it later (decision 1C-3).
       tax = Math.max(0, (ebitda - interest - depreciation) * REF.taxRate);
     }
 
-    const operatingFcfe = ebitda - interest - principal - tax;
-    const distributions = Math.max(0, operatingFcfe);
-    const equitySupport = Math.max(0, -operatingFcfe);
-    const fcfe = distributions - equityDrawdown - equitySupport;
-    const netIncome = ebitda - depreciation - interest - tax;
+    closing = opening - repayment + debtDrawdown;
+    ppe = ppe - depreciation + capex;
 
-    // ── balance-sheet roll-forward ────────────────────────────────────────
-    ppeGross += capexSpend;
-    accDep += depreciation;
-    shareCapital += equityDrawdown + equitySupport;
-    retainedEarnings += netIncome - distributions;
-    debtBalance += debtDrawdown - principal;
-    const ppeNet = ppeGross - accDep;
+    const ebit = ebitda - depreciation;
+    const pbt = ebit - interest;
+    const netIncome = pbt - tax;
+    // §7.3 states this as `ebitda - interestPaid - debtRepayment - taxPaid
+    // - capex + debtDrawdown`, and §6 notes that `-capex + debtDrawdown` is
+    // exactly `-equityDrawdown`. We use the equityDrawdown form because it is
+    // what the reference accumulates: the §7.3 form subtracts the whole
+    // facility and adds it straight back in the COD year, which is
+    // algebraically nil but numerically lossy — it costs the low bits of a
+    // small result. Computed this way, fcfe is bit-identical to the
+    // reference's own series (asserted with Object.is), and §7.3's form still
+    // holds to ~1e-15, far inside its EUR 0.01m tolerance.
+    const fcfe = ebitda - interest - repayment - tax - equityDrawdown;
 
-    const debtService = interest + principal;
-
-    s.year.push(yr);
+    s.year.push(year);
     s.age.push(age);
-    s.generationGWh.push(generationGWh);
-    s.achievedPriceEURPerMWh.push(age >= 0 ? price : 0);
+    s.generationGwh.push(generationGwh);
+    s.achievedPrice.push(achievedPrice);
     s.revenue.push(revenue);
     s.opex.push(opex);
     s.ebitda.push(ebitda);
     s.depreciation.push(depreciation);
-    s.ebit.push(ebitda - depreciation);
-    s.interest.push(interest);
-    s.profitBeforeTax.push(ebitda - depreciation - interest);
-    s.tax.push(tax);
+    s.ebit.push(ebit);
+    s.interestExpense.push(interest);
+    s.pbt.push(pbt);
+    s.taxExpense.push(tax);
     s.netIncome.push(netIncome);
-    s.capex.push(capexSpend);
+    s.interestPaid.push(interest);
+    s.debtRepayment.push(repayment);
+    s.taxPaid.push(tax);
+    s.capex.push(capex);
     s.debtDrawdown.push(debtDrawdown);
     s.equityDrawdown.push(equityDrawdown);
-    s.equitySupport.push(equitySupport);
-    s.distributions.push(distributions);
-    s.operatingFcfe.push(operatingFcfe);
     s.fcfe.push(fcfe);
-    s.taxPaid.push(tax);
-    s.interestPaid.push(interest);
-    s.principalRepaid.push(principal);
-    s.debtOpening.push(debtBalance + principal - debtDrawdown);
-    s.debtClosing.push(debtBalance);
-    s.ppeGross.push(ppeGross);
-    s.accumulatedDepreciation.push(accDep);
-    s.ppeNet.push(ppeNet);
-    s.cash.push(0);
-    s.totalAssets.push(ppeNet);
-    s.seniorDebtOutstanding.push(debtBalance);
-    s.shareCapital.push(shareCapital);
-    s.retainedEarnings.push(retainedEarnings);
-    s.totalEquity.push(shareCapital + retainedEarnings);
-    s.totalLiabilitiesAndEquity.push(debtBalance + shareCapital + retainedEarnings);
-    // Undefined where there is no debt service: null, never 0 — a 0 here would
-    // read as a catastrophic cover ratio.
-    s.dscr.push(debtService > 0 ? ebitda / debtService : null);
-    s.gearing.push(p.capex > 0 ? debtBalance / p.capex : null);
-    s.interestCoverage.push(interest > 0 ? ebitda / interest : null);
-    s.ebitdaMargin.push(revenue > 0 ? ebitda / revenue : null);
+    s.debtOpening.push(opening);
+    s.debtDraw.push(debtDrawdown);
+    s.debtRepay.push(repayment);
+    s.debtClosing.push(closing);
+    s.ppe.push(ppe);
+
+    // §5.7: non-null EXACTLY in the debt life, including the ramp year.
+    if (!inDebtLife) {
+      s.dscr.push(null);
+    } else {
+      const service = interest + repayment;
+      if (service <= 0) fail(`${p.id} year ${year}: in the debt life but no debt service, so DSCR is undefined where the schema requires a value`);
+      s.dscr.push(ebitda / service);
+    }
   }
 
   return s;
@@ -483,8 +479,11 @@ function buildSeries(p) {
 // escalates at 0.5% while solar generation degrades at 0.5% and opex escalates
 // at 2.1%, so EBITDA declines through the PPA period for high-PPA-share solar
 // and then steps up at rolloff.  Measured across the 48: age 1 binds for 34,
-// and ages 9, 11, 14 or 17 bind for the other 14.  We record which, so a port
-// that assumes "sculpted therefore 1.40 in year one" fails loudly.
+// and ages 9, 11, 14 or 17 bind for the other 14.
+//
+// This is a REDUCTION over `ratios.dscr` with a documented exclusion, so per
+// docs/pipeline-schema §9 it belongs with the consumer and must not be stored
+// in a file.  It is emitted in derived_expectations.json instead.
 function minDscrFrom(series) {
   let min = Infinity;
   let bindingAge = null;
@@ -497,15 +496,12 @@ function minDscrFrom(series) {
   return Number.isFinite(min) ? { raw: min, bindingAge } : { raw: null, bindingAge: null };
 }
 
-// The reference screens eligibility on a capped, 2dp-rounded min DSCR
-// (`p.dscr`).  Files carry both: the raw value ties out against the debt
-// schedule, the rounded one is what the screens actually compare.
 const REF_MIN_DSCR_CAP = 3.2;
 const referenceMinDscr = (raw) => Math.round(Math.min(raw, REF_MIN_DSCR_CAP) * 100) / 100;
 
 // Entry-pricing bands the reference clamps capex/kW into.  25 of the 48 sit on
 // the floor and 3 on the cap, so "capex falls out of the revenue case" is only
-// literally true for the other 20 — worth recording per file.
+// literally true for the other 20.
 const CAPEX_BANDS = { Solar: [560, 950], Wind: [1050, 1700], 'Offshore wind': [2200, 3400] };
 
 function capexClampOf(p) {
@@ -515,8 +511,7 @@ function capexClampOf(p) {
   return 'none';
 }
 
-// Debt is the lesser of a gearing cap and a DSCR sculpt; which one bound tells
-// a reader why this project's leverage is what it is.  27 capped, 21 sculpted.
+// Debt is the lesser of a gearing cap and a DSCR sculpt.  27 capped, 21 sculpted.
 const debtSizingBasisOf = (p) =>
   Math.abs(p.lev - p.maxGear) < 1e-12 ? 'max-gearing-cap' : 'dscr-sculpt';
 
@@ -525,186 +520,187 @@ const debtSizingBasisOf = (p) =>
 //
 // ***  This section is the ONLY place the emitted file shape is decided.  ***
 //
-// `templates/project-template.json` and the tie-out table in
-// `docs/pipeline-schema.md` are issue 1B's (#3) deliverables and did not exist
-// when 1C was built.  Rather than guess at a shared contract, the shape below
-// is an interim one derived from what the reference actually carries, posted to
-// the epic for 1B to build around:
-//   https://github.com/JanSchm/TerraFolio/issues/1#issuecomment-5762739466
+// The shape is `templates/project-template.json` and the rules are
+// `docs/pipeline-schema.md`, both owned by issue 1B (#3).  Nothing above or
+// below this section mentions a template key.
 //
-// When #3's template lands, conforming to it should be a change to
-// toProjectFile() and TIE_OUTS and nothing else.  Everything above and below
-// works in reference-native terms.
+// Three of that schema's rules drive everything here:
 //
-// Invariants honoured here, from the epic §5:
-//   * files are in €m and GWh
-//   * nothing mandate-dependent is stored — no IRR, MOIC, terminal value or
-//     payback appears in any file; LCOE is also excluded because it depends on
-//     the assumption set's discount rate
-//   * the in-file cash-flow series is `fcfe`: 30 years, NO terminal value.  The
-//     hold-truncated series that does carry terminal value is named
-//     `holdTruncatedFcfeWithTerminalValue` and lives only in
-//     derived_expectations.json
-//   * undefined ratios are null, never 0
+//  * §3 — "Unknown keys at any level are a validation error, not a warning."
+//    The template is CLOSED.  1C emits exactly its keys and nothing else; the
+//    richer balance sheet and extra ratios 1C used to carry are not smuggled in
+//    as extensions, they move to derived_expectations.json, which is 1C's own
+//    oracle rather than a pipeline file.
+//
+//  * §9 — the reject-derived-fields rule.  A file carrying `minDscr`, `lcoe`,
+//    `gearing`, `equity`, `capexPerKw`, a scalar `capex`, or any of the
+//    mandate-dependent names is REJECTED AT LOAD.  Every one of those is one
+//    arithmetic step from a field that is present, and two sources for one
+//    number is one source too many.
+//
+//  * §6 — the construction-funding convention, applied in buildSeries above.
+//
+// The units are §2's: €m, GWh, MW, €/MWh, €/kW/year, and shares as fractions
+// of one.  Costs are positive magnitudes; only `fcfe` is signed.
 // ===========================================================================
 
+const TECHNOLOGY = { Solar: 'solar', Wind: 'onshore_wind', 'Offshore wind': 'offshore_wind' };
+const STAGE = { Greenfield: 'greenfield', 'Ready-to-build': 'ready_to_build', Construction: 'construction' };
+
+// Fixed, never `new Date()`: the emitted bytes must be identical on every
+// machine and in every CI image. This is the date 1C first extracted the
+// fixtures, not a claim about an analyst.
+const PREPARED_ON = '2026-09-21';
+
+// The schema's §4.3 states `capture price = countryBaseloadPrice × captureFactor`.
+// The reference ROUNDS its capture price to a whole €/MWh
+// (`Math.round(baseload × captureFactor)`), so emitting the nominal factor
+// (0.68 solar, 0.88 onshore, 0.86 offshore) would leave that identity false by
+// up to ~1.1% — and the achieved price, and therefore revenue, is built on the
+// ROUNDED figure. We emit the effective factor, so the identity holds exactly
+// and a consumer deriving the capture price from it reproduces the revenue in
+// the file. The nominal factor is recorded in derived_expectations.json.
+const effectiveCaptureFactor = (p) => p.merchant / p.baseload;
+
+// docs/pipeline-schema §8. The earlier the stage, the more of a file is
+// prediction; these seven groups say which parts. The bases below follow what
+// the reference actually models — it varies grid, O&M, contracted share and
+// entry pricing by stage — and every note states plainly that the figures come
+// from the JavaScript reference rather than from an analyst.
+function provenanceFor(p) {
+  const stage = p.stage;
+  const construction = stage === 'Construction';
+  const greenfield = stage === 'Greenfield';
+
+  const generation = greenfield
+    ? { estimateBasis: 'benchmark', confidence: 'low', note: 'Country-level resource benchmark with a project-specific adjustment; no site measurement. Produced by the JavaScript reference model.' }
+    : { estimateBasis: 'engineering_estimate', confidence: construction ? 'high' : 'medium', note: 'P50 net capacity factor from the reference model\'s country resource table, adjusted per project. Produced by the JavaScript reference model.' };
+
+  const price = p.ppaTenor > 0
+    ? { estimateBasis: 'contracted', confidence: p.ppaShare >= 0.5 ? 'high' : 'medium', note: `${Math.round(p.ppaShare * 100)}% of revenue under a ${p.ppaTenor}-year PPA; the merchant tail is the reference model's capture price against the country baseload curve.` }
+    : { estimateBasis: 'internal_model', confidence: 'low', note: 'Fully merchant; revenue is the reference model\'s capture price against the country baseload curve.' };
+
+  const capex = construction
+    ? { estimateBasis: 'binding_offer', confidence: 'medium', note: 'Entry pricing at a construction-stage EBITDA yield. Produced by the JavaScript reference model.' }
+    : greenfield
+      ? { estimateBasis: 'internal_model', confidence: 'low', note: 'Entry pricing at a greenfield EBITDA yield, clamped to the technology cost band. Produced by the JavaScript reference model.' }
+      : { estimateBasis: 'benchmark', confidence: 'medium', note: 'Entry pricing at a ready-to-build EBITDA yield, clamped to the technology cost band. Produced by the JavaScript reference model.' };
+
+  return {
+    preparedBy: 'tools/extract_reference.mjs',
+    preparedOn: PREPARED_ON,
+    modelVersion: `js-reference@${BUNDLE_SHA256.slice(0, 12)}`,
+    fields: {
+      generation,
+      price,
+      capex,
+      opex: { estimateBasis: 'benchmark', confidence: 'medium', note: 'Technology opex benchmark in base-year euros, escalated at 2.1%. Produced by the JavaScript reference model.' },
+      debtTerms: construction
+        ? { estimateBasis: 'binding_offer', confidence: 'medium', note: 'Sized to a 1.40x base-case DSCR on stabilised first-full-year EBITDA, then capped by the stage gearing ceiling. Produced by the JavaScript reference model.' }
+        : { estimateBasis: 'internal_model', confidence: greenfield ? 'low' : 'medium', note: 'Sized to a 1.40x base-case DSCR on stabilised first-full-year EBITDA, then capped by the stage gearing ceiling. Produced by the JavaScript reference model.' },
+      grid: p.gridSecured
+        ? { estimateBasis: 'contracted', confidence: 'high', note: 'Firm connection agreement in place.' }
+        : { estimateBasis: 'placeholder', confidence: 'low', note: 'Connection application pending; no firm capacity yet.' },
+      om: p.omPartner
+        ? { estimateBasis: 'contracted', confidence: 'high', note: 'Long-term full-scope service agreement signed.' }
+        : { estimateBasis: 'benchmark', confidence: 'low', note: 'No service agreement contracted; opex carried at benchmark.' },
+    },
+  };
+}
+
 function toProjectFile(p, series) {
-  const minDscr = minDscrFrom(series);
   return {
     schemaVersion: SCHEMA_VERSION,
     id: p.id,
-    identity: {
-      name: p.name,
-      countryCode: p.cc,
+    name: p.name,
+    location: {
       country: p.country,
+      countryCode: p.cc,
       iso3: p.iso3,
-      latitude: p.lat,
-      longitude: p.lon,
-      technology: p.tech,
-      stage: p.stage,
-      commercialOperationYear: p.cod,
-      currency: p.ccy,
+      lat: p.lat,
+      lon: p.lon,
     },
-    capacity: {
-      nameplateMW: p.mw,
+    asset: {
+      technology: TECHNOLOGY[p.tech],
+      stage: STAGE[p.stage],
+      capacityMw: p.mw,
+      codYear: p.cod,
       netCapacityFactor: p.cf,
-      p50GenerationGWh: p.gwh,
-      degradationRate: degradationFor(p.tech),
-      rampYearFactor: REF.rampYearFactor,
+      opexPerKwYear: p.opexKw,
     },
-    capitalStructure: {
-      totalProjectCostEURm: p.capex,
-      capexPerKW: p.capexKw,
-      seniorDebtEURm: p.debt,
-      equityEURm: p.equity,
-      gearing: p.lev,
-      maxGearing: p.maxGear,
-      debtRate: REF.debtRate,
-      debtTenorYears: REF.debtTenorYears,
-      sizingDSCR: REF.sizingDSCR,
-      // Raw minimum over the debt life, excluding the ramp year. Ties out
-      // against the debt schedule exactly.
-      minDSCR: minDscr.raw,
-      // What the reference's screens actually compare: min(raw, 3.2) to 2dp.
-      minDSCRReference: referenceMinDscr(minDscr.raw),
-      minDSCRBindingYearAge: minDscr.bindingAge,
-      minDSCRExcludesRampYear: true,
-      minDSCRCap: REF_MIN_DSCR_CAP,
-      debtSizingBasis: debtSizingBasisOf(p),
-      capexPerKWClamp: capexClampOf(p),
-      constructionYears: buildYearsFor(p),
-    },
-    contracts: {
+    revenue: {
       ppaShare: p.ppaShare,
-      ppaPriceEURPerMWh: p.ppaPrice,
+      ppaPrice: p.ppaPrice,
       ppaTenorYears: p.ppaTenor,
-      capturePriceEURPerMWh: p.merchant,
-      baseloadEURPerMWh: p.baseload,
-      captureFactor: REF.captureFactor[p.tech],
-      opexPerKWYear: p.opexKw,
-      ppaEscalation: REF.ppaEscalation,
-      merchantEscalation: REF.merchantEscalation,
-      opexEscalation: REF.opexEscalation,
+      countryBaseloadPrice: p.baseload,
+      captureFactor: effectiveCaptureFactor(p),
     },
-    risk: {
+    execution: {
       developmentRiskScore: p.devRisk,
       gridSecured: p.gridSecured,
-      omPartner: p.omPartner,
+      omContracted: p.omPartner,
+      // §4.4: the currency revenue is earned in, which drives the EUR-only
+      // screen. NOT the denomination of the statements, which are always euros.
+      currency: p.ccy,
     },
-    statements: {
-      firstYear: REF.firstYear,
-      years: REF.years,
+    capitalStructure: {
+      totalCapex: p.capex,
+      seniorDebt: p.debt,
+      maxGearing: p.maxGear,
+    },
+    assumptions: {
+      baseYear: REF.firstYear,
       taxRate: REF.taxRate,
       depreciationYears: REF.depreciationYears,
-      year: series.year,
+      debtRate: REF.debtRate,
+      debtTenorYears: REF.debtTenorYears,
+    },
+    statements: {
+      years: series.year,
+      physicals: {
+        generationGwh: series.generationGwh,
+        achievedPrice: series.achievedPrice,
+      },
       incomeStatement: {
         revenue: series.revenue,
         opex: series.opex,
         ebitda: series.ebitda,
         depreciation: series.depreciation,
         ebit: series.ebit,
-        interest: series.interest,
-        profitBeforeTax: series.profitBeforeTax,
-        tax: series.tax,
+        interestExpense: series.interestExpense,
+        pbt: series.pbt,
+        taxExpense: series.taxExpense,
         netIncome: series.netIncome,
       },
       cashFlow: {
-        ebitda: series.ebitda,
-        taxPaid: series.taxPaid,
         interestPaid: series.interestPaid,
-        principalRepaid: series.principalRepaid,
-        operatingFcfe: series.operatingFcfe,
+        debtRepayment: series.debtRepayment,
+        taxPaid: series.taxPaid,
         capex: series.capex,
         debtDrawdown: series.debtDrawdown,
         equityDrawdown: series.equityDrawdown,
-        equitySupport: series.equitySupport,
-        distributions: series.distributions,
         fcfe: series.fcfe,
-      },
-      balanceSheet: {
-        ppeGross: series.ppeGross,
-        accumulatedDepreciation: series.accumulatedDepreciation,
-        ppeNet: series.ppeNet,
-        cash: series.cash,
-        totalAssets: series.totalAssets,
-        seniorDebtOutstanding: series.seniorDebtOutstanding,
-        shareCapital: series.shareCapital,
-        retainedEarnings: series.retainedEarnings,
-        totalEquity: series.totalEquity,
-        totalLiabilitiesAndEquity: series.totalLiabilitiesAndEquity,
       },
       debtSchedule: {
         opening: series.debtOpening,
-        drawdown: series.debtDrawdown,
-        interest: series.interest,
-        principal: series.principalRepaid,
+        drawdown: series.debtDraw,
+        repayment: series.debtRepay,
         closing: series.debtClosing,
       },
-      // Blanket policy: every ratio is null when its denominator is zero.
-      // Never 0 (which reads as a catastrophic cover) and never Infinity
-      // (which JSON.stringify would quietly turn into null anyway, leaving the
-      // two cases indistinguishable).
+      balanceSheet: {
+        ppe: series.ppe,
+      },
       ratios: {
         dscr: series.dscr,
-        gearing: series.gearing,
-        interestCoverage: series.interestCoverage,
-        ebitdaMargin: series.ebitdaMargin,
       },
-      generationGWh: series.generationGWh,
-      achievedPriceEURPerMWh: series.achievedPriceEURPerMWh,
     },
-    provenance: {
-      source: 'javascript-reference',
-      bundle: BUNDLE_NAME,
-      bundleSha256: BUNDLE_SHA256,
-      extractedBy: `tools/extract_reference.mjs@${TOOL_VERSION}`,
-      // How much of this file is contract and how much is prediction. The
-      // earlier the stage, the more of it is prediction (epic §2).
-      basis: {
-        capex: p.stage === 'Construction' ? 'contracted' : 'modelled',
-        generation: 'modelled-p50',
-        contractedRevenue: p.ppaTenor > 0 ? 'contracted' : 'none',
-        merchantRevenue: 'modelled',
-        opex: p.omPartner ? 'contracted' : 'modelled',
-        seniorDebt: 'modelled',
-        gridConnection: p.gridSecured ? 'secured' : 'application-pending',
-      },
-      contractedRevenueShare: p.ppaShare,
-      notes: [
-        'Construction funding: capex and the debt drawdown are booked pro-rata across the years the reference draws equity, so the debt roll-forward and the funding totals tie. Zero interest during construction, matching the reference. See docs/decisions.md.',
-        'Ramp-year shortfall: operating FCFE is negative in the ramp year, split into distributions and equitySupport so no statement line carries an implausible sign. Signed FCFE is unchanged. See docs/decisions.md.',
-        'No tax-loss carryforward: the reference leaves a loss year untaxed and never relieves it later. Preserved as-is.',
-        'Statements are EUR-denominated regardless of identity.currency; the reference carries no FX. See docs/decisions.md and epic open question 8.',
-        'ppaTenorYears is one of 10, 12, 15 or 20 across all 48 projects, so the reference\'s merchant-only pricing branch (ppaTenor <= 1) is never exercised by this corpus. A port must not treat these files as evidence that branch works.',
-      ],
-    },
+    provenance: provenanceFor(p),
   };
 }
 
 // ---------------------------------------------------------------------------
-// Tie-outs.  Each is a named predicate over an emitted file, so 1B's table in
-// docs/pipeline-schema.md maps onto this list one for one.  Tolerance is the
-// epic's: €0.01m absolute or 0.1% relative.
+// Tie-outs — docs/pipeline-schema §7, one entry per rule in that table.
+// Tolerance is §7's: €0.01m absolute or 0.1% relative, whichever is looser.
 // ---------------------------------------------------------------------------
 
 const ABS_TOL = 0.01;   // €m
@@ -717,8 +713,6 @@ function within(a, b) {
 
 const sum = (xs) => xs.reduce((a, x) => a + x, 0);
 
-// Each tie-out returns the worst absolute residual it saw (0 when it holds
-// exactly), so the run can report actual numbers rather than a pass/fail bit.
 function worst(pairs) {
   let w = 0;
   for (const [a, b] of pairs) {
@@ -730,150 +724,184 @@ function worst(pairs) {
 
 const zip = (xs, f) => xs.map((_, i) => f(i));
 
-// Project age per year, derived from what the file carries rather than from a
-// private key — the tie-outs must be checkable against an emitted file alone.
-const agesOf = (f) => f.statements.year.map((y) => y - f.identity.commercialOperationYear);
+// Every tie-out is checkable against an emitted file alone: no private keys,
+// nothing carried over from the reference.
+const agesOf = (f) => f.statements.years.map((y) => y - f.asset.codYear);
 
 const TIE_OUTS = [
-  { name: 'income: ebitda = revenue - opex', check: (f) => {
-    const is = f.statements.incomeStatement;
-    return worst(zip(is.revenue, (i) => [is.ebitda[i], is.revenue[i] - is.opex[i]])); } },
+  // §7.1 Income statement
+  { name: '7.1 ebitda = revenue - opex', check: (f) => {
+    const i = f.statements.incomeStatement;
+    return worst(zip(i.revenue, (t) => [i.ebitda[t], i.revenue[t] - i.opex[t]])); } },
 
-  { name: 'income: ebit = ebitda - depreciation', check: (f) => {
-    const is = f.statements.incomeStatement;
-    return worst(zip(is.ebit, (i) => [is.ebit[i], is.ebitda[i] - is.depreciation[i]])); } },
+  { name: '7.1 ebit = ebitda - depreciation', check: (f) => {
+    const i = f.statements.incomeStatement;
+    return worst(zip(i.ebit, (t) => [i.ebit[t], i.ebitda[t] - i.depreciation[t]])); } },
 
-  { name: 'income: profitBeforeTax = ebit - interest', check: (f) => {
-    const is = f.statements.incomeStatement;
-    return worst(zip(is.ebit, (i) => [is.profitBeforeTax[i], is.ebit[i] - is.interest[i]])); } },
+  { name: '7.1 pbt = ebit - interestExpense', check: (f) => {
+    const i = f.statements.incomeStatement;
+    return worst(zip(i.pbt, (t) => [i.pbt[t], i.ebit[t] - i.interestExpense[t]])); } },
 
-  { name: 'income: netIncome = profitBeforeTax - tax', check: (f) => {
-    const is = f.statements.incomeStatement;
-    return worst(zip(is.ebit, (i) => [is.netIncome[i], is.profitBeforeTax[i] - is.tax[i]])); } },
+  { name: '7.1 netIncome = pbt - taxExpense', check: (f) => {
+    const i = f.statements.incomeStatement;
+    return worst(zip(i.netIncome, (t) => [i.netIncome[t], i.pbt[t] - i.taxExpense[t]])); } },
 
-  { name: 'income: tax = max(0, profitBeforeTax x taxRate)', check: (f) => {
-    const is = f.statements.incomeStatement, r = f.statements.taxRate;
-    return worst(zip(is.tax, (i) => [is.tax[i], Math.max(0, is.profitBeforeTax[i] * r)])); } },
+  // §7.2 Revenue ties to physicals
+  { name: '7.2 revenue = generationGwh x 1000 x achievedPrice / 1e6', check: (f) => {
+    const i = f.statements.incomeStatement, ph = f.statements.physicals;
+    return worst(zip(i.revenue, (t) => [i.revenue[t], ph.generationGwh[t] * 1000 * ph.achievedPrice[t] / 1e6])); } },
 
-  { name: 'cash flow: fcfe = ebitda - interest - principal - tax - equityDrawdown', check: (f) => {
-    const c = f.statements.cashFlow;
-    return worst(zip(c.fcfe, (i) => [
-      c.fcfe[i],
-      c.ebitda[i] - c.interestPaid[i] - c.principalRepaid[i] - c.taxPaid[i] - c.equityDrawdown[i],
+  { name: '7.2 opex = capacityMw x 1000 x opexPerKwYear / 1e6, escalated', check: (f) => {
+    const i = f.statements.incomeStatement, age = agesOf(f);
+    const base = f.asset.capacityMw * 1000 * f.asset.opexPerKwYear / 1e6;
+    return worst(zip(i.opex, (t) => [i.opex[t], age[t] < 0 ? 0 : base * Math.pow(REF.opexEscalation, age[t])])); } },
+
+  // §7.3 Cash flow
+  { name: '7.3 fcfe = ebitda - interestPaid - debtRepayment - taxPaid - capex + debtDrawdown', check: (f) => {
+    const c = f.statements.cashFlow, i = f.statements.incomeStatement;
+    return worst(zip(c.fcfe, (t) => [
+      c.fcfe[t],
+      i.ebitda[t] - c.interestPaid[t] - c.debtRepayment[t] - c.taxPaid[t] - c.capex[t] + c.debtDrawdown[t],
     ])); } },
 
-  { name: 'cash flow: fcfe = distributions - equityDrawdown - equitySupport', check: (f) => {
+  // §7.4 Debt schedule
+  { name: '7.4 closing = opening - repayment + drawdown', check: (f) => {
+    const d = f.statements.debtSchedule;
+    return worst(zip(d.closing, (t) => [d.closing[t], d.opening[t] - d.repayment[t] + d.drawdown[t]])); } },
+
+  { name: '7.4 opening[t] = closing[t-1], opening[0] = 0', check: (f) => {
+    const d = f.statements.debtSchedule;
+    return worst(zip(d.opening, (t) => [d.opening[t], t === 0 ? 0 : d.closing[t - 1]])); } },
+
+  { name: '7.4 closing[last] = 0 (fully amortised)', check: (f) => {
+    const d = f.statements.debtSchedule;
+    return worst([[d.closing[d.closing.length - 1], 0]]); } },
+
+  // §7.5 Funding
+  { name: '7.5 sum debtDrawdown = seniorDebt', check: (f) =>
+    worst([[sum(f.statements.cashFlow.debtDrawdown), f.capitalStructure.seniorDebt]]) },
+
+  { name: '7.5 sum equityDrawdown = totalCapex - seniorDebt', check: (f) =>
+    worst([[sum(f.statements.cashFlow.equityDrawdown), f.capitalStructure.totalCapex - f.capitalStructure.seniorDebt]]) },
+
+  { name: '7.5 sum capex = totalCapex', check: (f) =>
+    worst([[sum(f.statements.cashFlow.capex), f.capitalStructure.totalCapex]]) },
+
+  { name: '7.5 capex[t] = debtDrawdown[t] + equityDrawdown[t]', check: (f) => {
     const c = f.statements.cashFlow;
-    return worst(zip(c.fcfe, (i) => [
-      c.fcfe[i], c.distributions[i] - c.equityDrawdown[i] - c.equitySupport[i],
-    ])); } },
+    return worst(zip(c.capex, (t) => [c.capex[t], c.debtDrawdown[t] + c.equityDrawdown[t]])); } },
 
-  { name: 'cash flow: capex_t = debtDrawdown_t + equityDrawdown_t', check: (f) => {
-    const c = f.statements.cashFlow;
-    return worst(zip(c.capex, (i) => [c.capex[i], c.debtDrawdown[i] + c.equityDrawdown[i]])); } },
+  // §7.6 Depreciation and PP&E
+  { name: '7.6 ppe[t] = ppe[t-1] - depreciation[t] + capex[t]', check: (f) => {
+    const b = f.statements.balanceSheet, i = f.statements.incomeStatement, c = f.statements.cashFlow;
+    return worst(zip(b.ppe, (t) => [b.ppe[t], (t === 0 ? 0 : b.ppe[t - 1]) - i.depreciation[t] + c.capex[t]])); } },
 
-  { name: 'funding: sum capex = totalProjectCost', check: (f) =>
-    worst([[sum(f.statements.cashFlow.capex), f.capitalStructure.totalProjectCostEURm]]) },
-
-  { name: 'funding: sum debtDrawdown = seniorDebt', check: (f) =>
-    worst([[sum(f.statements.cashFlow.debtDrawdown), f.capitalStructure.seniorDebtEURm]]) },
-
-  { name: 'funding: sum equityDrawdown = equity', check: (f) =>
-    worst([[sum(f.statements.cashFlow.equityDrawdown), f.capitalStructure.equityEURm]]) },
-
-  { name: 'capital: equity = totalProjectCost - seniorDebt', check: (f) => {
-    const k = f.capitalStructure;
-    return worst([[k.equityEURm, k.totalProjectCostEURm - k.seniorDebtEURm]]); } },
-
-  { name: 'capital: gearing = seniorDebt / totalProjectCost', check: (f) => {
-    const k = f.capitalStructure;
-    return worst([[k.gearing, k.seniorDebtEURm / k.totalProjectCostEURm]]); } },
-
-  { name: 'capital: capexPerKW = totalProjectCost / nameplateMW', check: (f) =>
-    worst([[f.capitalStructure.capexPerKW,
-            f.capitalStructure.totalProjectCostEURm * 1e6 / (f.capacity.nameplateMW * 1000)]]) },
-
-  { name: 'debt: closing = opening + drawdown - principal', check: (f) => {
-    const d = f.statements.debtSchedule;
-    return worst(zip(d.closing, (i) => [d.closing[i], d.opening[i] + d.drawdown[i] - d.principal[i]])); } },
-
-  { name: 'debt: opening_t = closing_{t-1}', check: (f) => {
-    const d = f.statements.debtSchedule;
-    return worst(zip(d.opening, (i) => [d.opening[i], i === 0 ? 0 : d.closing[i - 1]])); } },
-
-  { name: 'debt: sum principal = seniorDebt and closes at zero', check: (f) => {
-    const d = f.statements.debtSchedule;
-    return worst([
-      [sum(d.principal), f.capitalStructure.seniorDebtEURm],
-      [d.closing[d.closing.length - 1], 0],
-    ]); } },
-
-  // Interest accrues on the balance AFTER that year's drawdown. It matters
-  // only in the COD year of a project whose COD is the first modelled year:
-  // the reference draws the facility and charges a full year's interest on it
-  // in the same year. In every other year the drawdown is zero and this
-  // reduces to interest on the opening balance.
-  { name: 'debt: interest = (opening + drawdown) x debtRate over the debt life', check: (f) => {
-    const d = f.statements.debtSchedule, r = f.capitalStructure.debtRate, age = agesOf(f);
-    return worst(zip(d.interest, (i) =>
-      age[i] >= 0 && age[i] < f.capitalStructure.debtTenorYears
-        ? [d.interest[i], (d.opening[i] + d.drawdown[i]) * r]
-        : [d.interest[i], 0])); } },
-
-  // Zero interest during construction: the reference models no interest during
-  // construction at all, so no IDC is capitalised into capex. Recorded in
-  // docs/decisions.md.
-  { name: 'debt: no interest before COD', check: (f) => {
-    const d = f.statements.debtSchedule, age = agesOf(f);
-    return worst(zip(d.interest, (i) => [age[i] < 0 ? d.interest[i] : 0, 0])); } },
-
-  { name: 'balance sheet: totalAssets = totalLiabilitiesAndEquity', check: (f) => {
+  { name: '7.6 sum depreciation = totalCapex - ppe[last]', check: (f) => {
     const b = f.statements.balanceSheet;
-    return worst(zip(b.totalAssets, (i) => [b.totalAssets[i], b.totalLiabilitiesAndEquity[i]])); } },
+    return worst([[sum(f.statements.incomeStatement.depreciation), f.capitalStructure.totalCapex - b.ppe[b.ppe.length - 1]]]); } },
 
-  { name: 'balance sheet: ppeNet = ppeGross - accumulatedDepreciation', check: (f) => {
-    const b = f.statements.balanceSheet;
-    return worst(zip(b.ppeNet, (i) => [b.ppeNet[i], b.ppeGross[i] - b.accumulatedDepreciation[i]])); } },
-
-  { name: 'balance sheet: totalEquity = shareCapital + retainedEarnings', check: (f) => {
-    const b = f.statements.balanceSheet;
-    return worst(zip(b.totalEquity, (i) => [b.totalEquity[i], b.shareCapital[i] + b.retainedEarnings[i]])); } },
-
-  { name: 'balance sheet: seniorDebtOutstanding matches the debt schedule closing', check: (f) => {
-    const b = f.statements.balanceSheet, d = f.statements.debtSchedule;
-    return worst(zip(b.seniorDebtOutstanding, (i) => [b.seniorDebtOutstanding[i], d.closing[i]])); } },
-
-  { name: 'depreciation: sum = totalProjectCost over the depreciation life', check: (f) =>
-    worst([[sum(f.statements.incomeStatement.depreciation), f.capitalStructure.totalProjectCostEURm]]) },
-
-  { name: 'ratios: dscr = ebitda / (interest + principal)', check: (f) => {
-    const r = f.statements.ratios, d = f.statements.debtSchedule, is = f.statements.incomeStatement;
+  // §7.7 DSCR
+  { name: '7.7 dscr = ebitda / (interestPaid + debtRepayment)', check: (f) => {
+    const r = f.statements.ratios, c = f.statements.cashFlow, i = f.statements.incomeStatement;
     const pairs = [];
-    for (let i = 0; i < r.dscr.length; i++) {
-      const service = d.interest[i] + d.principal[i];
-      if (r.dscr[i] === null) { if (service > 0) return { ok: false, residual: service }; continue; }
-      pairs.push([r.dscr[i], is.ebitda[i] / service]);
+    for (let t = 0; t < r.dscr.length; t++) {
+      if (r.dscr[t] === null) continue;
+      pairs.push([r.dscr[t], i.ebitda[t] / (c.interestPaid[t] + c.debtRepayment[t])]);
     }
     return worst(pairs); } },
 
-  { name: 'ratios: minDSCR is the minimum over the debt life excluding the ramp year', check: (f) => {
+  // §7.8 Shape
+  { name: '7.8 every series has exactly 30 elements', check: (f) => {
+    const st = f.statements;
+    const series = [st.years, ...Object.values(st.physicals), ...Object.values(st.incomeStatement),
+      ...Object.values(st.cashFlow), ...Object.values(st.debtSchedule),
+      ...Object.values(st.balanceSheet), ...Object.values(st.ratios)];
+    for (const arr of series) if (arr.length !== REF.years) return { ok: false, residual: arr.length };
+    return { ok: true, residual: 0 }; } },
+
+  { name: '7.8 years = [baseYear .. baseYear + 29], contiguous ascending', check: (f) =>
+    worst(zip(f.statements.years, (t) => [f.statements.years[t], f.assumptions.baseYear + t])) },
+
+  { name: '7.8 no nulls anywhere except ratios.dscr', check: (f) => {
+    let bad = 0;
+    const walk = (o, key) => {
+      if (o === null) { if (key !== 'dscr') bad++; return; }
+      if (Array.isArray(o)) { for (const v of o) walk(v, key); return; }
+      if (o && typeof o === 'object') { for (const [k, v] of Object.entries(o)) walk(v, k); }
+    };
+    walk(f, null);
+    return { ok: bad === 0, residual: bad }; } },
+
+  { name: '7.8 dscr non-null exactly where 0 <= year - codYear < debtTenorYears', check: (f) => {
     const age = agesOf(f), r = f.statements.ratios;
-    let min = Infinity;
-    for (let i = 0; i < r.dscr.length; i++) {
-      if (age[i] <= 0 || age[i] >= f.capitalStructure.debtTenorYears || r.dscr[i] === null) continue;
-      min = Math.min(min, r.dscr[i]);
+    let bad = 0;
+    for (let t = 0; t < r.dscr.length; t++) {
+      const shouldHave = age[t] >= 0 && age[t] < f.assumptions.debtTenorYears;
+      if (shouldHave !== (r.dscr[t] !== null)) bad++;
     }
-    return worst([[f.capitalStructure.minDSCR, min]]); } },
+    return { ok: bad === 0, residual: bad }; } },
 
-  { name: 'capacity: p50GenerationGWh = nameplateMW x 8.760 x netCapacityFactor', check: (f) =>
-    worst([[f.capacity.p50GenerationGWh, f.capacity.nameplateMW * 8.760 * f.capacity.netCapacityFactor]]) },
+  { name: '7.8 no unknown keys and no missing keys, at any level', check: (f) => {
+    // Skipped, loudly, when templates/project-template.json is not present —
+    // it lands with #3. summarise() says which of the two happened; it must
+    // never look like a pass that did not run.
+    if (TEMPLATE_SHAPE === null) return { ok: true, residual: 0, skipped: true };
+    const diffs = shapeDiff(f, TEMPLATE_SHAPE, '');
+    return { ok: diffs.length === 0, residual: diffs.length, detail: diffs.slice(0, 8) }; } },
 
-  { name: 'generation: first operating year is the ramp year at 55%', check: (f) => {
-    const age = agesOf(f), g = f.statements.generationGWh;
-    const i = age.indexOf(0);
-    if (i < 0) return { ok: false, residual: NaN };
-    return worst([[g[i], f.capacity.p50GenerationGWh * (1 - f.capacity.degradationRate) ** 0 * f.capacity.rampYearFactor]]); } },
+  // §9 The reject-derived-fields rule
+  { name: '9 carries none of the reject-derived field names', check: (f) => {
+    const banned = new Set(['irr', 'moic', 'terminalValue', 'exitValue', 'payback', 'paybackYear',
+      'minDscr', 'lcoe', 'leverage', 'gearing', 'equity', 'capexPerKw', 'cashflowSchedule']);
+    const hits = [];
+    const walk = (o, path) => {
+      if (!o || typeof o !== 'object') return;
+      if (Array.isArray(o)) return;
+      for (const [k, v] of Object.entries(o)) {
+        if (banned.has(k)) hits.push(`${path}.${k}`);
+        // A top-level scalar named `capex` is rejected too (A-2): `capex` is
+        // the annual cash-flow line, `totalCapex` is the project total.
+        if (k === 'capex' && typeof v === 'number') hits.push(`${path}.${k} (scalar)`);
+        walk(v, `${path}.${k}`);
+      }
+    };
+    walk(f, '');
+    return { ok: hits.length === 0, residual: hits.length, detail: hits }; } },
 ];
+
+// The template is closed (§3), so conformance is a two-way set comparison
+// against 1B's own templates/project-template.json rather than a spot check.
+let TEMPLATE_SHAPE = null;
+
+function loadTemplateShape() {
+  const file = path.join(ROOT, 'templates', 'project-template.json');
+  if (!fs.existsSync(file)) return null;
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+// Compare key sets structurally: same keys at every object level, same
+// leaf-vs-object kind. Array contents are not compared, only that both sides
+// agree a path is an array.
+function shapeDiff(actual, expected, path) {
+  const out = [];
+  if (expected === null || typeof expected !== 'object' || Array.isArray(expected)) {
+    const bothArrays = Array.isArray(expected) === Array.isArray(actual);
+    if (!bothArrays) out.push(`${path}: expected ${Array.isArray(expected) ? 'array' : 'scalar'}`);
+    return out;
+  }
+  if (actual === null || typeof actual !== 'object' || Array.isArray(actual)) {
+    out.push(`${path}: expected an object`);
+    return out;
+  }
+  for (const k of Object.keys(expected)) {
+    if (!(k in actual)) out.push(`${path}.${k}: missing`);
+    else out.push(...shapeDiff(actual[k], expected[k], `${path}.${k}`));
+  }
+  for (const k of Object.keys(actual)) {
+    if (!(k in expected)) out.push(`${path}.${k}: unknown key`);
+  }
+  return out;
+}
 
 // ===========================================================================
 // 5. THE ORACLE FIXTURES
@@ -991,7 +1019,7 @@ function buildPrngFixture(ref, projects) {
 
 // ---------------------------------------------------------------------------
 
-function buildDerivedExpectations(makeRef, projects) {
+function buildDerivedExpectations(makeRef, projects, seriesById) {
   const byBase = {};
   for (const base of EXIT_MULTIPLE_BASES) {
     const r = makeRef({ exitMultiple: base });
@@ -1017,23 +1045,55 @@ function buildDerivedExpectations(makeRef, projects) {
       nullRule: 'null when npv(low) * npv(high) > 0, i.e. no sign change in the bracket',
       note: 'The root matches the standard convention (the NPVs differ by a constant factor), but the null behaviour and out-of-bracket cases do not. A port must reproduce the bracket and the null rule, not just call an IRR routine.',
     },
+    // docs/pipeline-schema §9 rejects a file carrying minDscr, lcoe, gearing,
+    // equity or capexPerKw: each is one arithmetic step from a field that is
+    // present, and two sources for one number is one source too many. They are
+    // not lost — they belong with the consumer, which for a golden corpus is
+    // this file. A port can check its own derivation against them here without
+    // any of them being stored in a pipeline file.
+    derivedNotStoredInFiles: {
+      rule: 'docs/pipeline-schema.md §9, the reject-derived-fields rule',
+      fields: ['minDscr', 'lcoe', 'gearing', 'equity', 'capexPerKw'],
+      note: 'Every figure below is derivable from the pipeline files alone. It is repeated here so a reimplementation has an oracle for its own derivation.',
+    },
     seriesNaming: {
       thirtyYear: 'fcfe — 30 years, NO terminal value. Lives in the pipeline statement files.',
       holdTruncated: 'holdTruncatedFcfeWithTerminalValue — truncated at the hold year, WITH terminal value. Mandate-dependent, so it appears only here and never in a statement file.',
     },
     projects: projects.map((p) => {
+      const minDscr = minDscrFrom(seriesById[p.id]);
       const out = {
         id: p.id,
         name: p.name,
         technology: p.tech,
         capexEURm: p.capex,
         capexPerKW: p.capexKw,
+        // 25 of the 48 sit on their technology's cost-band floor and 3 on the
+        // cap, so entry pricing determines capex for only 20 of them.
         capexPerKWClamp: capexClampOf(p),
         seniorDebtEURm: p.debt,
         equityEURm: p.equity,
         gearing: p.lev,
         debtSizingBasis: debtSizingBasisOf(p),
+        // Raw minimum over the debt life EXCLUDING the ramp year, the value
+        // the reference screens on (capped at 3.2 and rounded to 2dp), and the
+        // year that binds. The binding year is the first full year for only 34
+        // of the 48: contracted revenue escalates at 0.5% while solar
+        // generation degrades at 0.5% and opex escalates at 2.1%, so EBITDA
+        // falls through the PPA period and steps up at rolloff. A port that
+        // assumes "sculpted therefore 1.40 in year one" is wrong on 14.
+        minDSCRRaw: minDscr.raw,
+        minDSCRBindingYearAge: minDscr.bindingAge,
+        minDSCRExcludesRampYear: true,
+        minDSCRCap: REF_MIN_DSCR_CAP,
         minDSCRReference: p.dscr,
+        // The file carries the EFFECTIVE capture factor so that
+        // §4.3's `capturePrice = countryBaseloadPrice x captureFactor` holds
+        // exactly; the reference's nominal factor is recorded here.
+        nominalCaptureFactor: REF.captureFactor[p.tech],
+        effectiveCaptureFactor: effectiveCaptureFactor(p),
+        capturePriceEURPerMWh: p.merchant,
+        countryBaseloadPriceEURPerMWh: p.baseload,
         lcoeEURPerMWh: p.lcoe,
         lcoeDiscountRate: REF.lcoeDiscountRate,
         lcoeMethod: 'PV(capex undiscounted at t0 + unescalated opex) / PV(generation), 6% real, discounted from the model base year rather than from COD',
@@ -1652,8 +1712,9 @@ const slug = (name) => name
 
 const PUBLISHED_TOTALS = { mw: 6300, capex: 7673.072, equity: 2956.812, gwh: 17159.720 };
 const PUBLISHED_COMPOSITION = {
-  technology: { Solar: 22, Wind: 22, 'Offshore wind': 4 },
-  stage: { 'Ready-to-build': 20, Greenfield: 17, Construction: 11 },
+  // docs/pipeline-schema §4.2 enum values, not the reference's display strings.
+  technology: { solar: 22, onshore_wind: 22, offshore_wind: 4 },
+  stage: { ready_to_build: 20, greenfield: 17, construction: 11 },
   countries: 14,
   codFrom: 2027,
   codTo: 2032,
@@ -1661,6 +1722,9 @@ const PUBLISHED_COMPOSITION = {
 
 function checkPipeline(projects, files) {
   const report = { tieOuts: [], totals: {}, worstTieOut: { name: null, residual: 0 } };
+
+  TEMPLATE_SHAPE = loadTemplateShape();
+  report.templateShapeChecked = TEMPLATE_SHAPE !== null;
 
   if (projects.length !== 48) fail(`expected 48 projects, got ${projects.length}`);
   const ids = projects.map((p) => p.id);
@@ -1671,11 +1735,13 @@ function checkPipeline(projects, files) {
   // Totals, computed from the EMITTED FILES rather than from the reference, so
   // this checks what actually lands on disk.
   const t = {
-    mw: files.reduce((a, f) => a + f.capacity.nameplateMW, 0),
-    capex: files.reduce((a, f) => a + f.capitalStructure.totalProjectCostEURm, 0),
-    equity: files.reduce((a, f) => a + f.capitalStructure.equityEURm, 0),
-    gwh: files.reduce((a, f) => a + f.capacity.p50GenerationGWh, 0),
-    debt: files.reduce((a, f) => a + f.capitalStructure.seniorDebtEURm, 0),
+    mw: files.reduce((a, f) => a + f.asset.capacityMw, 0),
+    capex: files.reduce((a, f) => a + f.capitalStructure.totalCapex, 0),
+    // Equity is not stored (§9) — it is totalCapex - seniorDebt, which is the
+    // point: one source for the number.
+    equity: files.reduce((a, f) => a + (f.capitalStructure.totalCapex - f.capitalStructure.seniorDebt), 0),
+    gwh: files.reduce((a, f) => a + f.asset.capacityMw * 8.760 * f.asset.netCapacityFactor, 0),
+    debt: files.reduce((a, f) => a + f.capitalStructure.seniorDebt, 0),
   };
   report.totals = t;
   const r3 = (x) => Math.round(x * 1000) / 1000;
@@ -1690,17 +1756,17 @@ function checkPipeline(projects, files) {
     for (const f of files) m[get(f)] = (m[get(f)] || 0) + 1;
     return m;
   };
-  const tech = tally('tech', (f) => f.identity.technology);
-  const stage = tally('stage', (f) => f.identity.stage);
+  const tech = tally('tech', (f) => f.asset.technology);
+  const stage = tally('stage', (f) => f.asset.stage);
   for (const [k, v] of Object.entries(PUBLISHED_COMPOSITION.technology)) {
     if (tech[k] !== v) fail(`technology split: ${k} is ${tech[k]}, expected ${v}`);
   }
   for (const [k, v] of Object.entries(PUBLISHED_COMPOSITION.stage)) {
     if (stage[k] !== v) fail(`stage split: ${k} is ${stage[k]}, expected ${v}`);
   }
-  const countries = new Set(files.map((f) => f.identity.countryCode));
+  const countries = new Set(files.map((f) => f.location.countryCode));
   if (countries.size !== PUBLISHED_COMPOSITION.countries) fail(`expected ${PUBLISHED_COMPOSITION.countries} countries, got ${countries.size}`);
-  const cods = files.map((f) => f.identity.commercialOperationYear);
+  const cods = files.map((f) => f.asset.codYear);
   if (Math.min(...cods) !== PUBLISHED_COMPOSITION.codFrom || Math.max(...cods) !== PUBLISHED_COMPOSITION.codTo) {
     fail(`COD range is ${Math.min(...cods)}-${Math.max(...cods)}, expected ${PUBLISHED_COMPOSITION.codFrom}-${PUBLISHED_COMPOSITION.codTo}`);
   }
@@ -1709,7 +1775,7 @@ function checkPipeline(projects, files) {
   // filesystem a collision would silently overwrite a fixture.
   const folded = new Set();
   for (const f of files) {
-    const name = `${f.id}-${slug(f.identity.name)}.json`.toLowerCase();
+    const name = `${f.id}-${slug(f.name)}.json`.toLowerCase();
     if (folded.has(name)) fail(`filename collision after case folding: ${name}`);
     folded.add(name);
   }
@@ -1719,18 +1785,14 @@ function checkPipeline(projects, files) {
     let worstResidual = 0;
     for (const f of files) {
       const res = tie.check(f);
-      if (!res.ok) fail(`tie-out failed for ${f.id}: ${tie.name} (residual ${res.residual})`);
+      if (!res.ok) {
+        const detail = res.detail ? `\n  ${res.detail.join('\n  ')}` : '';
+        fail(`tie-out failed for ${f.id}: ${tie.name} (residual ${res.residual})${detail}`);
+      }
       worstResidual = Math.max(worstResidual, res.residual);
     }
     report.tieOuts.push({ name: tie.name, worstResidual });
     if (worstResidual > report.worstTieOut.residual) report.worstTieOut = { name: tie.name, residual: worstResidual };
-  }
-
-  // Nothing mandate-dependent may appear anywhere in a statement file.
-  const forbidden = /"(irr|moic|payback|terminalValue|holdYears|hold|exitMultiple|hurdle|capital|target)"/i;
-  for (const f of files) {
-    const hit = canonicalJson(f, f.id).match(forbidden);
-    if (hit) fail(`mandate-dependent key ${hit[0]} found in ${f.id} — files must carry nothing that turns on the mandate`);
   }
 
   return report;
@@ -1745,17 +1807,20 @@ function checkReconstruction(projects, seriesById) {
     for (let t = 0; t < REF.years; t++) {
       if (!Object.is(s.fcfe[t], p.cfEquity[t])) fail(`${p.id} year ${t}: reconstructed FCFE ${s.fcfe[t]} != reference ${p.cfEquity[t]}`);
       if (!Object.is(s.ebitda[t], p.ebitda[t])) fail(`${p.id} year ${t}: reconstructed EBITDA ${s.ebitda[t]} != reference ${p.ebitda[t]}`);
-      if (!Object.is(s.generationGWh[t], p.gen[t])) fail(`${p.id} year ${t}: reconstructed generation ${s.generationGWh[t]} != reference ${p.gen[t]}`);
+      if (!Object.is(s.generationGwh[t], p.gen[t])) fail(`${p.id} year ${t}: reconstructed generation ${s.generationGwh[t]} != reference ${p.gen[t]}`);
     }
     // The reference's own rounded min DSCR must fall out of our raw one.
     const { raw } = minDscrFrom(s);
     if (referenceMinDscr(raw) !== p.dscr) {
       fail(`${p.id}: round(min(${raw}, ${REF_MIN_DSCR_CAP}), 2) = ${referenceMinDscr(raw)} != reference p.dscr ${p.dscr}`);
     }
-    // Exactly one negative operating-FCFE year per project, and it is the ramp.
-    const negatives = s.operatingFcfe.map((v, i) => (v < 0 && s.age[i] >= 0 ? s.age[i] : null)).filter((x) => x !== null);
+    // Exactly one negative post-COD FCFE year per project, and it is the ramp:
+    // 55% generation against a full year of debt service. Under the schema's
+    // funding convention the COD year's capex and drawdown cancel, so a
+    // negative there is operating, not funding.
+    const negatives = s.fcfe.map((v, i) => (v < 0 && s.age[i] >= 0 ? s.age[i] : null)).filter((x) => x !== null);
     if (negatives.length !== 1 || negatives[0] !== 0) {
-      fail(`${p.id}: expected exactly one negative operating-FCFE year at age 0, got ages [${negatives}]`);
+      fail(`${p.id}: expected exactly one negative post-COD FCFE year at age 0, got ages [${negatives}]`);
     }
   }
 }
@@ -1780,10 +1845,10 @@ async function build(outDir) {
 
   const artefacts = new Map();
   for (const f of files) {
-    artefacts.set(path.join('pipeline', `${f.id}-${slug(f.identity.name)}.json`), canonicalJson(f, f.id));
+    artefacts.set(path.join('pipeline', `${f.id}-${slug(f.name)}.json`), canonicalJson(f, f.id));
   }
   artefacts.set('js_prng.json', canonicalJson(buildPrngFixture(ref, projects), 'js_prng'));
-  artefacts.set('derived_expectations.json', canonicalJson(buildDerivedExpectations(makeRef, projects), 'derived_expectations'));
+  artefacts.set('derived_expectations.json', canonicalJson(buildDerivedExpectations(makeRef, projects, seriesById), 'derived_expectations'));
 
   const objective = buildObjectiveCases(makeRef());
   artefacts.set('objective_cases.json', canonicalJson(objective, 'objective_cases'));
@@ -1889,6 +1954,9 @@ function summarise(built) {
   lines.push(`  generation ${t.gwh.toFixed(3)} GWh/y`);
   lines.push('');
   lines.push(`Tie-outs: ${report.tieOuts.length} checks x 48 files, all pass.`);
+  lines.push(report.templateShapeChecked
+    ? '  closed-template shape: ENFORCED against templates/project-template.json'
+    : '  closed-template shape: NOT CHECKED - templates/project-template.json is absent (lands with #3)');
   lines.push(`  worst residual: ${report.worstTieOut.residual.toExponential(3)}  (${report.worstTieOut.name})`);
   const top = [...report.tieOuts].sort((a, b) => b.worstResidual - a.worstResidual).slice(0, 5);
   for (const x of top) lines.push(`  ${x.worstResidual.toExponential(3).padStart(10)}  ${x.name}`);

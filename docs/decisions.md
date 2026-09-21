@@ -16,6 +16,12 @@ Every decision below concerns `tools/extract_reference.mjs` and the fixtures und
 `tests/golden/fixtures/`. Figures were measured by running the extracted reference.
 
 ### 1C-1 · Construction funding: capex and the debt drawdown are booked pro-rata
+>
+> **Superseded by 1C-16.** `docs/pipeline-schema.md` §6 fixes the funding convention, and 1C now
+> follows it: equity pro rata through construction, debt drawn in one go at COD. The reasoning
+> below stands — it is why the tie-out was broken and what had to be true of any fix — but the
+> schedule it describes (capex pro-rata with the drawdown spread alongside) is no longer what is
+> emitted.
 
 **Context.** The issue names this: the reference "books capex and the debt draw in different
 years", so `Σ debtDrawdown = seniorDebt` and the debt roll-forward do not both hold as written.
@@ -41,6 +47,12 @@ projects whose COD is 2027 — the reference draws and charges a full year's int
 year. The tie-out is stated as `interest = (opening + drawdown) × debtRate` for exactly this reason.
 
 ### 1C-2 · Ramp-year shortfall: distributions and equity support are split
+>
+> **Superseded by 1C-16.** The schema's `cashFlow` carries a single signed `fcfe` and no
+> `distributions`/`equitySupport` pair, and §3 makes unknown keys a validation error, so the split
+> is not representable. 1B was asked about this on #3 before the template was fixed and chose the
+> single signed line. The underlying fact — post-COD cash flow is negative in exactly the ramp year,
+> for all 48 projects — is unchanged and still asserted by the tool.
 
 **Context.** Post-COD operating FCFE is negative in the ramp year for **all 48 projects** — 55% of
 full generation against a full year of level debt service and tax. It is negative in no other year,
@@ -240,3 +252,87 @@ operator and both of its call sites are also pinned as extraction integrity mark
 `locked` is now carried in every emitted mandate. It was previously omitted because `fitness()`
 never reads it — but a fixture should describe the whole mandate, not the part that happens to
 reach the objective function.
+
+### 1C-16 · Conformance to 1B's closed template
+
+`templates/project-template.json` and `docs/pipeline-schema.md` landed in #3 after 1C's first
+version was built against an interim shape. 1C now emits 1B's shape exactly. Three of that
+schema's rules drove the rewrite:
+
+**§3 — the template is closed.** "Unknown keys at any level are a validation error, not a warning."
+So the richer balance sheet (ten lines) and extra ratios 1C carried are not smuggled in as
+extensions. `balanceSheet` is `ppe` alone and `ratios` is `dscr` alone, as the schema specifies;
+§5.6 records that a fuller balance sheet is deliberately deferred.
+
+**§9 — the reject-derived-fields rule.** 1C's earlier files carried `minDSCR`, `gearing`,
+`capexPerKW` and `equityEURm`, every one of which is on the reject list. Those files would have
+been **rejected at load**, not merely reshaped. They are each one arithmetic step from a field that
+is present, and the rule is right: two sources for one number is one source too many.
+
+Nothing is lost, it moves to where it belongs. `derived_expectations.json` — 1C's own oracle, not a
+pipeline file — now carries `minDSCRRaw`, `minDSCRReference`, `minDSCRBindingYearAge`, `gearing`,
+`equityEURm`, `capexPerKW`, `capexPerKWClamp`, `debtSizingBasis`, `lcoeEURPerMWh` and the nominal
+capture factor. A port can check its own derivation against them without any of them being stored
+in a file.
+
+**§6 — the construction-funding convention.** Equity pro rata through construction, the whole
+facility drawn at COD, everything in year one for an already-operating asset. This replaces 1C-1's
+schedule and is better: the reference starts charging interest on the full facility at COD, so
+drawing it there is what the debt schedule actually describes. Interest in the COD year accrues on
+`opening + drawdown`. Signed FCFE is unchanged, so every IRR downstream is unchanged.
+
+The emitted files now match 1B's worked example field for field, and all 48 share exactly one key
+structure. The tool compares against `templates/project-template.json` in both directions when it
+is present, and says loudly when it is not rather than passing silently.
+
+### 1C-17 · `captureFactor` is emitted effective, not nominal
+
+Schema §4.3 states `capture price = countryBaseloadPrice × captureFactor`. The reference **rounds**
+its capture price to a whole €/MWh — `Math.round(58 × 0.68) = 39` for Iberian solar — and the
+achieved price, revenue and EBITDA are all built on the rounded 39.
+
+Emitting the nominal factor would leave that identity false: `58 × 0.68 = 39.44`, off by 1.13%,
+outside the €0.01m / 0.1% tolerance. It is not one of §7's blocking tie-outs, so such a file would
+load — and then anyone deriving a capture price from it would get a number that does not reproduce
+the revenue sitting next to it.
+
+1C emits the **effective** factor, `capturePrice ÷ countryBaseloadPrice` (0.672414 for Iberian
+solar), so the identity holds exactly for all 48. The nominal factor is recorded in
+`derived_expectations.json`.
+
+This is the one field where 1C's files differ from 1B's worked example, which carries 0.68 against
+an achieved price built on 39 and is inconsistent on that point. Raised on #3: either the schema
+should say the capture price is rounded and the factor effective, or the seed generator should stop
+rounding. 1C cannot stop rounding without changing the reference's economics.
+
+### 1C-18 · `fcfe` is accumulated the reference's way, not §7.3's
+
+§7.3 states `fcfe = ebitda − interestPaid − debtRepayment − taxPaid − capex + debtDrawdown`, and §6
+notes that `−capex + debtDrawdown` is exactly `−equityDrawdown`.
+
+1C uses the `equityDrawdown` form. The §7.3 form subtracts the entire facility and adds it straight
+back in the COD year — algebraically nil, numerically lossy, costing the low bits of a small
+result. Computed literally it put `fcfe` 5e-15 away from the reference's own series and broke the
+`Object.is` assertion that is 1C's strongest integrity check.
+
+The `equityDrawdown` form is bit-identical to the reference, and §7.3's form still holds to 4.97e-14
+across all 48 × 30 — eleven orders of magnitude inside its tolerance. Both are true; only one is
+exact.
+
+### 1C-19 · Provenance for machine-generated files
+
+Schema §8 requires `preparedBy`, `preparedOn`, `modelVersion` and an `estimateBasis`/`confidence`/
+`note` for each of seven field groups — analyst metadata, for files an analyst wrote. These files
+were not written by an analyst.
+
+So they say so: `preparedBy` is `tools/extract_reference.mjs`, `modelVersion` is
+`js-reference@<bundle sha prefix>`, and every note states that the figure comes from the JavaScript
+reference model. `preparedOn` is a fixed date — the date 1C first extracted the fixtures, never
+`new Date()`, because the emitted bytes must be identical on every machine.
+
+`estimateBasis` and `confidence` follow what the reference actually models, which does vary by
+stage: grid connection, O&M contracting, contracted revenue share and entry pricing all move with
+it. The result carries the gradation §8.3 describes — 17 greenfield projects at `internal_model` /
+`low` for capex and debt terms, 11 construction projects at `binding_offer`, `grid` at
+`placeholder` for the 11 without a secured connection — so a consumer displaying provenance has
+something real to display, and the fixtures exercise the vocabulary rather than flat-lining it.
