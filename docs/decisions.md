@@ -1,0 +1,390 @@
+# Decisions
+
+Spec deviations, resolved ambiguities and open questions for TerraFolio v1.
+
+**How to use this document.** Later issues **append** to the numbered lists below; they do not
+restructure them. Every entry keeps its number for the life of the project, so `D-3`, `A-7` and
+`Q-2` are stable references. When you resolve something the specification was silent or ambiguous
+about, add an entry to [Resolved ambiguities](#resolved-ambiguities) and a line to the
+[Log](#log). When an open question is answered, leave it in place and record the answer under it.
+
+Section numbers cited as §n refer to [`spec.md`](spec.md) unless stated otherwise.
+
+---
+
+## Departures from the specification
+
+Three deliberate, measured departures. Two of them are the difference between an optimiser that
+converges and one that returns garbage while appearing to converge. **Do not "fix" these back to
+what the specification says.** If you think one is wrong, raise it on the epic (issue #1) rather
+than changing it.
+
+### D-1 — The spec's GA initialisation does not scale (amends §10.1)
+
+§10.1 says "random with 35% inclusion probability". That is calibrated for the mockup's 48-project
+pipeline, where 35% ≈ 17 projects ≈ the right size for €1,200m of equity. At the 300–500 candidates
+this application targets, 35% inclusion selects 105–175 projects needing many times the budget.
+Every chromosome lands in the budget-rejection band, the landscape is flat, tournament selection
+becomes a coin flip, and the run returns garbage while *looking* converged.
+
+Measured at 500 candidates, Standard 90×60:
+
+| Configuration | Best fitness | Projects | Equity | Capacity |
+|---|---|---|---|---|
+| Spec as written (p=0.35, no repair) | **−28.77** | 128 | €10,524m | 21,514 MW |
+| Capital-aware init + budget repair | **+7.88** | 11 | €1,154m | 1,661 MW |
+
+Against a €1,200m budget and a 1,500 MW target; the objective's reachable maximum is ≈9.7.
+
+**Required.** Scale the inclusion probability from
+
+```
+p = min(capacity_target ÷ Σ MW, available_capital ÷ Σ equity)
+```
+
+rather than a constant, and add a **budget repair operator** that drops holdings until a chromosome
+fits its equity budget. Both preserve determinism. The spec's 0.35 survives as a documented ceiling.
+
+**Status:** requires explicit sign-off (amends §10.1). See [Q-1](#q-1--the-three-departures-need-sign-off).
+
+### D-2 — The rejection score must sit below every feasible score (amends §10.2)
+
+§10.2 says a portfolio whose equity exceeds available capital is "rejected before scoring".
+Implemented literally as a single constant, over-budget chromosomes become indistinguishable and
+selection has nothing to work with — so the score must be **graded** in the overshoot. But the
+mockup's `-20 - equity/capital` is the wrong grade: the worst *feasible* portfolio scores about
+**−44**
+
+```
+3.2·(−0.6) + 3.0·(−0.5) + 2.6·(−1.2) − 7·0.85 − 14 − 8·0.65 − 8·0.85 − 1.6·2.6
+```
+
+which is why §10.2 sets the empty portfolio at −50. At −20, **an infeasible portfolio outranks a
+feasible one**.
+
+**Required.**
+
+```
+reject = −1000 − 100 × (equity ÷ capital − 1)
+```
+
+Always below −50, monotone in the overshoot, so it grades without ever beating a feasible portfolio.
+
+**Check order in the objective:**
+
+1. Empty portfolio first — it has equity 0 and so is "feasible", and must score exactly **−50**.
+2. Then the graded reject, with a **€1 tolerance** on the cap so a portfolio landing exactly on it
+   is not rejected by a rounding artefact. The utilisation reward actively pushes portfolios onto
+   that boundary, so this tolerance is load-bearing, not defensive.
+
+**Status:** requires explicit sign-off (amends §10.2). See [Q-1](#q-1--the-three-departures-need-sign-off).
+
+### D-3 — Debt sizing moves from the engine to the generator and validator (affects §9.3)
+
+With statements ingested, gearing and DSCR come from each file, so the spec's ambiguity — whether an
+18-year 1.40× sculpt sizes off minimum or stabilised EBITDA — no longer determines the product's
+numbers. It still matters twice: the **seed generator** must pick a basis, and it sets the
+**plausibility band** the validator warns against.
+
+**Required.** Use **stabilised first-full-year EBITDA**, as the JS reference does.
+
+Sizing off the minimum over the debt life pins min DSCR at exactly 1.40 for a third of the pipeline
+and puts nothing below the 1.25 default floor — which would leave §5.2's DSCR slider a dead control
+over most of its range, §7.4's "red below the mandate floor" never firing, and §7.1's worst-DSCR
+tile a constant. A level annuity against a varying EBITDA profile gives a varying DSCR by
+definition, so "sculpted" here means *sized*, not *shaped*.
+
+**Status:** requires explicit sign-off (affects §9.3). See [Q-1](#q-1--the-three-departures-need-sign-off).
+
+---
+
+## What statement ingestion costs
+
+The input model inverts the specification's §8/§9 arrangement. §8 has the application derive every
+financial from a small set of drivers; instead, **the pipeline is a directory of ~300 project files,
+one per park**, each carrying that project's full 30-year financials as modelled by the analyst who
+follows it. These are consequences of that choice, not defects — but §9.3 and §9.4 no longer read as
+written.
+
+- **`capex`, `seniorDebt`, `gearing` and `minDSCR` describe what the analyst assumed**, not what
+  asset quality supports. §9.3's claim that "portfolio leverage becomes an outcome of asset quality"
+  no longer holds. The minimum-leverage constraint still discriminates between portfolios; it just
+  discriminates between *declared* capital structures.
+- **The assumption set narrows** to what is genuinely portfolio-level: exit multiples, the LCOE
+  discount rate, the nine objective weights, the risk-appetite caps, the CO₂ factor, validator
+  tolerances and generator parameters. §9.4's "all rates, escalators, tenors, tax rates, capture
+  factors and exit multiples are configuration" still holds for everything the application computes;
+  per-file rates are now *declared inputs* that the dispersion report surfaces rather than
+  configuration the investment team turns. See [A-8](#a-8--the-narrowed-assumption-set).
+- **The mandate's hold-period slider still works**, because returns are computed at run time from
+  each file's FCFE series plus a terminal value. Nothing mandate-dependent is ever stored in a file
+  — see the reject-derived-fields rule in [`pipeline-schema.md`](pipeline-schema.md).
+- **The tie-out validator and the cross-file dispersion report are first-class features**, not
+  plumbing. 300 independently-authored models only aggregate into something a committee can trust if
+  the loader proves each one coherent and surfaces disagreement between them. They replace the
+  consistency that central derivation used to guarantee.
+- **The project financial model is not discarded.** It moves from source of truth to two jobs: it
+  **generates** the 300-file seed pipeline so the application ships with real, internally consistent
+  data, and it **checks** ingested files, powering the plausibility warnings and the "our model says
+  X, your file says Y" variance report.
+
+---
+
+## Resolved ambiguities
+
+Numbered `A-n`, append-only. Each records what was ambiguous, what was decided, and why.
+
+### A-1 — Statement line items are €m; the physicals identity needs an explicit ÷ 1e6
+
+*Raised by issue #3. Affects: #2, #6, #8, #4.*
+
+The tie-out as written in the epic and in issue #3 reads
+
+```
+revenue = generationGwh × 1000 × achievedPrice
+```
+
+which is dimensionally **euros**, not €m: 386 GWh × 1000 = 386,000 MWh, × €60/MWh = €23,176,000.
+Every other statement line is €m (epic §5 fixes files at €m and GWh), so the identity as written is
+off by a factor of 10⁶ against the rest of the file.
+
+**Decided.** The rule is stated with units explicit and the conversion where it belongs:
+
+```
+revenue_€m = generationGwh × 1000 × achievedPrice_€/MWh ÷ 1e6
+```
+
+and correspondingly `opex_€m = capacityMw × 1000 × opexPerKwYear_€/kW ÷ 1e6`. This is a units
+clarification consistent with epic §5, not a change of rule: no check is weakened and the tolerance
+is unchanged. The JS reference already divides by `1e6` at both points.
+
+### A-2 — `capex` is a cash-flow line item; the scalar is `totalCapex`
+
+*Raised by issue #3. Affects: #2, #6, #8.*
+
+§8 lists `capex, capexPerKw` as derived **scalars**, while the tie-out table uses `capex` as an
+annual cash-flow line (`Σ capex = totalCapex`, `fcfe = … − capex + debtDrawdown`). One name, two
+meanings, in the same normative table.
+
+**Decided.** `capex` is **only** the annual capital-expenditure line inside
+`statements.cashFlow`. The project-level scalar is **`totalCapex`**. A file carrying a top-level
+scalar named `capex` is rejected at load, both because of this collision and under the
+reject-derived-fields rule. Consequently the funding tie-out reads
+`Σ equityDrawdown = totalCapex − seniorDebt`, not `capex − seniorDebt`.
+
+### A-3 — `Σ depreciation = totalCapex` is false for a late-COD asset; use the PP&E residual
+
+*Raised by issue #3. Affects: #2, #6, #8.*
+
+The tie-out `Σ depreciation = capex over depreciationYears` holds only when the whole depreciation
+life falls inside the 30-year window. With `baseYear` 2027, 30 years runs 2027–2056; a 25-year life
+from a COD of 2033 (§5.2 allows COD up to 2033) runs 2033–2057 and loses its last year. The check as
+written would fail every such file, or — worse — invite an implementation that silently truncates
+depreciation to make it pass.
+
+**Decided.** The exact rule, which always holds, is
+
+```
+Σ depreciation = totalCapex − ppe[last]
+```
+
+with `Σ depreciation = totalCapex` **iff** `codYear + depreciationYears ≤ baseYear + 30`. The PP&E
+roll-forward `ppe[t] = ppe[t−1] − depreciation[t] + capex[t]` carries the residual by construction,
+so this is strictly stronger than the original — it pins the unamortised balance as well as the
+total — and it is not a weakening of the check.
+
+### A-4 — Construction funding: equity pro rata during build, debt drawn at COD
+
+*Raised by issue #3. Affects: #6, #8, #4.*
+
+§9.3 says debt is "drawn at COD" and "equity funds the construction period pro rata across the years
+to COD", but the JS reference never books `capex` as a line at all — it books the equity outflow
+directly. The statement rendering therefore has to be chosen, and the choice changes the FCFE
+*timing* (and so every IRR), not just its total.
+
+**Decided.** For a project with `buildYears = max(1, codYear − baseYear)`:
+
+| Year | `capex` | `equityDrawdown` | `debtDrawdown` |
+|---|---|---|---|
+| `t < codYear` | `(totalCapex − seniorDebt) ÷ buildYears` | same | 0 |
+| `t = codYear` | `seniorDebt` | 0 | `seniorDebt` |
+| already operating (`codYear ≤ baseYear`) | `totalCapex` in year one | `totalCapex − seniorDebt` | `seniorDebt` |
+
+Every funding tie-out then holds by construction — `Σ capex = totalCapex`,
+`Σ debtDrawdown = seniorDebt`, `Σ equityDrawdown = totalCapex − seniorDebt` — and
+
+```
+fcfe = ebitda − interestPaid − debtRepayment − taxPaid − capex + debtDrawdown
+```
+
+reproduces §9.4's "FCFE = EBITDA − interest − principal − tax, less construction equity draws"
+identically, because `− capex + debtDrawdown = − equityDrawdown` in every year.
+
+Verified against the JS reference on Almonte Solar: `max |statement_fcfe − reference_fcfe| = 5.3e-15`
+over all 30 years. The already-operating row is what §13's "project already operating in the base
+year — entire equity outflow booked in year one; no construction draw-down" requires.
+
+### A-5 — §5.4 warning order follows the specification, not the mockup
+
+*Raised by issue #3. Affects: #5, #10, #11.*
+
+§5.4 lists the feasibility warnings "in this order of severity". The mockup emits them in a
+different order (capacity shortfall, capital absorption, solar mix, leverage, locks).
+
+**Decided.** The **specification's order is normative** and is what
+[`ui-contract.md`](ui-contract.md) pins:
+
+1. no candidate passes the screens — the run button is disabled;
+2. eligible capacity is below the capacity target;
+3. the minimum leverage exceeds what the eligible pool can support;
+4. the solar target is more than 20 points away from the eligible pool's own mix;
+5. the eligible pool absorbs less than 90% of available capital;
+6. projects are locked or excluded — an informational count.
+
+The mockup's *strings* are kept verbatim; only the ordering is corrected. All but the first are
+advisory: the user is allowed to run an infeasible-looking mandate and see how close the optimiser
+gets.
+
+### A-6 — The two portfolio cash-flow series are named apart on the wire
+
+*Raised by issue #3. Affects: #7, #9, #11.*
+
+The 30-year chart/CSV series and the hold-truncated IRR series are both "the portfolio cash flow",
+and conflating them is the single most likely silent bug in the feature: one carries a terminal
+value and the other must not.
+
+**Decided.** They never share a name. [`api.md`](api.md) pins:
+
+- **`cashflow30Y_m`** — exactly 30 elements, €m, **no terminal value**. Drives the §7.2 chart, the
+  §7.1 "30-year FCFE" tile and `cashflow.csv`.
+- **`cashflowHold_m`** — exactly `holdYears` elements, €m, **terminal value added into the final
+  element**. Drives portfolio IRR and MOIC only.
+
+Neither is ever derived from the other by slicing.
+
+### A-7 — Outlier declared assumptions warn; they never block a run
+
+*Raised by issue #3, per epic §12 Q3 and Q4. Affects: #6, #8, #9.*
+
+**Decided (recommended default applied).** Plausibility checks and the cross-file dispersion report
+**warn**; only tie-out failures block a file from loading. The house model's variance report is
+reported alongside the analyst's file and never gates ingestion.
+
+Blocking on an outlier would let one stale file stop all work, and gating on the house model would
+make it authoritative again — which is precisely what the input design set out to change. See
+[Q-3](#q-3--do-outlier-declared-assumptions-block-a-run-or-only-warn) and
+[Q-4](#q-4--should-the-house-models-variance-report-gate-ingestion).
+
+### A-8 — The narrowed assumption set
+
+*Raised by issue #3, per epic §2. Affects: #2, #6, #8.*
+
+With statements ingested, the assumption set narrows to what is genuinely portfolio-level. It holds,
+and only holds:
+
+| Group | Contents |
+|---|---|
+| Exit | Exit EV/EBITDA multiples by technology |
+| Discounting | The LCOE discount rate (6% real) |
+| Objective | The nine §10.2 weights, the capacity floor, the split divisor, the IRR clamp |
+| Risk appetite | The pre-screen caps and the portfolio-average penalty caps for Low / Balanced / High |
+| Environmental | The CO₂ avoided factor (0.32 t/MWh) |
+| Validation | Tie-out tolerances, plausibility bands, stage gearing ceilings |
+| Generator | Entry yields, €/kW bands, capture factors, escalators, degradation, ramp fraction, debt terms |
+
+Per-file rates — each project's own tax rate, debt rate, tenor and depreciation life — are
+**declared inputs** carried in the file's `assumptions` block, not configuration. The dispersion
+report surfaces disagreement between them.
+
+Every rate, weight, floor, clamp, tolerance and band in the table above lives in the assumption set
+and **never** as a code constant (§10.2, §9.4): changing one must be an auditable event.
+
+---
+
+## Open questions
+
+Numbered `Q-n`, append-only. Each carries a recommended default that has been applied, so a
+different answer is a configuration change rather than a rewrite. Raise one on the epic (issue #1)
+if your issue depends on it.
+
+### Q-1 — The three departures need sign-off
+
+[D-1](#d-1--the-specs-ga-initialisation-does-not-scale-amends-101),
+[D-2](#d-2--the-rejection-score-must-sit-below-every-feasible-score-amends-102) and
+[D-3](#d-3--debt-sizing-moves-from-the-engine-to-the-generator-and-validator-affects-93) amend
+§10.1, §10.2 and §9.3 respectively. All three need explicit sign-off.
+
+**Default applied:** all three as specified above.
+
+### Q-2 — What ingestion costs
+
+Leverage and DSCR now describe analyst assumptions rather than derived asset quality, and per-fund
+rate configuration narrows. These are consequences of the input model, not defects, but §9.3 and
+§9.4 no longer read as written. Confirm the trade is accepted.
+
+**Default applied:** accepted; see [What statement ingestion costs](#what-statement-ingestion-costs)
+and [A-8](#a-8--the-narrowed-assumption-set).
+
+### Q-3 — Do outlier declared assumptions block a run or only warn?
+
+**Recommended:** warn, plus the dispersion report. Blocking would let one stale file stop all work.
+
+**Default applied:** see [A-7](#a-7--outlier-declared-assumptions-warn-they-never-block-a-run).
+
+### Q-4 — Should the house model's variance report gate ingestion?
+
+**Recommended:** no. Report the variance, let the analyst's file stand. Gating would make the house
+model authoritative again and defeat the input design.
+
+**Default applied:** see [A-7](#a-7--outlier-declared-assumptions-warn-they-never-block-a-run).
+
+### Q-5 — Exhaustive at 2,000 candidates
+
+Is there a hard target? §12 wants 2,000 candidates but budgets only Standard-at-500. Exhaustive
+160×110 at 2,000 candidates currently measures 30 s.
+
+**Default applied:** none — no target is asserted. Closing the gap is issue #12's repair-masking
+work, not a redesign.
+
+### Q-6 — Brownfield assets with debt already in place
+
+These cannot be modelled from the template as drafted. §3 scopes v1 to greenfield / ready-to-build /
+construction so it does not arise.
+
+**Default applied:** out of scope for v1. v1.1 would need an `existingDebt` block and a validator
+branch.
+
+### Q-7 — Shareability versus role-based visibility
+
+§11 calls a run id shareable; §12 demands role-based visibility by fund. These conflict.
+
+**Recommended:** resolve toward the security requirement. Authentication is not otherwise in this
+backlog; if it is a v1 gate it needs its own issue in group 3.
+
+**Default applied:** the run id is treated as an internal identifier, not a bearer token. No
+authentication is implemented in this backlog.
+
+### Q-8 — Currency
+
+Confirm that a non-EUR file's statements are denominated in that currency — and therefore only ever
+screened out — rather than pre-converted to EUR by the analyst.
+
+**Default applied:** statements are denominated in the file's own `currency`; non-EUR files are
+screened out by the §5.3 EUR-only toggle and are never converted. See
+[`pipeline-schema.md`](pipeline-schema.md).
+
+---
+
+## Log
+
+| Date | Issue | Entry |
+|---|---|---|
+| 2026-09-21 | #3 | D-1, D-2, D-3 recorded from epic §6; Q-1…Q-8 recorded from epic §12 with defaults applied. |
+| 2026-09-21 | #3 | A-1 — physicals identity carries an explicit ÷ 1e6. |
+| 2026-09-21 | #3 | A-2 — `capex` is a cash-flow line; the scalar is `totalCapex`. |
+| 2026-09-21 | #3 | A-3 — `Σ depreciation = totalCapex − ppe[last]`. |
+| 2026-09-21 | #3 | A-4 — construction funding convention fixed and verified to 5.3e-15. |
+| 2026-09-21 | #3 | A-5 — §5.4 warning order follows the specification, not the mockup. |
+| 2026-09-21 | #3 | A-6 — `cashflow30Y_m` and `cashflowHold_m` named apart on the wire. |
+| 2026-09-21 | #3 | A-7 — plausibility and dispersion warn; only tie-out failures block. |
+| 2026-09-21 | #3 | A-8 — the narrowed assumption set enumerated. |
