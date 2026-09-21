@@ -1,0 +1,82 @@
+/**
+ * js/format.js is the only place allowed to format a number (spec §14).
+ *
+ * This guard exists because the rule is trivially broken by one convenient
+ * toLocaleString in a new page script, and the damage — a figure that reads
+ * differently depending on the viewer's locale — is invisible until someone
+ * prints a committee pack abroad.
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const WEB = path.resolve(__dirname, '..');
+
+/** Every file the browser loads that we author: page scripts and pages. */
+function sourceFiles() {
+  const js = fs.readdirSync(path.join(WEB, 'js'))
+    .filter((f) => f.endsWith('.js'))
+    .map((f) => path.join('js', f));
+  const html = fs.readdirSync(WEB)
+    .filter((f) => f.endsWith('.html'))
+    .map((f) => f);
+  return [...js, ...html];
+}
+
+test('toLocaleString appears only inside js/format.js', () => {
+  const offenders = [];
+  for (const rel of sourceFiles()) {
+    if (rel === path.join('js', 'format.js')) continue;
+    const source = fs.readFileSync(path.join(WEB, rel), 'utf8');
+    source.split('\n').forEach((line, i) => {
+      if (line.includes('toLocaleString')) offenders.push(`${rel}:${i + 1}`);
+    });
+  }
+  assert.deepEqual(offenders, [],
+    'these must call js/format.js instead of formatting numbers themselves');
+});
+
+test('js/format.js confines number formatting to its one grouping helper', () => {
+  const source = fs.readFileSync(path.join(WEB, 'js', 'format.js'), 'utf8');
+  // The call forms, so the file's own prose about the rule does not count as breaking it.
+  const calls = (source.match(/\.toLocaleString\(/g) || [])
+    .concat(source.match(/new Intl\.NumberFormat\(/g) || []);
+  assert.equal(calls.length, 1,
+    'grouping must funnel through one formatter, so the locale is pinned in one place');
+  assert.match(source, /function group\([\s\S]*?Intl\.NumberFormat\(LOCALE/,
+    'the formatter must live in group() and use the pinned LOCALE constant');
+});
+
+test('the cached formatters do not leak between decimal counts', () => {
+  const fmt = require('../js/format.js');
+  // Interleaved, because a cache keyed wrongly would return the previous shape.
+  assert.equal(fmt.eurM(1200), '\u20AC1,200m');
+  assert.equal(fmt.dscr(1.4), '1.40\u00D7');
+  assert.equal(fmt.eurM(1200), '\u20AC1,200m');
+  assert.equal(fmt.irr(0.1), '10.0%');
+  assert.equal(fmt.dscr(1.4), '1.40\u00D7');
+  assert.equal(fmt.count(1200), '1,200');
+});
+
+/**
+ * styleguide.html is a type specimen, not a product screen: showing what a formatted
+ * figure looks like is its entire job, and it renders no pipeline data. Every other
+ * page must get its numerals from format.js at runtime, and shows an em dash until it does.
+ */
+const SPECIMEN = 'styleguide.html';
+
+test('no product page hard-codes a grouped numeral instead of calling format.js', () => {
+  const offenders = [];
+  for (const rel of sourceFiles()) {
+    if (rel === path.join('js', 'format.js') || rel === SPECIMEN) continue;
+    const source = fs.readFileSync(path.join(WEB, rel), 'utf8');
+    source.split('\n').forEach((line, i) => {
+      // A literal grouped figure in source means a number bypassed format.js.
+      if (/\d{1,3}(,\d{3})+/.test(line) && !line.trim().startsWith('*')) {
+        offenders.push(`${rel}:${i + 1}: ${line.trim().slice(0, 70)}`);
+      }
+    });
+  }
+  assert.deepEqual(offenders, [], 'grouped numerals must be produced by format.js at runtime');
+});

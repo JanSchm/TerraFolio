@@ -1,0 +1,16 @@
+    <!-- nav:start — identical on all four pages except which step carries aria-current.
+         tools/splice-nav.mjs writes this block; tests/nav.test.js guards it. -->
+    <header class="sticky top-0 z-nav flex flex-wrap items-center justify-between gap-4 border-b border-divider bg-bg px-7 py-[12px]">
+      <div class="flex items-baseline gap-4">
+        <span class="font-condensed text-[19px] font-bold tracking-tight">TERRAFOLIO</span>
+        <span class="text-micro uppercase tracking-brand text-muted">Renewables portfolio optimiser</span>
+      </div>
+      <ol class="flex items-center gap-[18px] font-condensed text-micro uppercase tracking-micro" aria-label="Progress">
+        <li><span data-step="mandate" class="text-muted aria-[current=step]:font-semibold aria-[current=step]:text-accent-700">01 Mandate</span></li>
+        <li aria-hidden="true" class="text-neutral-400">&#8212;</li>
+        <li><span data-step="search" class="text-muted aria-[current=step]:font-semibold aria-[current=step]:text-accent-700">02 Search</span></li>
+        <li aria-hidden="true" class="text-neutral-400">&#8212;</li>
+        <li><span data-step="portfolio" class="text-muted aria-[current=step]:font-semibold aria-[current=step]:text-accent-700">03 Portfolio</span></li>
+      </ol>
+    </header>
+    <!-- nav:end -->

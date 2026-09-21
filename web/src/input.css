@@ -1,0 +1,166 @@
+@import './fonts.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   Base — the blueprint ground rules.
+   Square corners, hairline borders, one visible focus treatment, and the two
+   Barlow faces. Headings and every numeral are Barlow Condensed 600.
+   ══════════════════════════════════════════════════════════════════════════ */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-bg text-text font-sans text-body-lg;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-condensed font-semibold;
+  }
+
+  h1 { @apply text-h1; }
+  h2 { @apply text-h2; }
+  h3 { @apply text-h3; }
+  h4 { @apply text-h4; }
+  h5 { @apply text-h5 uppercase; }
+  h6 { @apply text-h6 uppercase; }
+
+  /* One focus treatment, and only for keyboard users. Mouse clicks must not ring. */
+  :focus {
+    outline: none;
+  }
+
+  :focus-visible {
+    @apply outline outline-2 outline-offset-2;
+    outline-color: theme('colors.accent.700');
+  }
+
+  ::selection {
+    background: theme('colors.accent.200');
+  }
+
+  /* Native controls pick up the system's ink rather than the browser's blue. */
+  input[type='range'],
+  input[type='checkbox'],
+  input[type='radio'],
+  progress {
+    accent-color: theme('colors.accent.700');
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   Components — the five patterns that genuinely repeat. Everything else is
+   utilities inline, so there is no second place to look for a style.
+   ══════════════════════════════════════════════════════════════════════════ */
+@layer components {
+
+  /* ── The blueprint frame ────────────────────────────────────────────────────
+     A hairline box with a registration mark centred on each corner: a 1px
+     crosshair with 11px arms, straddling the border so 6px falls outside the
+     box and 5px inside.
+
+     The mockup draws these with four empty <i class="corner"> children. Four
+     pseudo-elements are not available, so each of ::before and ::after covers
+     one edge as a strip that overhangs both sides by 6px, and paints two
+     crosshairs — four 1px gradients, placed with the four-value background-position
+     syntax. Both strips use identical positions; only their edge differs.
+
+     The marks live outside the border box, so an ancestor with overflow:hidden
+     will clip them. That is why .panel does not set overflow. */
+  .blueprint {
+    @apply relative border border-divider;
+  }
+
+  .blueprint::before,
+  .blueprint::after {
+    content: '';
+    @apply pointer-events-none absolute;
+    left: -6px;
+    right: -6px;
+    height: 11px;
+    color: theme('colors.neutral.600');
+    background-image:
+      linear-gradient(currentColor, currentColor),
+      linear-gradient(currentColor, currentColor),
+      linear-gradient(currentColor, currentColor),
+      linear-gradient(currentColor, currentColor);
+    background-size: 1px 11px, 11px 1px, 1px 11px, 11px 1px;
+    background-position:
+      left 5px top 0,
+      left 0 top 5px,
+      right 5px top 0,
+      right 0 top 5px;
+    background-repeat: no-repeat;
+  }
+
+  .blueprint::before { top: -6px; }
+  .blueprint::after  { bottom: -6px; }
+
+  /* ── Panel — a blueprint frame with the standard content inset. ───────────── */
+  .panel {
+    @apply blueprint px-6 pt-6 pb-[22px];
+  }
+
+  /* ── Tile — one KPI cell in the hairline grid of tiles. ────────────────────
+     Compliance state is never colour alone: .tile-breach and .tile-ontarget add
+     a mark through the markup, and every tile carries an accessible state name. */
+  .tile {
+    @apply border-r border-divider px-[16px] pt-[14px] pb-4;
+  }
+
+  /* ── Input — every text, number and select field. ──────────────────────────
+     A neutral-600 border, not the mockup's neutral-400: control boundaries need
+     3:1 and neutral-400 measures 1.79:1. 44px min-height keeps the touch target
+     above the 42px floor. */
+  .input {
+    @apply w-full min-h-[44px] rounded-none border border-edge bg-neutral-100
+           px-[10px] py-[6px] font-sans text-body-lg text-text;
+  }
+
+  .input:hover {
+    @apply border-neutral-700;
+  }
+
+  .input:focus-visible {
+    @apply border-accent-700;
+  }
+
+  .input:disabled,
+  .input[readonly] {
+    @apply bg-surface text-muted;
+  }
+
+  /* ── Chip — country and stage toggles, and the show-all switch. ────────────
+     Pressed state rides on aria-pressed so it survives a colour-blind reader
+     and a screen reader alike. */
+  .chip {
+    @apply inline-flex min-h-[42px] cursor-pointer items-center gap-2 rounded-none
+           border border-accent-700 px-3 py-[7px] font-condensed text-label
+           tracking-tight text-accent-700;
+  }
+
+  .chip[aria-pressed='true'] {
+    @apply bg-accent-100 text-accent-800;
+  }
+
+  .chip:hover {
+    @apply bg-accent-100;
+  }
+
+  /* ── Numerals — Barlow Condensed 600, lining and tabular so columns align. ──
+     Not in issue #5's @apply list, but it repeats on every figure, tile, stat,
+     table cell and range readout in the product, and it carries tabular-nums,
+     which the markup must not be free to forget. */
+  .num {
+    @apply font-condensed font-semibold;
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+}

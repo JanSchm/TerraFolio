@@ -424,6 +424,135 @@ reopens the exact result" costs.
 
 ---
 
+### A-15 — the pages are classic scripts, because a module cannot load over `file://`
+
+*Raised by issue #5. Affects: #10, #11.*
+
+§12 requires the pages to open from disk with no server. Issue #5 also describes the JavaScript as
+"plain ES modules loaded directly". These conflict: every browser CORS-blocks `<script type=
+"module">` and every module `import` from a `file://` origin, whose origin is opaque. Verified in
+Chrome rather than assumed — a module script on a `file://` page fires `error` with no message and
+never executes.
+
+**Decided.** §12 wins; "loaded directly" is honoured in the sense that matters, which is that
+nothing is bundled. `format.js`, `feasibility.js` and `controls.js` are classic scripts attaching to
+one `window.TerraFolio` namespace, each ending with a CommonJS tail so bare node can require them.
+`feasibility.js` resolves its one dependency as `typeof require === 'function' ? require(
+'./format.js') : window.TerraFolio.format`, so it still imports nothing but `format.js` and still
+runs under bare node, which is what #12 needs to check it against #6's Python.
+
+`fetch()` is blocked from `file://` for the same reason, so `web/public/countries-110m.json` cannot
+be read from disk by the map. `tools/vendor.mjs` generates `countries-110m.js` beside it — the same
+data as a classic script — from the same source.
+
+**#11 writes seven more page scripts and must follow the same convention**, or the pages stop
+opening from disk.
+
+### A-16 — a control emits a wire value; its label is a separate input
+
+*Raised by issue #5. Affects: #10, #11.*
+
+Two controls were built emitting their own display labels: the stage chips emitted
+`Ready-to-build` where every consumer screens on `ready_to_build`, and the risk-appetite control
+emitted `Balanced` as the key into `assumptions.risk_caps`. Neither fails loudly — the first
+empties the pool, which reads as a mandate that is merely too tight.
+
+**Decided.** Every control that offers a choice takes `values` (canonical, what it emits) and
+`labels` (what the user reads) as separate inputs. `chipGroup` and `segmented` both expose
+`label(value)`, and neither renders a raw value.
+[`api.md` §6.1](api.md#61-the-mandate-object) is the authority for the names; the mandate this
+front end emits matches it field for field.
+
+### A-17 — every rate and share in the mandate is a fraction
+
+*Raised by issue #5. Affects: #11.*
+
+The mockup stores `hurdle: 11` and `minLev: 60` as whole percent but `solarShare: 0.45` as a
+fraction, then divides at each comparison. Mixing the two conventions in one object is how a
+factor-of-100 error gets written, and one was: the percentage spinners emitted `35` where the
+sliders emitted `0.35`, so a 35% merchant cap would have reached the objective as 3500% — which
+does not fail, it silently disables the constraint.
+
+**Decided.** Fractions throughout, matching [`api.md` §6.1](api.md#61-the-mandate-object) and its
+rule that the wire never carries a percentage. The native range and number inputs still work in
+whole percent, because that is what a user types; each control divides on the way out.
+
+### A-18 — feasibility recomputes on `input`, not `change`
+
+*Raised by issue #5. Affects: #11.*
+
+[`ui-contract.md` §3.4](ui-contract.md#34-footer--live-feasibility) budgets the footer at under
+100 ms precisely so it can be live. The DOM `change` event does not fire while a slider is being
+dragged or a number typed without blurring, so the footer would have sat stale through the whole
+interaction.
+
+**Decided.** Ranges and number fields dispatch on `input`; radios stay on `change`, which is when a
+radio changes. Measured: the client-side computation is 0.205 ms at 500 candidates and 0.450 ms at
+2,000, so the budget is not the constraint — the event is.
+
+### A-19 — the split bar's focus ring is drawn by the bar, not by its slider
+
+*Raised by issue #5. Affects: #10.*
+
+The technology-split control is a transparent `<input type="range">` stretched over a painted bar,
+which is what makes it drag like a bar while staying a real slider. `opacity: 0` also makes its
+`:focus-visible` outline transparent, so the control was keyboard-operable with no visible focus at
+all.
+
+**Decided.** The visible bar takes the ring, through a `has-[:focus-visible]` treatment on the
+wrapper. Any control drawn this way owes the same.
+
+### A-20 — the ported palette drops the mockup's bare accent
+
+*Raised by issue #5. Affects: #10, #11.*
+
+The mockup's `--color-accent` (`#5980a6`) measures **3.71:1** on the page background and is used
+for links, ghost buttons, outline chips and the primary button's label — all below the 4.5:1 floor.
+Micro-labels at 55% ink measure 3.64:1, table headers at 60% ink 4.25:1, control borders at
+`neutral-400` 1.79:1 against a 3:1 requirement.
+
+**Decided.** The ladder is ported exactly as issue #5 specifies; only the role-to-token mapping
+moves, which is what #5's own semantic mapping already says — `accent-700` for active data ink
+(5.78:1), `neutral-700` for muted body (5.87:1), `neutral-600` for control boundaries (3.82:1).
+**The ported system therefore has no bare `--color-accent` and no `accent-2` ladder.**
+`accent-400` keeps its mandated value as the wind tone and gains an `accent-700` hairline, so the
+shape has a 3:1 boundary without a new colour. All 29 pairs are asserted in
+`web/tests/contrast.test.js`, which also fails if either value reappears.
+
+This is the mechanism A-10 asks for, applied to the palette rather than to the status marks.
+
+### A-21 — an unlevered project passes the DSCR screen
+
+*Raised by issue #5. Affects: #6, #9.*
+
+[`api.md` §2](api.md#2-get-pipeline) gives `minDscr` as `number | null`, null "where the project
+carries no debt". §5.2's DSCR screen is written as a floor, and `null >= 1.25` is false in both
+JavaScript and Python, so the naive reading silently screens out every unlevered project.
+
+**Decided.** A null `minDscr` **passes**. A project with no debt has no debt service to fail to
+cover; rejecting it would drop the safest assets in the pipeline for having no risk to measure,
+and the mandate's minimum-leverage constraint is the control that actually expresses a preference
+against them.
+
+`web/js/feasibility.js` implements it and `#6` must match, because
+[`api.md` §5](api.md#5-post-mandatepreview) requires the client and the preview endpoint to agree
+field for field.
+
+### A-22 — the solar-mix warning is one-sided
+
+*Raised by issue #5. Affects: #10, #11.*
+
+[`ui-contract.md` §3.5](ui-contract.md#35-warning-strings) gives the trigger as the eligible solar
+share being "more than 20 points from the target", which reads as symmetric. The string it pins is
+not: *"Solar target of {solar}% may be unreachable: eligible pool is {poolSolar}% solar."*
+
+**Decided.** The test fires only when the pool has **less** solar than the target, which is the
+mockup's own condition. A pool with far more solar than the target can still reach it by selecting
+fewer solar projects, so the target is not unreachable and the message would be wrong. A pool with
+far less cannot reach it at all.
+
+Raise it on #3 if the symmetric reading was intended; the change is one comparison.
+
 ## Open questions
 
 Numbered `Q-n`, append-only. Each carries a recommended default that has been applied, so a
@@ -920,3 +1049,12 @@ requires of everything else in the block.
 | 2026-09-21 | #4 | `revenue.captureFactor` is emitted effective, not nominal, so §4.3's identity reproduces the revenue. |
 | 2026-09-21 | #4 | `fcfe` is accumulated as §6's `-equityDrawdown` form; §7.3's form is lossy in the COD year. |
 | 2026-09-21 | #4 | The reference GA is driven, not transcribed; a second trace with locked projects gives `force` an oracle. |
+| 2026-09-21 | #5 | A-15 — pages are classic scripts; a module script cannot load over `file://`. |
+| 2026-09-21 | #5 | A-16 — controls emit canonical values; display labels are a separate input. |
+| 2026-09-21 | #5 | A-17 — every rate and share in the mandate is a fraction, per `api.md` §6.1. |
+| 2026-09-21 | #5 | A-18 — the feasibility footer recomputes on `input`; measured 0.205 ms at 500 candidates. |
+| 2026-09-21 | #5 | A-19 — the split bar's focus ring is drawn by the bar, not by its transparent slider. |
+| 2026-09-21 | #5 | A-20 — the mockup's bare accent fails AA at 3.71:1 and is not ported; roles move to `accent-700`. |
+| 2026-09-21 | #5 | A-21 — a null `minDscr` passes the DSCR screen; an unlevered project has no coverage to fail. |
+| 2026-09-21 | #5 | A-22 — the solar-mix warning fires only when the pool is short of solar, matching its pinned string. |
+| 2026-09-21 | #5 | Front end reconciled with `api.md` and `ui-contract.md` after #3 merged: mandate and project field names, seven warning codes in §5.4 order, `runnable`, three footer figures, §4 search copy. |
