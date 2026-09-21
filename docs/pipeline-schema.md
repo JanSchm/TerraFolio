@@ -53,9 +53,13 @@ Further conventions:
   `interestExpense`, `taxExpense`, `capex`, `debtRepayment` are all positive magnitudes.
 - **Projects are canonically ordered by `id` ascending**, everywhere in the system. The optimiser's
   PRNG draws are indexed by position, so this is a determinism requirement, not tidiness.
-- **Money is denominated in the file's own `currency`.** A non-EUR file is never pre-converted; it
-  is screened out by the §5.3 EUR-only toggle (A-8, Q-8).
-- **Year 0 is `assumptions.baseYear`.** All 30 arrays are indexed from it.
+- **Every statement line is in euros, in every file.** §3 scopes v1 to a single-currency EUR
+  pipeline, and the aggregates are plain sums, so a statement denominated in anything else would be
+  added to euros as though it were euros. `currency` is the **revenue** currency, an execution-screen
+  input and a hedging flag — never the denomination of the statements (A-12).
+- **Year 0 is `assumptions.baseYear`, and every file in a pipeline shares it.** All 30 arrays are
+  indexed from it, and the portfolio aggregates them **by position**, so files that disagree would
+  sum different calendar years. See [§4.6](#46-assumptions).
 
 ### 2.1 Nothing mandate-dependent is ever stored
 
@@ -137,7 +141,7 @@ warning: a misspelled field that is silently ignored is how a wrong number reach
 | `developmentRiskScore` | number | score | 1.0 … 5.0, one decimal | Set by the origination team at intake (§8). Pre-screened against the risk-appetite cap; the capex-weighted portfolio average is penalised. |
 | `gridSecured` | boolean | — | — | True iff a firm connection agreement exists. Drives the §5.3 screen. |
 | `omContracted` | boolean | — | — | True iff a signed long-term service agreement exists. Drives the §5.3 screen. |
-| `currency` | string | — | ISO 4217 | The currency the statements are denominated in. Drives the §5.3 EUR-only screen. Never converted (Q-8). |
+| `currency` | string | — | ISO 4217 | The currency the project's **revenue** is earned in, which is what the §5.3 EUR-only screen tests and what the detail sheet flags as `hedge required`. **Not** the denomination of the statements, which are always euros (A-12). |
 
 ### 4.5 `capitalStructure`
 
@@ -161,11 +165,31 @@ not turn them, and the cross-file dispersion report surfaces disagreement betwee
 
 | Field | Type | Unit | Domain | Validation |
 |---|---|---|---|---|
-| `baseYear` | integer | year | 2000 … 2100 | Year 0 of every array. `statements.years` must run `baseYear … baseYear + 29`. |
+| `baseYear` | integer | year | 2000 … 2100 | Year 0 of every array. `statements.years` must run `baseYear … baseYear + 29`, and **every file in the pipeline must carry the same value** — see [§4.6.1](#461-the-pipeline-base-year-is-unanimous). |
 | `taxRate` | number | fraction | 0 … 0.6 | Used by the `taxExpense` plausibility check. |
 | `depreciationYears` | integer | years | 1 … 40 | Straight-line life from COD. |
 | `debtRate` | number | fraction | 0 … 0.25 | Nominal senior rate. Used by the dispersion report. |
 | `debtTenorYears` | integer | years | 0 … 30 | Debt life from COD. Determines exactly which years carry a `dscr` (§7). |
+
+#### 4.6.1 The pipeline base year is unanimous
+
+`baseYear` is the one declared assumption that is **not** merely reported by the dispersion report.
+Every other field in this block may vary between files and the report simply surfaces the spread. A
+`baseYear` that varies cannot be tolerated, because the portfolio aggregates the 30-element arrays
+**by position**: a file based in 2027 and a file based in 2028 would have their 2027 and 2028
+figures added together, and every portfolio cash flow, exit year and return would silently mix
+calendar years (A-13).
+
+So:
+
+- The **pipeline base year** is the `baseYear` shared by every loaded file.
+- If the files do not agree, the **load fails as a whole** — not file by file. The error names the
+  majority year, and every file that disagrees with it, so an analyst can see at once whether one
+  file is stale or a re-basing is half-finished.
+- `GET /pipeline` exposes that single `baseYear` ([`api.md` §2](api.md#2-get-pipeline)), and the
+  mandate's exit year is `baseYear + holdYears`.
+
+Re-basing a file is the analyst's job: the loader never shifts a series to make it fit.
 
 ---
 
@@ -336,6 +360,16 @@ dscr = ebitda ÷ (interestPaid + debtRepayment)
 | Nulls | No nulls anywhere except `ratios.dscr` |
 | DSCR coverage | `dscr` is non-null **exactly** where `0 ≤ years[t] − codYear < debtTenorYears` |
 | Keys | No unknown keys at any level; no missing keys |
+
+### 7.9 Pipeline-level
+
+These are checked across files, once the individual files have passed. They fail the **load**, not a
+file, because no subset of the pipeline is usable when one of them breaks.
+
+| Check | Rule |
+|---|---|
+| Unique ids | No two files declare the same `id`. The error names both files. |
+| One base year | Every file declares the same `assumptions.baseYear` (A-13, [§4.6.1](#461-the-pipeline-base-year-is-unanimous)). The error names the majority year and every file that disagrees. |
 
 ---
 
@@ -511,6 +545,10 @@ form of this same schema — **identical field names, so there is one schema rat
 | `Assumptions` | Two columns, same shape, for the `assumptions` block. |
 | `Provenance` | One row per provenance group: group, `estimateBasis`, `confidence`, `note`. |
 | `Statements` | **Line items as rows, the 30 years as columns.** Column A is the JSON path (`incomeStatement.ebitda`), column B the unit, columns C…AF the years, header row carrying `years`. Blocks appear in file order: physicals, income statement, cash flow, debt schedule, balance sheet, ratios. |
-| `TieOuts` | One row per check in [§7](#7-tie-outs), each a **live formula** against `Statements`, showing the residual and a PASS/FAIL. The workbook proves itself. |
+| `TieOuts` | One row per check in [§7](#7-tie-outs), each a **live formula** against `Statements`. Each per-year cell holds the **breach over tolerance** — `max(0, |residual| − max(0.01, 0.001 × |reference|))` — so it applies both limbs of the §7 tolerance year by year and points at the failing year. Zero means inside tolerance. The workbook proves itself. |
 
 An empty `dscr` cell means `null`. Everything else is a number.
+
+The `TieOuts` sheet checks DSCR **coverage** as well as its value: a blank cell inside the debt life,
+or a filled one outside it, is a FAIL, derived from `codYear` and `debtTenorYears` rather than from
+whether the cell happens to be empty. A workbook that shows PASS is a file the loader will accept.

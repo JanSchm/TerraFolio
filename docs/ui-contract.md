@@ -217,8 +217,14 @@ close the optimiser gets (§5.4).
 ### 3.6 Blocking error
 
 §13 requires one case to block rather than warn: **locked projects alone exceed available capital**.
-The run button is disabled and the message names which locks to release. The API returns `422` for
-the same condition (see [`api.md`](api.md)).
+The run button is disabled and the message names which locks to release:
+
+> `Locked projects need €{locked}m of equity against €{capital}m available. Release a lock to run.`
+
+Two of the six §3.5 warnings are blocking, and only these two disable the run: `NO_CANDIDATES` and
+`LOCKS_EXCEED_CAPITAL`. `POST /mandate/preview` returns `runnable: false` for exactly these, and
+`POST /optimisations` answers `422` for the same two, so the button state and the API agree by
+construction ([`api.md` §5](api.md#5-post-mandatepreview)).
 
 ---
 
@@ -328,6 +334,7 @@ and by a screen reader, not only by pointer hover.
 | Title | `Selected sites` |
 | Projection | `d3.geoMercator`, centre `[12, 55]`, scale `width × 1.15`, 300px tall |
 | Geometry | Vendored Natural Earth 110m countries, `web/public/countries-110m.json`. Never a hand-drawn outline (§7.3). |
+| Site coordinates | `lat` / `lon` from the run's `holdings` array, so an old run still plots (§13). |
 | Country fill | `--color-accent-200` where the portfolio holds an asset, `--color-neutral-200` otherwise, `--color-divider` stroke at 0.6px |
 | Marker | Circle, `r = max(3, √MW × 0.42)`, fill-opacity 0.82, 1px `--color-bg` stroke |
 | Solar marker | `--color-accent-700` |
@@ -341,6 +348,11 @@ Header row: `Holdings`, `{shown} of {total}` and the controls — a free-text `S
 three selects (`All countries` / `All technologies` / `All stages`) and a
 `Show all candidates` / `Showing all candidates` toggle chip. Sort and filter must complete in under
 50 ms at 500 rows (§12), so both are client-side over data already in hand.
+
+**Both views read the run's own `holdings` array**, which carries every eligible candidate with a
+`selected` flag — never the live `GET /pipeline`. A run reopened after the pipeline has moved must
+still show what *that* run rejected (§13), and the map and drawer are fed from the same array for
+the same reason ([`api.md` §8.2](api.md#82-holdings--the-runs-own-candidate-snapshot)).
 
 Sixteen columns:
 
@@ -391,7 +403,7 @@ Four headline figures: **Capacity** `{mw} MW` · **Equity IRR ({hold}y)** `{irr}
 | Group | Rows |
 |---|---|
 | Technical | Net capacity factor `{n}%` 1 dp · P50 generation `{n} GWh/yr` · Commercial operation `{year}` · Grid connection `Secured` / `Application pending` · O&M `Long-term service agreement signed` / `Not contracted` |
-| Capital structure | Total project cost `€{n}m (€{n}/kW)` · Senior debt `€{n}m at {pct}, {rate}, {tenor}y` · Minimum DSCR `{n}×` · Equity payback `{year}` or `beyond {lastYear}` · Currency `{ccy}` with ` — hedge required` when not EUR |
+| Capital structure | Total project cost `€{n}m (€{n}/kW)` · Senior debt `€{n}m at {pct}, {rate}, {tenor}y` · Minimum DSCR `{n}×` · Equity payback `{year}` or `beyond {lastYear}` · Currency `{ccy}` with ` — hedge required` when not EUR. This is the **revenue** currency; statements are always euros. |
 | Revenue | Contracted share `{pct}` · PPA price `€{n}/MWh for {t} yrs` or `merchant only` · Capture price `€{n}/MWh (baseload €{n})` · LCOE `€{n}/MWh` · Opex `€{n}/kW/yr` |
 | Risk | Development risk score `{n} / 5` · Status in portfolio `Selected` / `Not selected` / `Excluded` · Locked `Yes — forced into next run` / `No` |
 

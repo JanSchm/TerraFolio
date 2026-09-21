@@ -129,10 +129,12 @@ Each entry of `projects`, ordered by `id`:
 | `countryBaseloadPrice` `captureFactor` `capturePrice` | number | €/MWh, fraction, €/MWh. |
 | `developmentRiskScore` | number | 1.0–5.0. |
 | `gridSecured` `omContracted` | boolean | |
-| `currency` | string | ISO 4217. |
+| `currency` | string | ISO 4217. The **revenue** currency, which drives the EUR-only screen and the drawer's `hedge required` flag. Statements are always euros (`pipeline-schema.md` A-12). |
 | `totalCapex_m` `seniorDebt_m` `equity_m` | number | €m. |
 | `gearing` `maxGearing` | number | Fractions. |
 | `capexPerKw` | number | €/kW. |
+| `debtRate` `debtTenorYears` | number, integer | The file's declared senior terms. §7.5's drawer renders `€{n}m at {pct}, {rate}, {tenor}y`, so both have to be on the wire. |
+| `opexPerKwYear` | number | €/kW/yr. Drawer. |
 | `lcoe` | number | €/MWh at the assumption set's real rate. Mandate-independent. |
 | `minDscr` | number \| null | Over the debt life, **excluding the ramp year** (§9.4). `null` where the project carries no debt. |
 | `thirtyYearFcfe_m` | number | Undiscounted sum, no terminal value. |
@@ -197,8 +199,13 @@ The 30-year arrays for one project, exactly as
 [`pipeline-schema.md` §5](pipeline-schema.md#5-statements) defines them, in €m and GWh. Mandate-
 independent, so no `holdYears`.
 
-**200** — `{ "id", "baseYear", "years", "physicals", "incomeStatement", "cashFlow", "debtSchedule",
-"balanceSheet", "ratios", "provenance" }`, with `ratios.dscr` null outside the debt life.
+**200** — `{ "id", "assumptions", "years", "physicals", "incomeStatement", "cashFlow",
+"debtSchedule", "balanceSheet", "ratios", "provenance" }`, with `ratios.dscr` null outside the debt
+life.
+
+`assumptions` is the file's own declared block — `baseYear`, `taxRate`, `depreciationYears`,
+`debtRate`, `debtTenorYears` — so a caller can interpret the arrays without a second request.
+`baseYear` is the same for every project in a pipeline (`pipeline-schema.md` §4.6.1).
 
 **404** `PROJECT_NOT_FOUND`.
 
@@ -232,13 +239,41 @@ field for a fixed set of mandates. If they diverge, the client is wrong.
 }
 ```
 
-`warnings` are ordered by the §5.4 severity, which is **not** the order the design mockup emits them
-in (A-5). Codes, in that order: `NO_CANDIDATES`, `CAPACITY_BELOW_TARGET`, `LEVERAGE_UNREACHABLE`,
-`SOLAR_MIX_UNREACHABLE`, `CAPITAL_UNDERUSED`, `LOCKS_PRESENT`. `severity` is `alert` or `info`.
-Strings are pinned in [`ui-contract.md` §3.5](ui-contract.md#35-warning-strings).
+and, when the locks alone cannot be funded:
 
-`runnable` is false only for `NO_CANDIDATES`; every other warning is advisory, because the user is
-allowed to run an infeasible-looking mandate and see how close the optimiser gets (§5.4).
+```json
+{
+  "eligibleCount": 214, "totalCount": 300,
+  "lockedEquity_m": 1420,
+  "warnings": [ { "code": "LOCKS_EXCEED_CAPITAL", "severity": "blocking",
+                  "message": "Locked projects need €1,420m of equity against €1,200m available. Release a lock to run.",
+                  "detail": { "availableCapital_m": 1200, "excess_m": 220,
+                              "lockedIds": ["P01","P17","P44"] } } ],
+  "runnable": false
+}
+```
+
+`warnings` are ordered by the §5.4 severity, which is **not** the order the design mockup emits them
+in (A-5). `severity` is `blocking`, `alert` or `info`. Strings are pinned in
+[`ui-contract.md` §3.5](ui-contract.md#35-warning-strings).
+
+| Code | Severity | |
+|---|---|---|
+| `NO_CANDIDATES` | blocking | Nothing passes the screens. |
+| `LOCKS_EXCEED_CAPITAL` | blocking | The locked projects alone need more equity than is available. `detail` carries `lockedEquity_m`, `availableCapital_m`, `excess_m` and `lockedIds`. |
+| `CAPACITY_BELOW_TARGET` | alert | |
+| `LEVERAGE_UNREACHABLE` | alert | |
+| `SOLAR_MIX_UNREACHABLE` | info | |
+| `CAPITAL_UNDERUSED` | info | |
+| `LOCKS_PRESENT` | info | |
+
+**`runnable` is `false` if and only if some warning is `blocking`**, and those are exactly the two
+conditions `POST /optimisations` answers with `422`. Preview and run must agree: a preview that
+reports `runnable: true` for a mandate the run rejects would light up a button that cannot work, and
+would break the client/server parity this endpoint exists to establish.
+
+Every other warning is advisory, because the user is allowed to run an infeasible-looking mandate
+and see how close the optimiser gets (§5.4).
 
 ---
 
@@ -419,13 +454,35 @@ One field per §7.1 tile, plus what the tiles are compared against.
 Every field that a mandate constrains is reported **with its breach**, not hidden: a locked set that
 breaches a concentration cap still runs, and the breach surfaces on the tile (§13).
 
-### 8.2 `holdings`
+### 8.2 `holdings` — the run's own candidate snapshot
 
-One entry per selected project, ordered by `id`, carrying exactly the sixteen §7.4 columns so the
-table and `holdings.csv` cannot disagree: `id`, `name`, `country`, `technology`, `stage`,
-`capacityMw`, `codYear`, `totalCapex_m`, `equity_m`, `gearing`, `netCapacityFactor`,
-`annualGenerationGwh`, `lcoe`, `ppaShare`, `equityIrr`, `minDscr`, `developmentRiskScore`, plus
-`locked` and `selected`.
+**One entry per project in the run's eligible candidate set**, ordered by `id`, not merely per
+selected project. Each carries **the full per-project scalar record of
+[`GET /pipeline`](#2-get-pipeline)** — including `lat`, `lon`, the PPA and capture terms, the debt
+terms and `provenance` — plus two flags:
+
+| Field | Type | Notes |
+|---|---|---|
+| `selected` | boolean | In `selectedIds`. |
+| `locked` | boolean | Was forced into the population for this run. |
+
+This makes a stored run **self-contained**, which is what §11's "a run ID reopens the exact result"
+actually requires. Three things on the portfolio screen need more than the selected rows:
+
+- §7.4's *Show all candidates* toggle shows the eligible set "so the user can see what the optimiser
+  rejected". Merging against the live `GET /pipeline` cannot reproduce it once the pipeline has
+  moved, and §13 explicitly expects a run reopened after a pipeline change to keep its snapshot.
+- §7.3's map needs `lat`/`lon` for every selected site. Nothing else on the result carries them.
+- §7.5's drawer needs the capture price, PPA terms, opex, payback and debt terms.
+
+A project deleted from the pipeline after the run still appears here, with the figures the run saw.
+
+Size: 500 candidates × ~35 scalars is roughly 400 KB, on an endpoint fetched once per result rather
+than on every page load. `GET /pipeline` stays scalars-only for the reason in [§2](#2-get-pipeline);
+this is the one place the trade goes the other way, and it buys immutability.
+
+`holdings.csv` is `holdings` filtered to `selected`, projected onto the sixteen §7.4 columns, so the
+table and the export cannot disagree (§7.7).
 
 ### 8.3 `provenance` — the run record
 

@@ -356,6 +356,70 @@ becomes **mandate score**, "population mean" becomes **average of all candidates
 The run record and the SSE event names keep the technical terms: they are not user-facing, and
 renaming them would make the engine harder to reason about for no gain.
 
+### A-12 — statements are always euros; `currency` is the revenue currency
+
+*Raised by issue #3, in review. Affects: #2, #6, #8, #9.*
+
+Q-8's first answer — "statements are denominated in the file's own `currency`, and non-EUR files are
+only ever screened out" — does not survive contact with §5.3. **The EUR-only toggle defaults to
+off.** So a Polish project loads, passes the screens, and enters a portfolio whose aggregates are
+plain sums; its PLN-denominated statements would be added to euro statements as though they were
+euros. The default path through the product produces a portfolio whose capex, equity and cash flows
+are the sum of incomparable numbers, and nothing in the UI would show it.
+
+**Decided.** Every statement line in every file is in **euros**. §3 scopes v1 to a single-currency
+EUR pipeline and §15's first open question confirms non-EUR markets are "screened in or out, not
+hedged with a modelled cost" — there is no conversion step anywhere in the design, so there is
+nothing that could make a non-EUR statement comparable.
+
+`currency` keeps its name and its place in the file, redefined precisely: it is the currency the
+project's **revenue** is earned in. That is what §5.3's control actually says — "EUR-denominated
+**revenue** only" — what §8 means by "an ISO currency code driving the execution screens", and what
+§7.5's drawer renders as `hedge required`. It is a risk flag, not a unit.
+
+The alternative, converting at load, was rejected: it needs an FX curve per market per year, which
+§3 puts explicitly out of v1, and it would make every run depend on a rate nobody recorded.
+
+### A-13 — one base year across the pipeline, enforced at load
+
+*Raised by issue #3, in review. Affects: #2, #6, #8, #9.*
+
+`baseYear` was validated per file — each file's `years` must run `baseYear … baseYear + 29` — with
+no rule tying files to each other. But the portfolio aggregates the 30-element arrays **by
+position**. Two valid files based in 2027 and 2028 would have their 2027 and 2028 figures summed
+together, and every portfolio cash flow, exit year and return would mix calendar years, silently.
+`GET /pipeline` compounds it by exposing a single `baseYear` for the whole set.
+
+**Decided.** The pipeline base year is the `baseYear` **every** loaded file shares. Disagreement
+fails the load as a whole — not file by file — naming the majority year and every file that differs,
+so an analyst can see whether one file is stale or a re-basing is half-finished. Re-basing is the
+analyst's job; the loader never shifts a series to make it fit.
+
+This is the one declared assumption that is not merely reported by the dispersion report. Every
+other field in the `assumptions` block may legitimately vary between files, and the report surfaces
+the spread; a varying base year is not a disagreement about modelling, it is a broken index.
+
+### A-14 — a stored run carries its own candidate snapshot
+
+*Raised by issue #3, in review. Affects: #7, #9, #11.*
+
+The run result carried only the selected projects, in the sixteen holdings-table columns. Three
+things on the portfolio screen need more than that, and all three break once the pipeline moves —
+which §13 explicitly anticipates ("stored runs keep their snapshot"):
+
+- §7.4's *Show all candidates* toggle shows the **eligible** set, "so the user can see what the
+  optimiser rejected". Merging against the live pipeline cannot reproduce it.
+- §7.3's map needs `lat`/`lon` per selected site; nothing in the result carried coordinates at all,
+  so the map could not be drawn from a stored run even immediately after it finished.
+- §7.5's drawer needs capture price, PPA terms, opex, payback and the debt terms.
+
+**Decided.** `holdings` carries **every project in the run's eligible candidate set**, each with the
+full per-project scalar record plus `selected` and `locked`. `holdings.csv` is that array filtered
+to `selected` and projected onto the sixteen columns, so the table and the export still cannot
+disagree. About 400 KB at 500 candidates, on an endpoint fetched once per result — the opposite
+trade to `GET /pipeline`, made for the same reason stated there, and it is what §11's "a run ID
+reopens the exact result" costs.
+
 ---
 
 ## Open questions
@@ -426,9 +490,11 @@ authentication is implemented in this backlog.
 Confirm that a non-EUR file's statements are denominated in that currency — and therefore only ever
 screened out — rather than pre-converted to EUR by the analyst.
 
-**Default applied:** statements are denominated in the file's own `currency`; non-EUR files are
-screened out by the §5.3 EUR-only toggle and are never converted. See
-[`pipeline-schema.md`](pipeline-schema.md).
+**Default applied, corrected:** statements are **always in euros**; `currency` records the revenue
+currency and drives the §5.3 screen and the hedging flag. The first answer here — statements in the
+file's own currency — was wrong, because that toggle defaults to *off*, so non-EUR files would enter
+portfolios unconverted. See [A-12](#a-12--statements-are-always-euros-currency-is-the-revenue-currency)
+and [`pipeline-schema.md` §2](pipeline-schema.md#2-units-and-conventions).
 
 ---
 
@@ -448,3 +514,9 @@ screened out by the §5.3 EUR-only toggle and are never converted. See
 | 2026-09-21 | #3 | A-9 — `spec.md` is verbatim; §10.2's `Ʃ` is U+01A9 in the source. |
 | 2026-09-21 | #3 | A-10 — compliance colour always carries a mark or a word as well. |
 | 2026-09-21 | #3 | A-11 — the mockup's search-screen copy is replaced to conform to §14. |
+| 2026-09-21 | #3 | A-12 — statements are always euros; `currency` is the revenue currency. Corrects Q-8. |
+| 2026-09-21 | #3 | A-13 — one base year across the pipeline, enforced at load. |
+| 2026-09-21 | #3 | A-14 — a stored run carries its own candidate snapshot, with coordinates. |
+| 2026-09-21 | #3 | `POST /mandate/preview` returns `runnable: false` for exactly the two conditions `POST /optimisations` answers with 422. |
+| 2026-09-21 | #3 | `GET /pipeline` carries `debtRate` and `debtTenorYears`, and the statements endpoint carries the file's `assumptions`, for §7.5's drawer. |
+| 2026-09-21 | #3 | The workbook's tie-outs apply both limbs of the tolerance per year, and check DSCR coverage rather than assuming a blank cell is correct. |
