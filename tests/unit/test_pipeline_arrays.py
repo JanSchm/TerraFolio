@@ -39,6 +39,16 @@ def _matrix(rows: int, fill: float = 0.0) -> Matrix:
     return np.full((rows, YEARS), fill, dtype=np.float64)
 
 
+def _declining(rows: int, first: float, per_year: float) -> Matrix:
+    """A series that actually varies by year.
+
+    Flat fixtures hide real bugs: a terminal value read from the wrong exit year is
+    indistinguishable from one read from the right year when every year is identical.
+    """
+    years = np.arange(YEARS, dtype=np.float64)
+    return np.tile(np.maximum(first - per_year * years, 0.0), (rows, 1))
+
+
 def sample_statements(rows: int) -> StatementArrays:
     """Statement blocks of the right shape, carrying values nothing here asserts on."""
     return StatementArrays(
@@ -50,7 +60,7 @@ def sample_statements(rows: int) -> StatementArrays:
         income=IncomeStatementArrays(
             revenue=_matrix(rows, 5.0e6),
             opex=_matrix(rows, 1.0e6),
-            ebitda=_matrix(rows, 4.0e6),
+            ebitda=_declining(rows, 4.0e6, 2.0e4),
             depreciation=_matrix(rows, 1.0e6),
             ebit=_matrix(rows, 3.0e6),
             interest_expense=_matrix(rows, 5.0e5),
@@ -65,13 +75,13 @@ def sample_statements(rows: int) -> StatementArrays:
             capex=_matrix(rows),
             debt_drawdown=_matrix(rows),
             equity_drawdown=_matrix(rows),
-            fcfe=_matrix(rows, 2.0e6),
+            fcfe=_declining(rows, 2.0e6, 1.0e4),
         ),
         debt=DebtScheduleArrays(
-            opening=_matrix(rows, 1.0e7),
+            opening=_declining(rows, 1.0e7, 5.0e5),
             drawdown=_matrix(rows),
             repayment=_matrix(rows, 1.0e6),
-            closing=_matrix(rows, 9.0e6),
+            closing=_declining(rows, 9.5e6, 5.0e5),
         ),
         balance=BalanceSheetArrays(ppe=_matrix(rows, 1.0e8)),
         ratios=RatiosArrays(dscr=_matrix(rows, 1.4)),

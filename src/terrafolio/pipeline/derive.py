@@ -22,7 +22,33 @@ import numpy as np
 from terrafolio.domain.conventions import YEARS
 from terrafolio.pipeline.arrays import ProjectArrays, Vector
 
-__all__ = ["min_dscr", "ramp_offsets"]
+__all__ = ["annual_generation_gwh", "min_dscr", "ramp_offsets"]
+
+
+def annual_generation_gwh(arrays: ProjectArrays) -> Vector:
+    """``(n,)`` P50 output in a **full** operating year, before degradation.
+
+    §7.1's *Annual generation* tile, and the denominator of the portfolio's
+    generation-weighted LCOE. Neither the ramp year nor a late, degraded year answers
+    the question the tile asks.
+
+    Recovered from the file rather than recomputed from capacity and load factor:
+    dividing each operating year by ``(1 - degradationRate)^age`` undoes the decline,
+    and the maximum over the result is the undegraded full-year figure. The ramp year
+    de-degrades to a partial year and so never wins the maximum — unless the file
+    contains no full operating year at all, in which case the partial year is the only
+    thing it describes and standing in for the answer is better than inventing one.
+
+    Using the file's own declared ``degradationRate`` is the point: it is one of the
+    five fields C-2 added, and this is a case where taking the physicals on trust and
+    re-deriving from them agree to 1.1e-13 across the corpus.
+    """
+    age = (arrays.statements.years - arrays.asset.cod_year[:, None]).astype(np.float64)
+    operating = age >= 0
+    decline = (1.0 - arrays.assumptions.degradation_rate[:, None]) ** np.where(operating, age, 0.0)
+    undegraded = np.where(operating, arrays.statements.physicals.generation_gwh / decline, 0.0)
+    full_year: Vector = undegraded.max(axis=-1)
+    return full_year
 
 
 def ramp_offsets(arrays: ProjectArrays) -> Vector:
