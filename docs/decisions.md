@@ -299,6 +299,28 @@ report surfaces disagreement between them.
 Every rate, weight, floor, clamp, tolerance and band in the table above lives in the assumption set
 and **never** as a code constant (§10.2, §9.4): changing one must be an auditable event.
 
+### A-9 — `spec.md` is extracted verbatim, including the source's own glyph quirks
+
+*Raised by issue #3. Affects: #6, and anyone citing §10.2.*
+
+`tools/extract_spec.py` emits exactly what the PDF's `/ToUnicode` CMaps say, with no substitution,
+because the alternative — a table of "corrections" — is a place for silent edits to hide and would
+break byte-identical reproducibility the moment the table changed.
+
+One consequence is visible. §10.2's two concentration-penalty rows read
+
+```
+Ʃ max(0, country share − cap)
+```
+
+where `Ʃ` is **U+01A9 LATIN CAPITAL LETTER ESH**, not `Σ` U+03A3. That is what the design tool
+embedded. Read it as a summation; do not treat it as a defect in the extractor, and do not
+"correct" `docs/spec.md` by hand — it is regenerated, and `tools/extract_spec.py --check` will fail.
+
+The extractor makes exactly three structural transformations, all mechanical: wrapped lines are
+rejoined (closing a hyphen or en dash broken across a line), raised runs become `^exponent`, and the
+running header and footer are dropped by font size.
+
 ---
 
 ## Open questions
@@ -388,3 +410,4 @@ screened out by the §5.3 EUR-only toggle and are never converted. See
 | 2026-09-21 | #3 | A-6 — `cashflow30Y_m` and `cashflowHold_m` named apart on the wire. |
 | 2026-09-21 | #3 | A-7 — plausibility and dispersion warn; only tie-out failures block. |
 | 2026-09-21 | #3 | A-8 — the narrowed assumption set enumerated. |
+| 2026-09-21 | #3 | A-9 — `spec.md` is verbatim; §10.2's `Ʃ` is U+01A9 in the source. |
