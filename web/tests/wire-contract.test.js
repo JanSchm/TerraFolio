@@ -237,3 +237,77 @@ test("the pool's solar share and gearing are still computed, they are just not f
   assert.equal(result.eligibleSolarShare, 1);
   assert.equal(result.eligibleGearing, 0.6);
 });
+
+/* ── Against #4's golden pipeline ──────────────────────────────────────────── */
+
+const GOLDEN = path.resolve(WEB, '..', 'tests', 'golden', 'fixtures', 'pipeline');
+
+/**
+ * The screens compare against enum values. Those values are only right if they match
+ * the ones real project files actually carry, which #4's 48 golden files are — they
+ * are the extracted reference pipeline, not something written to make a test pass.
+ */
+test('the screens accept the enum values #4\'s golden pipeline actually uses', (t) => {
+  if (!fs.existsSync(GOLDEN)) return t.skip('golden fixtures not present');
+
+  const files = fs.readdirSync(GOLDEN).filter((f) => f.endsWith('.json'));
+  assert.equal(files.length, 48, 'the reference pipeline is 48 projects');
+
+  const stages = new Set();
+  const technologies = new Set();
+  const countries = new Set();
+  for (const file of files) {
+    const project = JSON.parse(fs.readFileSync(path.join(GOLDEN, file), 'utf8'));
+    stages.add(project.asset.stage);
+    technologies.add(project.asset.technology);
+    countries.add(project.location.countryCode);
+  }
+
+  // Every stage in the real pipeline must pass a mandate that admits all stages.
+  const mandateStages = [...stages];
+  for (const stage of stages) {
+    assert.equal(F.screens.stage({ stage }, { stages: mandateStages }), true, stage);
+  }
+  assert.deepEqual([...stages].sort(), ['construction', 'greenfield', 'ready_to_build'],
+    'the stage chips on the mandate must offer exactly these');
+
+  // aggregate() counts solar by this exact string.
+  assert.ok(technologies.has('solar'), 'solar must be spelled the way aggregate() tests for it');
+  assert.deepEqual([...technologies].sort(), ['offshore_wind', 'onshore_wind', 'solar']);
+
+  // The country chips offer 14 ISO alpha-2 codes; the pipeline uses the same set.
+  assert.equal(countries.size, 14);
+  for (const code of countries) {
+    assert.match(code, /^[A-Z]{2}$/, `${code} is not an ISO alpha-2 code`);
+    assert.equal(F.screens.country({ countryCode: code }, { countries: [...countries] }), true);
+  }
+});
+
+test('the mandate page offers exactly the countries and stages the pipeline contains', async (t) => {
+  if (!fs.existsSync(GOLDEN)) return t.skip('golden fixtures not present');
+
+  const files = fs.readdirSync(GOLDEN).filter((f) => f.endsWith('.json'));
+  const pipelineCountries = new Set();
+  for (const file of files) {
+    pipelineCountries.add(
+      JSON.parse(fs.readFileSync(path.join(GOLDEN, file), 'utf8')).location.countryCode);
+  }
+
+  const dom = await loadPage('mandate.html');
+  const html = dom.window.document.documentElement.outerHTML;
+  dom.window.close();
+
+  const declared = /name: 'countries', values: \[([^\]]*)\]/.exec(html);
+  assert.ok(declared, 'the country chip group must declare its values');
+  const offered = new Set(declared[1].split(',').map((v) => v.trim().replace(/'/g, '')));
+
+  for (const code of pipelineCountries) {
+    assert.ok(offered.has(code),
+      `the pipeline holds projects in ${code} but the mandate offers no chip for it`);
+  }
+  for (const code of offered) {
+    assert.ok(pipelineCountries.has(code),
+      `the mandate offers ${code}, which no project in the pipeline is in`);
+  }
+});
+
