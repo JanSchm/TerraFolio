@@ -1,0 +1,96 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terrafolio"
+version = "0.1.0"
+description = "Renewables portfolio optimiser: mandate in, investment-committee-ready portfolio out."
+readme = "README.md"
+license = { file = "LICENSE" }
+# Upper-bounded on purpose: numpy is pinned exactly (see below), and an unbounded
+# Python range would let a 3.14 runner resolve to a Python with no matching wheel.
+requires-python = ">=3.13,<3.14"
+
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.12",
+    "pydantic-settings>=2.6",
+    # Pinned exactly. The PRNG stream is part of the reproducibility contract
+    # (epic §5): a different numpy is a different sequence of draws, and every
+    # stored run records the version it was produced under.
+    "numpy==2.4.6",
+    "openpyxl>=3.1",
+]
+
+[project.scripts]
+# Registered now so 2A's cli.py lands into a working slot. Entry points resolve
+# lazily, so this does not break installation while the module is absent.
+terrafolio = "terrafolio.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",
+    "hypothesis>=6.112",
+    "ruff>=0.7",
+    "mypy>=1.13",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/terrafolio"]
+
+[tool.hatch.build.targets.wheel.force-include]
+# The assumption set lives at the repo root because it is user-editable
+# calibration that must be auditable in git (epic §5). Copying it into the wheel
+# at build time keeps one source of truth while still working from an install.
+"assumptions" = "terrafolio/_assumptions"
+
+[tool.hatch.build.targets.sdist]
+include = ["src/terrafolio", "assumptions", "tests", "README.md", "LICENSE"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "N", "UP", "B", "A", "C4",
+    "SIM", "RUF", "PLC", "PLE", "PLR", "PLW", "PTH",
+]
+ignore = [
+    # `id` is the project file's own field name (docs/pipeline-schema.md §4).
+    # Renaming it to avoid shadowing the builtin would break the file format.
+    "A003",
+    # Long messages in raise are intentional: validation errors are read by
+    # analysts editing a JSON file by hand, not by developers reading a stack.
+    "EM101", "EM102", "TRY003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR2004", "S101", "PLR0915"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["terrafolio"]
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = "src"
+python_version = "3.13"
+warn_unreachable = true
+enable_error_code = ["redundant-expr", "truthy-bool", "ignore-without-code"]
+
+[tool.pydantic-mypy]
+init_typed = true
+init_forbid_extra = true
+warn_required_dynamic_aliases = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["error"]
+addopts = "-q --strict-markers --strict-config"
