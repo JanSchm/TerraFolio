@@ -49,6 +49,13 @@ DEVELOPMENT_RISK_SCORE_DECIMALS: Final = 1
 # --- Capital structure (§4.5) ------------------------------------------------
 GEARING_MAX: Final = 1.0
 
+# A balance is reached by repeated subtraction, so one amortised to zero lands a
+# hair either side of it: the reference's own debt schedules close at -1.3e-13.
+# A flow is never negative; a balance is never *materially* negative. This floor
+# is six orders of magnitude tighter than the €0.01m tie-out tolerance, so it
+# still catches a balance that has genuinely gone negative.
+BALANCE_TOLERANCE_M: Final = 1e-9
+
 # --- Declared assumptions (§4.6) ---------------------------------------------
 BASE_YEAR_MIN: Final = 2000
 BASE_YEAR_MAX: Final = 2100

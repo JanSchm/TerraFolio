@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Define the mandate — TerraFolio</title>
+<link rel="stylesheet" href="dist/app.css">
+<script defer src="js/format.js"></script>
+<script defer src="js/feasibility.js"></script>
+<script defer src="js/controls.js"></script>
+<script defer src="vendor/alpine.min.js"></script>
+</head>
+<body class="min-h-screen bg-bg text-text">
+    <!--NAV:mandate-->
+    <!-- nav:start — identical on all four pages except which step carries aria-current.
+         tools/splice-nav.mjs writes this block; tests/nav.test.js guards it. -->
+    <header class="sticky top-0 z-nav flex flex-wrap items-center justify-between gap-4 border-b border-divider bg-bg px-7 py-[12px]">
+      <div class="flex items-baseline gap-4">
+        <span class="font-condensed text-[19px] font-bold tracking-tight">TERRAFOLIO</span>
+        <span class="text-micro uppercase tracking-brand text-muted">Renewables portfolio optimiser</span>
+      </div>
+      <ol class="flex items-center gap-[18px] font-condensed text-micro uppercase tracking-micro" aria-label="Progress">
+        <li><span data-step="mandate" aria-current="step" class="text-muted aria-[current=step]:font-semibold aria-[current=step]:text-accent-700">01 Mandate</span></li>
+        <li aria-hidden="true" class="text-neutral-400">&#8212;</li>
+        <li><span data-step="search" class="text-muted aria-[current=step]:font-semibold aria-[current=step]:text-accent-700">02 Search</span></li>
+        <li aria-hidden="true" class="text-neutral-400">&#8212;</li>
+        <li><span data-step="portfolio" class="text-muted aria-[current=step]:font-semibold aria-[current=step]:text-accent-700">03 Portfolio</span></li>
+      </ol>
+    </header>
+    <!-- nav:end -->
+
+<main class="mx-auto max-w-mandate px-7 pb-[140px] pt-8">
+
+  <div class="mb-[22px] flex flex-wrap items-end justify-between gap-7">
+    <div class="max-w-[640px]">
+      <h1 class="mb-[6px]">Define the mandate</h1>
+      <p class="m-0 max-w-prose text-muted">The optimiser searches the live candidate pipeline
+        for the subset of projects that best satisfies the objective while respecting every hard
+        constraint below.</p>
+    </div>
+    <p class="m-0 font-condensed text-h5 uppercase tracking-wide text-muted">
+      Pipeline: <span data-field="totalCount">&#8212;</span> screened candidates
+      &#183; <span data-field="totalCapacityMw">&#8212;</span>
+    </p>
+  </div>
+
+  <form class="grid grid-cols-[repeat(auto-fit,minmax(310px,1fr))] items-start gap-[18px]"
+        id="mandate" data-form="mandate" @submit.prevent>
+
+    <!-- ── Objective ─────────────────────────────────────────────────────── -->
+    <section class="panel" aria-labelledby="m-objective">
+      <h2 id="m-objective" class="mb-[4px] text-h5 uppercase tracking-caps text-accent-700">Objective</h2>
+      <p class="mb-5 m-0 text-label text-muted">What the portfolio is asked to achieve.</p>
+
+      <div class="flex flex-col gap-[18px]">
+
+        <div x-data="rangeField({ name: 'availableCapital_m', value: 1200, min: 200, max: 4000, step: 50, format: 'eurM' })">
+          <div class="mb-[5px] flex items-baseline justify-between gap-3">
+            <label :for="id" class="text-body font-medium tracking-tight">Available equity capital</label>
+            <output :for="id" class="num text-num" x-text="display">&#8212;</output>
+          </div>
+          <input type="range" :id="id" x-model.number="value" :min="min" :max="max" :step="step"
+                 :aria-valuetext="display" @input="changed($event)"
+                 class="h-[26px] w-full cursor-pointer">
+        </div>
+
+        <div x-data="rangeField({ name: 'capacityTargetMw', value: 1500, min: 200, max: 4000, step: 50, format: 'mw' })">
+          <div class="mb-[5px] flex items-baseline justify-between gap-3">
+            <label :for="id" class="text-body font-medium tracking-tight">Capacity target</label>
+            <output :for="id" class="num text-num" x-text="display">&#8212;</output>
+          </div>
+          <input type="range" :id="id" x-model.number="value" :min="min" :max="max" :step="step"
+                 :aria-valuetext="display" @input="changed($event)"
+                 class="h-[26px] w-full cursor-pointer">
+        </div>
+
+        <div x-data="splitBar({ name: 'solarShare', value: 45 })">
+          <div class="mb-[7px] flex items-baseline justify-between gap-3">
+            <label :for="id" class="text-body font-medium tracking-tight">Technology split</label>
+            <output :for="id" class="num text-num-sm" x-text="display">&#8212;</output>
+          </div>
+          <!-- The range driving this bar is transparent, so its own focus ring would be
+               invisible too. The visible bar takes the ring instead, on keyboard focus only. -->
+          <div class="relative mt-1 h-[30px] border border-divider
+                      has-[:focus-visible]:outline has-[:focus-visible]:outline-2
+                      has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent-700">
+            <div class="absolute inset-0 flex">
+              <div class="flex items-center overflow-hidden bg-solar pl-2" :style="`width: ${solar}%`">
+                <span class="whitespace-nowrap font-condensed text-micro font-semibold tracking-micro text-bg">SOLAR</span>
+              </div>
+              <div class="flex flex-1 items-center justify-end overflow-hidden border-l border-accent-700 bg-wind pr-2">
+                <span class="whitespace-nowrap font-condensed text-micro font-semibold tracking-micro text-accent-900">WIND</span>
+              </div>
+            </div>
+            <div class="pointer-events-none absolute -top-[5px] -bottom-[5px] w-[9px] -translate-x-1/2 bg-text"
+                 :style="`left: ${solar}%`" aria-hidden="true"></div>
+            <input type="range" :id="id" x-model.number="value" :min="min" :max="max" :step="step"
+                   :aria-valuetext="display" @input="changed($event)"
+                   class="absolute inset-0 m-0 h-full w-full cursor-ew-resize opacity-0">
+          </div>
+        </div>
+
+        <div x-data="rangeField({ name: 'targetIrr', value: 11, min: 6, max: 18, step: 0.5, format: 'irr', scale: 100 })">
+          <div class="mb-[5px] flex items-baseline justify-between gap-3">
+            <label :for="id" class="text-body font-medium tracking-tight">Target equity IRR (hurdle)</label>
+            <output :for="id" class="num text-num" x-text="display">&#8212;</output>
+          </div>
+          <input type="range" :id="id" x-model.number="value" :min="min" :max="max" :step="step"
+                 :aria-valuetext="display" @input="changed($event)"
+                 class="h-[26px] w-full cursor-pointer">
+        </div>
+
+        <div class="grid grid-cols-2 gap-4" x-data="numberField({ name: 'holdYears', value: 10, min: 5, max: 30, step: 1 })">
+          <div>
+            <label :for="id" class="mb-[6px] block text-label text-neutral-800">Hold period (yrs)</label>
+            <input class="input" type="number" :id="id" x-model.number="value"
+                   :min="min" :max="max" :step="step" @input="changed($event)">
+          </div>
+          <div>
+            <label :for="id + '-exit'" class="mb-[6px] block text-label text-neutral-800">Exit year</label>
+            <input class="input" type="text" :id="id + '-exit'" :value="2027 + value" readonly
+                   aria-readonly="true">
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ── Hard constraints ──────────────────────────────────────────────── -->
+    <section class="panel" aria-labelledby="m-constraints">
+      <h2 id="m-constraints" class="mb-[4px] text-h5 uppercase tracking-caps text-accent-700">Hard constraints</h2>
+      <p class="mb-5 m-0 text-label text-muted">Breaches are rejected, not penalised.</p>
+
+      <div class="flex flex-col gap-[18px]">
+
+        <div x-data="chipGroup({ name: 'countries', values: ['ES','PT','IT','GR','FR','DE','PL','RO','NL','DK','IE','SE','FI','UK'], selected: ['ES','PT','IT','GR','FR','DE','PL','RO','NL','DK','IE','SE','FI','UK'], labels: { ES: 'Spain', PT: 'Portugal', IT: 'Italy', GR: 'Greece', FR: 'France', DE: 'Germany', PL: 'Poland', RO: 'Romania', NL: 'Netherlands', DK: 'Denmark', IE: 'Ireland', SE: 'Sweden', FI: 'Finland', UK: 'United Kingdom' } })">
+          <div class="mb-2 flex items-baseline justify-between gap-3">
+            <h3 id="m-countries" class="m-0 text-body font-medium tracking-tight">Eligible countries</h3>
+            <button type="button" @click="toggleAll($event)"
+                    class="min-h-[42px] cursor-pointer whitespace-nowrap border-0 bg-transparent px-1 font-condensed text-note font-semibold text-accent-700 underline underline-offset-4 hover:bg-accent-100"
+                    x-text="toggleAllLabel">Clear all</button>
+          </div>
+          <div class="flex flex-wrap gap-[6px]" role="group" aria-labelledby="m-countries">
+            <template x-for="cc in values" :key="cc">
+              <button type="button" class="chip" :aria-pressed="isOn(cc) ? 'true' : 'false'"
+                      @click="toggle(cc, $event)">
+                <span aria-hidden="true" x-text="isOn(cc) ? '\u25A0' : '\u25A1'"></span><span aria-hidden="true" x-text="flag(cc)"></span><span x-text="label(cc)"></span>
+              </button>
+            </template>
+          </div>
+        </div>
+
+        <div x-data="rangeField({ name: 'minLeverage', value: 60, min: 0, max: 85, step: 1, format: 'percent', scale: 100 })">
+          <div class="mb-[5px] flex items-baseline justify-between gap-3">
+            <label :for="id" class="text-body font-medium tracking-tight">Min portfolio leverage</label>
+            <output :for="id" class="num text-num" x-text="display">&#8212;</output>
+          </div>
+          <input type="range" :id="id" x-model.number="value" :min="min" :max="max" :step="step"
+                 :aria-valuetext="display" @input="changed($event)"
+                 class="h-[26px] w-full cursor-pointer">
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div x-data="numberField({ name: 'minDscr', value: 1.25, min: 1, max: 2, step: 0.05 })">
+            <label :for="id" class="mb-[6px] block text-label text-neutral-800">Min DSCR (P50)</label>
+            <input class="input" type="number" :id="id" x-model.number="value"
+                   :min="min" :max="max" :step="step" @input="changed($event)">
+          </div>
+          <div x-data="numberField({ name: 'maxMerchantShare', value: 35, min: 0, max: 100, step: 5 , scale: 100})">
+            <label :for="id" class="mb-[6px] block text-label text-neutral-800">Max merchant %</label>
+            <input class="input" type="number" :id="id" x-model.number="value"
+                   :min="min" :max="max" :step="step" @input="changed($event)">
+          </div>
+          <div x-data="numberField({ name: 'maxCountryShare', value: 35, min: 10, max: 100, step: 5 , scale: 100})">
+            <label :for="id" class="mb-[6px] block text-label text-neutral-800">Max / country %</label>
+            <input class="input" type="number" :id="id" x-model.number="value"
+                   :min="min" :max="max" :step="step" @input="changed($event)">
+          </div>
+          <div x-data="numberField({ name: 'maxProjectShare', value: 15, min: 5, max: 100, step: 5 , scale: 100})">
+            <label :for="id" class="mb-[6px] block text-label text-neutral-800">Max / project %</label>
+            <input class="input" type="number" :id="id" x-model.number="value"
+                   :min="min" :max="max" :step="step" @input="changed($event)">
+          </div>
+          <div x-data="numberField({ name: 'codFrom', value: 2027, min: 2027, max: 2033, step: 1 })">
+            <label :for="id" class="mb-[6px] block text-label text-neutral-800">COD from</label>
+            <input class="input" type="number" :id="id" x-model.number="value"
+                   :min="min" :max="max" :step="step" @input="changed($event)">
+          </div>
+          <div x-data="numberField({ name: 'codTo', value: 2032, min: 2027, max: 2033, step: 1 })">
+            <label :for="id" class="mb-[6px] block text-label text-neutral-800">COD to</label>
+            <input class="input" type="number" :id="id" x-model.number="value"
+                   :min="min" :max="max" :step="step" @input="changed($event)">
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ── Risk and execution ────────────────────────────────────────────── -->
+    <section class="panel" aria-labelledby="m-risk">
+      <h2 id="m-risk" class="mb-[4px] text-h5 uppercase tracking-caps text-accent-700">Risk &amp; execution</h2>
+      <p class="mb-5 m-0 text-label text-muted">Screens applied before the search begins.</p>
+
+      <div class="flex flex-col gap-[18px]">
+
+        <fieldset class="border-0 p-0"
+                  x-data="segmented({ name: 'riskAppetite', value: 'balanced', options: ['low','balanced','high'], labels: { low: 'Low', balanced: 'Balanced', high: 'High' }, notes: { low: 'Excludes anything above risk score 2.6 — mostly RTB and construction assets.', balanced: 'Admits development assets up to risk score 3.6.', high: 'Full pipeline, including early-stage greenfield.' } })">
+          <legend class="mb-[9px] block p-0 text-body font-medium tracking-tight">Development risk appetite</legend>
+          <div class="grid grid-cols-3 border border-edge">
+            <template x-for="opt in options" :key="opt">
+              <label class="flex min-h-[42px] cursor-pointer items-center justify-center px-3 py-[11px] text-seg
+                            [&:not(:first-child)]:border-l [&:not(:first-child)]:border-edge
+                            has-[:checked]:bg-accent-700 has-[:checked]:text-bg
+                            has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-2">
+                <input type="radio" :name="group" :value="opt" x-model="value" @change="changed($event)" class="sr-only">
+                <span x-text="label(opt)"></span>
+              </label>
+            </template>
+          </div>
+          <p class="mt-[9px] text-note text-muted" x-text="note"></p>
+        </fieldset>
+
+        <div x-data="chipGroup({ name: 'stages', values: ['greenfield','ready_to_build','construction'], selected: ['greenfield','ready_to_build','construction'], labels: { greenfield: 'Greenfield', ready_to_build: 'Ready-to-build', construction: 'Construction' } })">
+          <h3 id="m-stages" class="mb-[9px] text-body font-medium tracking-tight">Stages in scope</h3>
+          <div class="flex flex-wrap gap-[6px]" role="group" aria-labelledby="m-stages">
+            <template x-for="stage in values" :key="stage">
+              <button type="button" class="chip" :aria-pressed="isOn(stage) ? 'true' : 'false'"
+                      @click="toggle(stage, $event)">
+                <span aria-hidden="true" x-text="isOn(stage) ? '■' : '□'"></span><span x-text="label(stage)"></span>
+              </button>
+            </template>
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-[2px] border-t border-divider pt-4">
+          <div x-data="switchControl({ name: 'gridSecuredOnly', on: false })">
+            <button type="button" role="switch" :aria-checked="on ? 'true' : 'false'" @click="toggle($event)"
+                    class="flex min-h-[44px] w-full cursor-pointer items-center justify-between gap-4 border-0 bg-transparent px-[2px] py-3 text-left hover:bg-accent-100">
+              <span>
+                <span class="block text-body-lg">Grid connection secured only</span>
+                <span class="block text-note text-muted">Drops projects without a firm connection agreement</span>
+              </span>
+              <span class="relative h-[26px] w-[48px] flex-none border border-edge"
+                    :class="on ? 'bg-accent-700' : 'bg-transparent'" aria-hidden="true">
+                <span class="absolute top-[2px] bottom-[2px] w-[20px]"
+                      :class="on ? 'left-[24px] bg-bg' : 'left-[2px] bg-neutral-600'"></span>
+              </span>
+            </button>
+          </div>
+          <div x-data="switchControl({ name: 'eurRevenueOnly', on: false })">
+            <button type="button" role="switch" :aria-checked="on ? 'true' : 'false'" @click="toggle($event)"
+                    class="flex min-h-[44px] w-full cursor-pointer items-center justify-between gap-4 border-0 bg-transparent px-[2px] py-3 text-left hover:bg-accent-100">
+              <span>
+                <span class="block text-body-lg">EUR-denominated revenue only</span>
+                <span class="block text-note text-muted">Excludes PLN, RON, DKK, SEK and GBP exposure</span>
+              </span>
+              <span class="relative h-[26px] w-[48px] flex-none border border-edge"
+                    :class="on ? 'bg-accent-700' : 'bg-transparent'" aria-hidden="true">
+                <span class="absolute top-[2px] bottom-[2px] w-[20px]"
+                      :class="on ? 'left-[24px] bg-bg' : 'left-[2px] bg-neutral-600'"></span>
+              </span>
+            </button>
+          </div>
+          <div x-data="switchControl({ name: 'omContractedOnly', on: false })">
+            <button type="button" role="switch" :aria-checked="on ? 'true' : 'false'" @click="toggle($event)"
+                    class="flex min-h-[44px] w-full cursor-pointer items-center justify-between gap-4 border-0 bg-transparent px-[2px] py-3 text-left hover:bg-accent-100">
+              <span>
+                <span class="block text-body-lg">O&amp;M partner contracted</span>
+                <span class="block text-note text-muted">Requires a signed long-term service agreement</span>
+              </span>
+              <span class="relative h-[26px] w-[48px] flex-none border border-edge"
+                    :class="on ? 'bg-accent-700' : 'bg-transparent'" aria-hidden="true">
+                <span class="absolute top-[2px] bottom-[2px] w-[20px]"
+                      :class="on ? 'left-[24px] bg-bg' : 'left-[2px] bg-neutral-600'"></span>
+              </span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </form>
+</main>
+
+<!-- ── Fixed action bar ──────────────────────────────────────────────────────
+     The four feasibility figures and the warnings. Values are em dashes until
+     issue #11 hands the page a /pipeline payload; js/feasibility.js computes
+     every one of them from it. -->
+<section class="fixed inset-x-0 bottom-0 z-actionbar border-t border-divider bg-bg"
+         aria-labelledby="m-actionbar">
+  <h2 id="m-actionbar" class="sr-only">Feasibility of the current mandate</h2>
+  <div class="mx-auto flex max-w-mandate flex-wrap items-center justify-between gap-7 px-7 py-4">
+
+    <dl class="flex flex-wrap gap-8" data-region="feasibility-figures">
+      <div>
+        <dt class="text-micro-lg uppercase tracking-micro text-muted">Candidates passing screens</dt>
+        <dd class="num m-0 text-num-xl">
+          <span data-field="eligibleCount">&#8212;</span>
+          <span class="text-num-sm text-muted">of <span data-field="totalCount">&#8212;</span></span>
+        </dd>
+      </div>
+      <div>
+        <dt class="text-micro-lg uppercase tracking-micro text-muted">Eligible capacity</dt>
+        <dd class="num m-0 text-num-xl" data-field="eligibleCapacityMw">&#8212;</dd>
+      </div>
+      <div>
+        <dt class="text-micro-lg uppercase tracking-micro text-muted">Equity required at full draw</dt>
+        <dd class="num m-0 text-num-xl" data-field="eligibleEquity_m">&#8212;</dd>
+      </div>
+    </dl>
+
+    <div class="flex items-center gap-4">
+      <ul class="flex max-w-[460px] flex-col gap-1" data-region="feasibility-warnings"
+          aria-live="polite" aria-label="Feasibility warnings"></ul>
+      <button type="submit" form="mandate" data-action="run" data-disabled-when="not-runnable"
+              class="blueprint min-h-[44px] cursor-pointer whitespace-nowrap border-accent-700 bg-accent-700 px-[26px] py-3 font-condensed text-body font-semibold tracking-cta text-bg hover:bg-accent-800 disabled:cursor-not-allowed disabled:opacity-45">
+        RUN OPTIMISATION
+      </button>
+    </div>
+
+  </div>
+</section>
+</body>
+</html>

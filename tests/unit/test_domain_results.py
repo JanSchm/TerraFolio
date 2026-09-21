@@ -43,7 +43,7 @@ def scalars(project_id: str = "P001", **overrides: Any) -> dict[str, Any]:
         "iso3": "ESP",
         "lat": 39.25,
         "lon": -6.52,
-        "technology": "solar_pv",
+        "technology": "solar",
         "stage": "ready_to_build",
         "capacityMw": 180.0,
         "codYear": 2028,

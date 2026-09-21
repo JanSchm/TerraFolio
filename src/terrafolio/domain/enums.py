@@ -30,12 +30,13 @@ __all__ = [
 class Technology(StrEnum):
     """Generation technology (``docs/pipeline-schema.md`` §4.2).
 
-    ``solar_pv`` rather than ``solar``: the value names a technology, not a
-    resource, and is symmetric with the two wind members. Spec §7.4 lists the
-    three as "Solar PV, onshore wind, offshore wind".
+    ``solar`` means solar PV; spec §7.4 writes the three as "Solar PV, onshore
+    wind, offshore wind". 1A briefly spelled the value ``solar_pv`` on the
+    grounds that it names a technology rather than a resource — see C-1, which
+    records why that was reversed.
     """
 
-    SOLAR_PV = "solar_pv"
+    SOLAR = "solar"
     ONSHORE_WIND = "onshore_wind"
     OFFSHORE_WIND = "offshore_wind"
 

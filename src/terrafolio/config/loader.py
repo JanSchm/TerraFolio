@@ -58,7 +58,7 @@ _PACKAGED_DIR: Final = "_assumptions"
 _MARKET_CODE: Final = re.compile(r"[A-Z]{2}")
 
 MARKET_CAPACITY_FACTOR_TECHNOLOGIES: Final[frozenset[Technology]] = frozenset(
-    {Technology.SOLAR_PV, Technology.ONSHORE_WIND}
+    {Technology.SOLAR, Technology.ONSHORE_WIND}
 )
 """Technologies whose capacity factor varies by market.
 

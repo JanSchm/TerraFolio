@@ -10,7 +10,7 @@
     "lon": -6.52
   },
   "asset": {
-    "technology": "solar_pv",
+    "technology": "solar",
     "stage": "ready_to_build",
     "capacityMw": 180.0,
     "codYear": 2028,

@@ -47,7 +47,7 @@ def _messages(raw: dict[str, Any]) -> list[str]:
 def test_the_worked_example_validates(raw: dict[str, Any]) -> None:
     project = ProjectFile.model_validate(raw)
     assert project.id == "P01"
-    assert project.asset.technology is Technology.SOLAR_PV
+    assert project.asset.technology is Technology.SOLAR
     assert project.asset.capacity_mw == 180.0
 
 
@@ -218,7 +218,8 @@ def test_a_different_schema_version_is_named(raw: dict[str, Any]) -> None:
 @pytest.mark.parametrize(
     ("block", "key", "value"),
     [
-        ("asset", "technology", "solar"),
+        ("asset", "technology", "solar_pv"),
+        ("asset", "technology", "Solar"),
         ("asset", "stage", "Ready-to-build"),
         ("execution", "currency", "XYZ"),
         ("provenance", "modelVersion", ""),
@@ -227,7 +228,12 @@ def test_a_different_schema_version_is_named(raw: dict[str, Any]) -> None:
 def test_closed_vocabularies_reject_near_misses(
     raw: dict[str, Any], block: str, key: str, value: str
 ) -> None:
-    """``solar`` and ``Ready-to-build`` are the reference's spellings, not ours."""
+    """``Solar`` and ``Ready-to-build`` are the reference's spellings, not the file's.
+
+    ``solar_pv`` is 1A's own reverted spelling (C-1), and it has to fail now that
+    the value is ``solar`` — otherwise both would quietly validate and the
+    corpus could drift back apart.
+    """
     raw[block][key] = value
     assert _messages(raw) != []
 
@@ -470,14 +476,49 @@ _MAGNITUDE_LINES: Final = [
     ("cashFlow", "capex"),
     ("cashFlow", "debtDrawdown"),
     ("cashFlow", "equityDrawdown"),
-    ("debtSchedule", "opening"),
     ("debtSchedule", "drawdown"),
     ("debtSchedule", "repayment"),
-    ("debtSchedule", "closing"),
-    ("balanceSheet", "ppe"),
     ("physicals", "generationGwh"),
     ("physicals", "achievedPrice"),
 ]
+
+
+_BALANCE_LINES: Final = [
+    ("debtSchedule", "opening"),
+    ("debtSchedule", "closing"),
+    ("balanceSheet", "ppe"),
+]
+
+
+@pytest.mark.parametrize(("block", "line"), _BALANCE_LINES)
+def test_a_balance_may_sit_a_float_s_breadth_below_zero(
+    raw: dict[str, Any], block: str, line: str
+) -> None:
+    """A balance is the running result of subtracting flows, not a flow.
+
+    One amortised exactly to zero lands either side of it: 1C's reference debt
+    schedules close at -1.3e-13. Treating balances as magnitudes rejected all
+    48 golden files on arithmetic residue.
+    """
+    raw["statements"][block][line][29] = -1.3e-13
+    ProjectFile.model_validate(raw)
+
+
+@pytest.mark.parametrize(("block", "line"), _BALANCE_LINES)
+def test_a_materially_negative_balance_is_still_rejected(
+    raw: dict[str, Any], block: str, line: str
+) -> None:
+    """The tolerance is for float residue, not for a balance that went negative."""
+    raw["statements"][block][line][29] = -0.5
+    messages = _messages(raw)
+    assert any(f"statements.{block}.{line}.29" in m for m in messages), messages
+
+
+@pytest.mark.parametrize(("block", "line"), _MAGNITUDE_LINES)
+def test_a_flow_gets_no_such_tolerance(raw: dict[str, Any], block: str, line: str) -> None:
+    """A repayment or a year's capex is never negative, by any margin."""
+    raw["statements"][block][line][7] = -1.3e-13
+    assert _messages(raw) != []
 
 
 @pytest.mark.parametrize(("block", "line"), _MAGNITUDE_LINES)
@@ -521,3 +562,33 @@ def test_provenance_groups_cannot_be_removed_after_validation(
         project.provenance.fields.pop(ProvenanceGroup.CAPEX)  # type: ignore[attr-defined]
     with pytest.raises(TypeError):
         project.provenance.fields[ProvenanceGroup.GRID] = None  # type: ignore[index]
+
+
+def test_every_constrained_series_is_covered_by_one_of_the_two_lists() -> None:
+    """Neither list may go empty, and no constrained series may fall between them.
+
+    A parametrised test with an empty parameter set *skips* — it reads as green
+    while asserting nothing, which is how the balance cases were briefly lost.
+    """
+    covered = {f"{block}.{line}" for block, line in (*_MAGNITUDE_LINES, *_BALANCE_LINES)}
+    assert covered == {
+        "physicals.generationGwh",
+        "physicals.achievedPrice",
+        "incomeStatement.opex",
+        "incomeStatement.depreciation",
+        "incomeStatement.interestExpense",
+        "incomeStatement.taxExpense",
+        "cashFlow.interestPaid",
+        "cashFlow.debtRepayment",
+        "cashFlow.taxPaid",
+        "cashFlow.capex",
+        "cashFlow.debtDrawdown",
+        "cashFlow.equityDrawdown",
+        "debtSchedule.opening",
+        "debtSchedule.drawdown",
+        "debtSchedule.repayment",
+        "debtSchedule.closing",
+        "balanceSheet.ppe",
+    }
+    assert _MAGNITUDE_LINES
+    assert _BALANCE_LINES

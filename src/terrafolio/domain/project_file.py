@@ -31,6 +31,7 @@ from terrafolio.domain.enums import (
 )
 from terrafolio.domain.fields import (
     FREEZE_MAPPING,
+    BalanceSeries30,
     Count,
     Flag,
     MagnitudeSeries30,
@@ -347,10 +348,10 @@ class DebtSchedule(BaseModel):
 
     model_config = FILE_CONFIG
 
-    opening: MagnitudeSeries30
+    opening: BalanceSeries30
     drawdown: MagnitudeSeries30
     repayment: MagnitudeSeries30
-    closing: MagnitudeSeries30
+    closing: BalanceSeries30
 
 
 class BalanceSheet(BaseModel):
@@ -362,7 +363,7 @@ class BalanceSheet(BaseModel):
 
     model_config = FILE_CONFIG
 
-    ppe: MagnitudeSeries30
+    ppe: BalanceSeries30
 
 
 class Ratios(BaseModel):

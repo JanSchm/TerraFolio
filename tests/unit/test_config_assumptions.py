@@ -115,7 +115,7 @@ def test_the_set_is_frozen() -> None:
     with pytest.raises(AttributeError):
         assumptions.co2_t_per_mwh = 0.4  # type: ignore[misc]
     with pytest.raises(TypeError):
-        assumptions.exit_multiples[Technology.SOLAR_PV] = 1.0  # type: ignore[index]
+        assumptions.exit_multiples[Technology.SOLAR] = 1.0  # type: ignore[index]
 
 
 # --------------------------------------------------------------------------
@@ -152,7 +152,7 @@ def test_changing_only_metadata_leaves_the_id_alone(
 def test_a_float_written_without_a_point_is_the_same_calibration(tmp_path: Path, text: str) -> None:
     """``9`` and ``9.0`` are one exit multiple, and json.dumps writes them differently."""
     assert (
-        _load_variant(tmp_path, _edited(text, "solar_pv = 9.0", "solar_pv = 9"))
+        _load_variant(tmp_path, _edited(text, "solar = 9.0", "solar = 9"))
         == load_default().assumption_set_id
     )
 
@@ -224,9 +224,9 @@ def test_a_missing_section_is_named(tmp_path: Path, text: str) -> None:
 
 
 def test_a_typo_in_an_enum_keyed_table_is_not_ignored(tmp_path: Path, text: str) -> None:
-    """Silently ignoring ``solar`` would leave solar_pv missing and fail far away."""
+    """A key no Technology answers to would otherwise sit there, silently unused."""
     with pytest.raises(AssumptionError, match="unknown key"):
-        _load_variant(tmp_path, _edited(text, "solar_pv = 9.0", "solar_pv = 9.0\nsolar = 9.0"))
+        _load_variant(tmp_path, _edited(text, "solar = 9.0", "solar = 9.0\nsolar_pv = 9.0"))
 
 
 def test_a_missing_enum_member_is_named(tmp_path: Path, text: str) -> None:
@@ -293,18 +293,18 @@ def test_an_override_pointing_nowhere_says_so(monkeypatch: pytest.MonkeyPatch) -
 def test_offshore_wind_may_be_absent_from_the_market_capacity_factors() -> None:
     """It is drawn from a single band, not a market table (§9.2)."""
     tables = load_default().generator.capacity_factor
-    assert set(tables) == {Technology.SOLAR_PV, Technology.ONSHORE_WIND}
+    assert set(tables) == {Technology.SOLAR, Technology.ONSHORE_WIND}
     assert load_default().generator.offshore_capacity_factor.low > 0
 
 
 def test_a_required_technology_table_may_not_be_absent(tmp_path: Path, text: str) -> None:
     """Skipping it would return a valid-looking set and fail mid-generation."""
-    with pytest.raises(AssumptionError, match=r"missing key.*solar_pv"):
+    with pytest.raises(AssumptionError, match=r"missing key.*solar"):
         _load_variant(
             tmp_path,
             _edited(
                 text,
-                "[generator.capacity_factor.solar_pv]",
+                "[generator.capacity_factor.solar]",
                 "[generator.capacity_factor.offshore_wind]",
             ),
         )

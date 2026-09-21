@@ -24,9 +24,12 @@ from typing import Annotated, Final
 from pydantic import AfterValidator, Field
 
 from terrafolio.domain.conventions import YEARS
+from terrafolio.domain.file_bounds import BALANCE_TOLERANCE_M
 
 __all__ = [
     "FREEZE_MAPPING",
+    "Balance",
+    "BalanceSeries30",
     "Count",
     "Flag",
     "Fraction",
@@ -101,6 +104,18 @@ MagnitudeSeries30 = Annotated[tuple[Magnitude, ...], AfterValidator(exact_years)
 consuming them. A negative one still satisfies every tie-out — the identities
 are linear — while making earnings look better than they are.
 """
+
+Balance = Annotated[float, Field(strict=True, ge=-BALANCE_TOLERANCE_M)]
+"""A closing balance, which may sit a float's breadth below zero.
+
+Distinct from :data:`Magnitude` on purpose. A *flow* — a repayment, a drawdown,
+a year's capex — is never negative and is checked as such. A *balance* is the
+running result of subtracting flows, so one amortised exactly to zero lands
+either side of it; the reference's own debt schedules close at -1.3e-13.
+"""
+
+BalanceSeries30 = Annotated[tuple[Balance, ...], AfterValidator(exact_years)]
+"""A 30-element series of closing balances (§5.5, §5.6)."""
 
 Series30Opt = Annotated[tuple[Number | None, ...], AfterValidator(exact_years)]
 """A 30-element series permitting nulls. Only ``ratios.dscr`` uses it (§5.7)."""

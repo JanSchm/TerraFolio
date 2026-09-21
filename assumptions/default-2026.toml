@@ -25,7 +25,7 @@ supersedes = ""
 
 [exit_multiples]
 # EV/EBITDA at exit, by technology (§9.4). Keyed by the Technology enum.
-solar_pv = 9.0
+solar = 9.0
 onshore_wind = 8.5
 offshore_wind = 9.5
 
@@ -151,7 +151,7 @@ high = 0.60
 low = 1.20
 high = 2.50
 
-[validation.capex_per_kw.solar_pv]
+[validation.capex_per_kw.solar]
 low = 560.0
 high = 950.0
 
@@ -215,12 +215,12 @@ contract_price_factor_high = 1.00
 contract_tenor_choices = [10, 12, 15, 15, 20]
 
 [generator.degradation]
-solar_pv = 0.005
+solar = 0.005
 onshore_wind = 0.002
 offshore_wind = 0.002
 
 [generator.capture_factor]
-solar_pv = 0.68
+solar = 0.68
 onshore_wind = 0.88
 offshore_wind = 0.86
 
@@ -231,7 +231,7 @@ ready_to_build = 0.103
 construction = 0.095
 offshore_override = 0.090
 
-[generator.opex_per_kw_year.solar_pv]
+[generator.opex_per_kw_year.solar]
 low = 12.0
 high = 16.0
 
@@ -296,7 +296,7 @@ SE = 42.0
 FI = 45.0
 GB = 82.0
 
-[generator.capacity_factor.solar_pv]
+[generator.capacity_factor.solar]
 ES = 0.245
 PT = 0.235
 IT = 0.215

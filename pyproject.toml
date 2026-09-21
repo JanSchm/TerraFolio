@@ -72,6 +72,11 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["PLR2004", "S101", "PLR0915"]
+# tools/ holds one-shot extraction scripts (issues 1B and 1C), not library
+# code. A PDF byte-offset or a glyph height is a property of the source
+# document rather than a constant worth naming, and the parsers are long by
+# nature; the rules that matter there are correctness ones, which stay on.
+"tools/**" = ["PLR0912", "PLR0915", "PLR2004", "RUF005", "B905", "C416"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["terrafolio"]
