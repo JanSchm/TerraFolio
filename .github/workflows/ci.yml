@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # So a run can be re-triggered by hand when GitHub drops a synchronize event,
+  # rather than pushing an empty commit to nudge it.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
