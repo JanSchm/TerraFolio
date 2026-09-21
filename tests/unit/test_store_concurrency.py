@@ -86,9 +86,15 @@ def test_concurrent_writers_never_mint_the_same_reference(tmp_path: Path) -> Non
 
     The reference is claimed by an ``UPDATE ... RETURNING`` inside an IMMEDIATE
     transaction, so the write lock is already held when it reads. A deferred
-    transaction would take a snapshot first and fail with a conflict the busy
+    transaction would take its snapshot first and fail with a conflict the busy
     handler does not retry — which is why this is worth a process test rather
     than an argument.
+
+    One fan-out, three assertions: that the references are unique, that they are
+    contiguous with no reference claimed by a transaction that then rolled back,
+    and that the sequence and the table agree afterwards. Spawning a second
+    round of processes to ask the last two would cost fifteen seconds of CI to
+    re-run the same experiment.
     """
     path = tmp_path / "runs.db"
     with closing(opened_store(path)):
@@ -102,31 +108,22 @@ def test_concurrent_writers_never_mint_the_same_reference(tmp_path: Path) -> Non
         assert writer.returncode == 0, stderr
         outputs.append(stdout)
 
-    references = [int(line.split()[0]) for out in outputs for line in out.splitlines()]
-    labels = [line.split()[1] for out in outputs for line in out.splitlines()]
+    lines = [line.split() for out in outputs for line in out.splitlines()]
+    references = [int(line[0]) for line in lines]
+    labels = [line[1] for line in lines]
     expected = WRITERS * RUNS_EACH
+
     assert len(references) == expected
     assert sorted(references) == list(range(1, expected + 1))
     assert len(set(labels)) == expected
 
-
-def test_every_reference_that_was_minted_reached_a_run(tmp_path: Path) -> None:
-    """A reference claimed by a transaction that then rolled back would leave a
-    gap. Nothing is deleted, so the table is the sequence."""
-    path = tmp_path / "runs.db"
-    with closing(opened_store(path)):
-        pass
-    program = _OPEN_RUNS.format(tests=_tests_dir(), path=str(path), count=RUNS_EACH)
-    for writer in [_spawn(program) for _ in range(WRITERS)]:
-        assert writer.communicate(timeout=120)[0] is not None
-
     with closing(opened_store(path)) as connection:
-        stored = list_runs(connection, limit=WRITERS * RUNS_EACH + 1)
-        assert [item.run_reference for item in stored] == list(range(WRITERS * RUNS_EACH, 0, -1))
+        stored = list_runs(connection, limit=expected + 1)
+        assert [item.run_reference for item in stored] == list(range(expected, 0, -1))
         sequence = connection.execute(
             "SELECT last_reference FROM run_sequence WHERE series = 'A'"
         ).fetchone()[0]
-        assert sequence == WRITERS * RUNS_EACH
+        assert sequence == expected
 
 
 def test_a_reader_tails_a_curve_while_another_process_appends_to_it(
