@@ -1,0 +1,23 @@
+{
+  "name": "terrafolio-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TerraFolio front end: blueprint design system, controls, page shells, mandate feasibility.",
+  "license": "MIT",
+  "scripts": {
+    "build": "tailwindcss --input src/input.css --output dist/app.css --minify",
+    "watch": "tailwindcss --input src/input.css --output dist/app.css --watch",
+    "vendor": "node tools/vendor.mjs",
+    "test": "node --test tests/",
+    "shots": "node tools/shots.mjs"
+  },
+  "devDependencies": {
+    "alpinejs": "3.17.4",
+    "axe-core": "4.13.0",
+    "d3-array": "3.2.4",
+    "d3-geo": "3.1.1",
+    "jsdom": "30.1.0",
+    "tailwindcss": "3.4.19",
+    "topojson-client": "3.1.0"
+  }
+}
