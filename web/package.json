@@ -8,6 +8,8 @@
     "build": "tailwindcss --input src/input.css --output dist/app.css --minify",
     "watch": "tailwindcss --input src/input.css --output dist/app.css --watch",
     "vendor": "node tools/vendor.mjs",
+    "nav": "node tools/splice-nav.mjs",
+    "pretest": "npm run build",
     "test": "node --test \"tests/**/*.test.js\"",
     "shots": "node tools/shots.mjs"
   },

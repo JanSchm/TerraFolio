@@ -146,7 +146,8 @@ Mixing the two conventions in one object is how a factor-of-100 bug gets written
 ### D14. `feasibility.js` reads the risk-appetite caps from the payload
 
 The reference hard-codes `{Low: 2.6, Balanced: 3.6, High: 5}`. Epic §5 requires every
-band to live in the assumption set. `/pipeline` must therefore expose the resolved caps,
+band to live in the assumption set. **The keys are canonical lowercase — `low`, `balanced`,
+`high` — not the capitalised button labels** (see D17). `/pipeline` must therefore expose the resolved caps,
 and `assumptions/default-2026.toml` (#2) needs a `risk_caps` table. An appetite the
 assumption set does not define raises rather than passing, because a missing cap failing
 open would silently admit the whole pipeline.
@@ -167,3 +168,67 @@ Posted on #1 for #3 and #9 to confirm. Read in exactly one adapter function at t
 candidates measures 30 s (epic §7) and a screen with no exit is not acceptable. As a
 static page it is a plain link back to the mandate; **#11 must intercept it to abort the
 run and close the event stream before navigating**, or a stopped run leaks a worker.
+
+### D17. A control emits a wire value; its label is a separate thing
+
+Found in review, after both defects had been written.
+
+The stage chips emitted their display labels — `Ready-to-build` — while `feasibility.js`
+and every other consumer compares against the wire value `ready_to_build`. Every candidate
+therefore failed the stage screen and the pool was always empty. The risk-appetite
+segmented control had the identical defect: it emitted `Balanced`, which would then be
+looked up in `assumptions.risk_caps`.
+
+Neither shows up as an error. The first returns an empty portfolio, which reads as a
+mandate that is simply too tight; the second raises only because D14 made a missing cap
+raise rather than fail open.
+
+**Decision.** Every control that offers a choice takes `values` (canonical, what it emits)
+and `labels` (what the user reads) as separate inputs, the way the country chips already
+did. `chipGroup` and `segmented` both have a `label(value)` accessor and neither renders a
+raw value. `tests/mandate-contract.test.js` asserts the page emits values the screens
+accept, and that a display label does **not** pass the stage screen.
+
+**Consequence for #2:** the `risk_caps` table is keyed `low`, `balanced`, `high`.
+
+### D18. Percentage spinners emit fractions like everything else
+
+Also found in review. D13 says the mandate uses fractions throughout, and the two
+percentage *sliders* did — but the three percentage *spinners* (`maxMerchant`,
+`maxCountry`, `maxProject`) emitted `35` and `15` unchanged, because `numberField` had no
+`scale` where `rangeField` did. A 35% merchant cap would have reached the objective as
+3500%, which does not fail: it silently disables the constraint.
+
+`numberField` now takes the same `scale` option, and a test asserts every percentage
+control on the mandate declares `scale: 100` while the fields that are not percentages —
+hold years, min DSCR, COD years — declare none.
+
+### D19. Feasibility updates on `input`, not `change`
+
+The controls dispatched `tf:change` only on the DOM `change` event, which does not fire
+while a slider is being dragged or while a number is being typed without blurring. Epic §7
+budgets mandate feedback at under 100 ms precisely so it can be live, and the footer would
+have sat stale through the whole interaction. Ranges and spinners now dispatch on `input`;
+radios stay on `change`, which is when a radio actually changes.
+
+### D20. The split bar's focus ring is drawn by the bar, not the slider
+
+The transparent `<input type="range">` laid over the split bar is `opacity: 0`, which makes
+its `:focus-visible` outline transparent too. The control was keyboard-operable with no
+visible focus at all. The visible bar now takes the ring through a
+`has-[:focus-visible]` treatment on the wrapper.
+
+### D21. `tools/splice-nav.mjs` is idempotent, and `npm test` builds first
+
+Two tooling defects found in the same review.
+
+The splice tool consumed its own `<!--NAV:step-->` marker on the first run, so every later
+run silently did nothing and an edit to `nav.part.html` could never reach the pages. It now
+keeps the marker and replaces any block already following it; `tests/nav.test.js` asserts a
+second run changes nothing and that every page still carries its marker.
+
+`dist/app.css` is gitignored build output, but all four pages reference it and
+`tests/offline.test.js` asserts every referenced file exists. A fresh `npm ci && npm test`
+therefore failed, and a fresh checkout opened every page unstyled. A `pretest` script now
+builds the stylesheet before the tests run.
+

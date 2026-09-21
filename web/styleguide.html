@@ -10,6 +10,7 @@
 <script defer src="vendor/alpine.min.js"></script>
 </head>
 <body class="min-h-screen bg-bg text-text">
+    <!--NAV:none-->
     <!-- nav:start — identical on all four pages except which step carries aria-current.
          tools/splice-nav.mjs writes this block; tests/nav.test.js guards it. -->
     <header class="sticky top-0 z-nav flex flex-wrap items-center justify-between gap-4 border-b border-divider bg-bg px-7 py-[12px]">
@@ -149,7 +150,7 @@
               <output :for="id" class="num text-num" x-text="display">&#8364;1,200m</output>
             </div>
             <input type="range" :id="id" x-model.number="value" :min="min" :max="max" :step="step"
-                   :aria-valuetext="display" @change="changed($event)"
+                   :aria-valuetext="display" @input="changed($event)"
                    class="h-[26px] w-full cursor-pointer">
           </div>
 
@@ -159,14 +160,14 @@
               <output :for="id" class="num text-num" x-text="display">11.0%</output>
             </div>
             <input type="range" :id="id" x-model.number="value" :min="min" :max="max" :step="step"
-                   :aria-valuetext="display" @change="changed($event)"
+                   :aria-valuetext="display" @input="changed($event)"
                    class="h-[26px] w-full cursor-pointer">
           </div>
 
           <div x-data="numberField({ name: 'hold', value: 10, min: 5, max: 30, step: 1 })">
             <label :for="id" class="mb-[6px] block text-label text-neutral-800">Hold period (yrs)</label>
             <input class="input" type="number" :id="id" x-model.number="value"
-                   :min="min" :max="max" :step="step" @change="changed($event)">
+                   :min="min" :max="max" :step="step" @input="changed($event)">
           </div>
 
         </div>
@@ -179,7 +180,11 @@
             <label :for="id" class="text-body font-medium tracking-tight">Technology split</label>
             <output :for="id" class="num text-num-sm" x-text="display">45% solar / 55% wind</output>
           </div>
-          <div class="relative mt-1 h-[30px] border border-divider">
+          <!-- The range driving this bar is transparent, so its own focus ring would be
+               invisible too. The visible bar takes the ring instead, on keyboard focus only. -->
+          <div class="relative mt-1 h-[30px] border border-divider
+                      has-[:focus-visible]:outline has-[:focus-visible]:outline-2
+                      has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent-700">
             <div class="absolute inset-0 flex">
               <div class="flex items-center overflow-hidden bg-solar pl-2" :style="`width: ${solar}%`">
                 <span class="whitespace-nowrap font-condensed text-micro font-semibold tracking-micro text-bg">SOLAR</span>
@@ -191,7 +196,7 @@
             <div class="pointer-events-none absolute -top-[5px] -bottom-[5px] w-[9px] -translate-x-1/2 bg-text"
                  :style="`left: ${solar}%`" aria-hidden="true"></div>
             <input type="range" :id="id" x-model.number="value" :min="min" :max="max" :step="step"
-                   :aria-valuetext="display" @change="changed($event)"
+                   :aria-valuetext="display" @input="changed($event)"
                    class="absolute inset-0 m-0 h-full w-full cursor-ew-resize opacity-0">
           </div>
           <p class="mt-3 text-note text-muted">The bar is a real slider: the transparent range
@@ -203,7 +208,7 @@
         <h3 class="mb-5 text-h5 text-accent-700">Segmented and switch</h3>
 
         <fieldset class="mb-6 border-0 p-0"
-                  x-data="segmented({ name: 'risk', value: 'Balanced', options: ['Low','Balanced','High'], notes: { Low: 'Excludes anything above risk score 2.6 — mostly RTB and construction assets.', Balanced: 'Admits development assets up to risk score 3.6.', High: 'Full pipeline, including early-stage greenfield.' } })">
+                  x-data="segmented({ name: 'risk', value: 'balanced', options: ['low','balanced','high'], labels: { low: 'Low', balanced: 'Balanced', high: 'High' }, notes: { low: 'Excludes anything above risk score 2.6 — mostly RTB and construction assets.', balanced: 'Admits development assets up to risk score 3.6.', high: 'Full pipeline, including early-stage greenfield.' } })">
           <legend class="mb-[9px] block p-0 text-body font-medium tracking-tight">Development risk appetite</legend>
           <div class="grid grid-cols-3 border border-edge">
             <template x-for="(opt, i) in options" :key="opt">
@@ -213,7 +218,7 @@
                             has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-2">
                 <input type="radio" :name="group" :value="opt" x-model="value" @change="changed($event)"
                        class="sr-only">
-                <span x-text="opt">Balanced</span>
+                <span x-text="label(opt)">Balanced</span>
               </label>
             </template>
           </div>

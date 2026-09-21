@@ -11,6 +11,7 @@
 <script defer src="vendor/alpine.min.js"></script>
 </head>
 <body class="min-h-screen bg-bg text-text">
+    <!--NAV:mandate-->
     <!-- nav:start — identical on all four pages except which step carries aria-current.
          tools/splice-nav.mjs writes this block; tests/nav.test.js guards it. -->
     <header class="sticky top-0 z-nav flex flex-wrap items-center justify-between gap-4 border-b border-divider bg-bg px-7 py-[12px]">
@@ -59,7 +60,7 @@
             <output :for="id" class="num text-num" x-text="display">&#8212;</output>
           </div>
           <input type="range" :id="id" x-model.number="value" :min="min" :max="max" :step="step"
-                 :aria-valuetext="display" @change="changed($event)"
+                 :aria-valuetext="display" @input="changed($event)"
                  class="h-[26px] w-full cursor-pointer">
         </div>
 
@@ -69,7 +70,7 @@
             <output :for="id" class="num text-num" x-text="display">&#8212;</output>
           </div>
           <input type="range" :id="id" x-model.number="value" :min="min" :max="max" :step="step"
-                 :aria-valuetext="display" @change="changed($event)"
+                 :aria-valuetext="display" @input="changed($event)"
                  class="h-[26px] w-full cursor-pointer">
         </div>
 
@@ -78,7 +79,11 @@
             <label :for="id" class="text-body font-medium tracking-tight">Technology split</label>
             <output :for="id" class="num text-num-sm" x-text="display">&#8212;</output>
           </div>
-          <div class="relative mt-1 h-[30px] border border-divider">
+          <!-- The range driving this bar is transparent, so its own focus ring would be
+               invisible too. The visible bar takes the ring instead, on keyboard focus only. -->
+          <div class="relative mt-1 h-[30px] border border-divider
+                      has-[:focus-visible]:outline has-[:focus-visible]:outline-2
+                      has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent-700">
             <div class="absolute inset-0 flex">
               <div class="flex items-center overflow-hidden bg-solar pl-2" :style="`width: ${solar}%`">
                 <span class="whitespace-nowrap font-condensed text-micro font-semibold tracking-micro text-bg">SOLAR</span>
@@ -90,7 +95,7 @@
             <div class="pointer-events-none absolute -top-[5px] -bottom-[5px] w-[9px] -translate-x-1/2 bg-text"
                  :style="`left: ${solar}%`" aria-hidden="true"></div>
             <input type="range" :id="id" x-model.number="value" :min="min" :max="max" :step="step"
-                   :aria-valuetext="display" @change="changed($event)"
+                   :aria-valuetext="display" @input="changed($event)"
                    class="absolute inset-0 m-0 h-full w-full cursor-ew-resize opacity-0">
           </div>
         </div>
@@ -101,7 +106,7 @@
             <output :for="id" class="num text-num" x-text="display">&#8212;</output>
           </div>
           <input type="range" :id="id" x-model.number="value" :min="min" :max="max" :step="step"
-                 :aria-valuetext="display" @change="changed($event)"
+                 :aria-valuetext="display" @input="changed($event)"
                  class="h-[26px] w-full cursor-pointer">
         </div>
 
@@ -109,7 +114,7 @@
           <div>
             <label :for="id" class="mb-[6px] block text-label text-neutral-800">Hold period (yrs)</label>
             <input class="input" type="number" :id="id" x-model.number="value"
-                   :min="min" :max="max" :step="step" @change="changed($event)">
+                   :min="min" :max="max" :step="step" @input="changed($event)">
           </div>
           <div>
             <label :for="id + '-exit'" class="mb-[6px] block text-label text-neutral-800">Exit year</label>
@@ -151,7 +156,7 @@
             <output :for="id" class="num text-num" x-text="display">&#8212;</output>
           </div>
           <input type="range" :id="id" x-model.number="value" :min="min" :max="max" :step="step"
-                 :aria-valuetext="display" @change="changed($event)"
+                 :aria-valuetext="display" @input="changed($event)"
                  class="h-[26px] w-full cursor-pointer">
         </div>
 
@@ -159,32 +164,32 @@
           <div x-data="numberField({ name: 'minDscr', value: 1.25, min: 1, max: 2, step: 0.05 })">
             <label :for="id" class="mb-[6px] block text-label text-neutral-800">Min DSCR (P50)</label>
             <input class="input" type="number" :id="id" x-model.number="value"
-                   :min="min" :max="max" :step="step" @change="changed($event)">
+                   :min="min" :max="max" :step="step" @input="changed($event)">
           </div>
-          <div x-data="numberField({ name: 'maxMerchant', value: 35, min: 0, max: 100, step: 5 })">
+          <div x-data="numberField({ name: 'maxMerchant', value: 35, min: 0, max: 100, step: 5 , scale: 100})">
             <label :for="id" class="mb-[6px] block text-label text-neutral-800">Max merchant %</label>
             <input class="input" type="number" :id="id" x-model.number="value"
-                   :min="min" :max="max" :step="step" @change="changed($event)">
+                   :min="min" :max="max" :step="step" @input="changed($event)">
           </div>
-          <div x-data="numberField({ name: 'maxCountry', value: 35, min: 10, max: 100, step: 5 })">
+          <div x-data="numberField({ name: 'maxCountry', value: 35, min: 10, max: 100, step: 5 , scale: 100})">
             <label :for="id" class="mb-[6px] block text-label text-neutral-800">Max / country %</label>
             <input class="input" type="number" :id="id" x-model.number="value"
-                   :min="min" :max="max" :step="step" @change="changed($event)">
+                   :min="min" :max="max" :step="step" @input="changed($event)">
           </div>
-          <div x-data="numberField({ name: 'maxProject', value: 15, min: 5, max: 100, step: 5 })">
+          <div x-data="numberField({ name: 'maxProject', value: 15, min: 5, max: 100, step: 5 , scale: 100})">
             <label :for="id" class="mb-[6px] block text-label text-neutral-800">Max / project %</label>
             <input class="input" type="number" :id="id" x-model.number="value"
-                   :min="min" :max="max" :step="step" @change="changed($event)">
+                   :min="min" :max="max" :step="step" @input="changed($event)">
           </div>
           <div x-data="numberField({ name: 'codFrom', value: 2027, min: 2027, max: 2033, step: 1 })">
             <label :for="id" class="mb-[6px] block text-label text-neutral-800">COD from</label>
             <input class="input" type="number" :id="id" x-model.number="value"
-                   :min="min" :max="max" :step="step" @change="changed($event)">
+                   :min="min" :max="max" :step="step" @input="changed($event)">
           </div>
           <div x-data="numberField({ name: 'codTo', value: 2032, min: 2027, max: 2033, step: 1 })">
             <label :for="id" class="mb-[6px] block text-label text-neutral-800">COD to</label>
             <input class="input" type="number" :id="id" x-model.number="value"
-                   :min="min" :max="max" :step="step" @change="changed($event)">
+                   :min="min" :max="max" :step="step" @input="changed($event)">
           </div>
         </div>
 
@@ -199,7 +204,7 @@
       <div class="flex flex-col gap-[18px]">
 
         <fieldset class="border-0 p-0"
-                  x-data="segmented({ name: 'risk', value: 'Balanced', options: ['Low','Balanced','High'], notes: { Low: 'Excludes anything above risk score 2.6 — mostly RTB and construction assets.', Balanced: 'Admits development assets up to risk score 3.6.', High: 'Full pipeline, including early-stage greenfield.' } })">
+                  x-data="segmented({ name: 'risk', value: 'balanced', options: ['low','balanced','high'], labels: { low: 'Low', balanced: 'Balanced', high: 'High' }, notes: { low: 'Excludes anything above risk score 2.6 — mostly RTB and construction assets.', balanced: 'Admits development assets up to risk score 3.6.', high: 'Full pipeline, including early-stage greenfield.' } })">
           <legend class="mb-[9px] block p-0 text-body font-medium tracking-tight">Development risk appetite</legend>
           <div class="grid grid-cols-3 border border-edge">
             <template x-for="opt in options" :key="opt">
@@ -208,20 +213,20 @@
                             has-[:checked]:bg-accent-700 has-[:checked]:text-bg
                             has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-2">
                 <input type="radio" :name="group" :value="opt" x-model="value" @change="changed($event)" class="sr-only">
-                <span x-text="opt"></span>
+                <span x-text="label(opt)"></span>
               </label>
             </template>
           </div>
           <p class="mt-[9px] text-note text-muted" x-text="note"></p>
         </fieldset>
 
-        <div x-data="chipGroup({ name: 'stages', values: ['Greenfield','Ready-to-build','Construction'], selected: ['Greenfield','Ready-to-build','Construction'] })">
+        <div x-data="chipGroup({ name: 'stages', values: ['greenfield','ready_to_build','construction'], selected: ['greenfield','ready_to_build','construction'], labels: { greenfield: 'Greenfield', ready_to_build: 'Ready-to-build', construction: 'Construction' } })">
           <h3 id="m-stages" class="mb-[9px] text-body font-medium tracking-tight">Stages in scope</h3>
           <div class="flex flex-wrap gap-[6px]" role="group" aria-labelledby="m-stages">
             <template x-for="stage in values" :key="stage">
               <button type="button" class="chip" :aria-pressed="isOn(stage) ? 'true' : 'false'"
                       @click="toggle(stage, $event)">
-                <span aria-hidden="true" x-text="isOn(stage) ? '■' : '□'"></span><span x-text="stage"></span>
+                <span aria-hidden="true" x-text="isOn(stage) ? '■' : '□'"></span><span x-text="label(stage)"></span>
               </button>
             </template>
           </div>

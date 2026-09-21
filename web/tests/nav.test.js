@@ -67,3 +67,35 @@ test('the source of truth is the partial, not any one page', () => {
   assert.equal(normalise(navBlock('mandate.html')).trim(),
     partial.slice(partial.indexOf('<!-- nav:start'), partial.indexOf('<!-- nav:end -->')).trim());
 });
+
+test('re-running the splice tool is a no-op, so nav edits can be propagated', () => {
+  const { execFileSync } = require('node:child_process');
+  const before = PAGES.map((p) => fs.readFileSync(path.join(WEB, p), 'utf8'));
+
+  execFileSync(process.execPath, ['tools/splice-nav.mjs'], { cwd: WEB, encoding: 'utf8' });
+
+  PAGES.forEach((page, i) => {
+    assert.equal(fs.readFileSync(path.join(WEB, page), 'utf8'), before[i],
+      `${page} changed on a second splice; the tool must be idempotent`);
+  });
+});
+
+test('every page keeps its NAV marker, which is what makes the tool re-runnable', () => {
+  for (const page of PAGES) {
+    const html = fs.readFileSync(path.join(WEB, page), 'utf8');
+    const marker = html.match(/<!--NAV:([a-z]+)-->/);
+    assert.ok(marker,
+      `${page} has no <!--NAV:step--> marker, so tools/splice-nav.mjs can never update it again`);
+
+    // The marker and the block must agree about which step this page is.
+    const block = navBlock(page);
+    const current = block.match(/data-step="([a-z]+)" aria-current="step"/);
+    if (marker[1] === 'none') {
+      assert.equal(current, null, 'the style guide marks no step');
+    } else {
+      assert.equal(current?.[1], marker[1],
+        `${page} declares step "${marker[1]}" but marks "${current?.[1]}" as current`);
+    }
+  }
+});
+

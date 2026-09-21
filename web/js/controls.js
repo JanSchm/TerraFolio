@@ -28,7 +28,12 @@
 (function (root) {
   'use strict';
 
-  var fmt = root.TerraFolio && root.TerraFolio.format;
+  /* Same dual resolution as feasibility.js: the browser loads format.js as a classic
+     script before this one, while node requires it. Without the node branch the
+     factories cannot be unit-tested at all. */
+  var fmt = (typeof require === 'function')
+    ? require('./format.js')
+    : root.TerraFolio && root.TerraFolio.format;
   if (!fmt) throw new Error('controls.js requires format.js to be loaded first');
 
   var uid = 0;
@@ -74,7 +79,14 @@
     };
   }
 
-  /** A spinner. Same contract as rangeField, without the large readout. */
+  /**
+   * A spinner. Same contract as rangeField, without the large readout.
+   *
+   * `scale` divides the displayed value before it is emitted, for the fields the
+   * user types in whole percent but the mandate stores as a fraction. Without it
+   * a "max 35% merchant" cap leaves here as 35 and reaches the objective as
+   * 3500% — see docs/decisions.md D13, which requires fractions throughout.
+   */
   function numberField(options) {
     var o = options || {};
     return {
@@ -84,8 +96,9 @@
       min: o.min,
       max: o.max,
       step: o.step,
+      scale: o.scale || 1,
       changed: function ($event) {
-        emit($event.target, this.name, this.value);
+        emit($event.target, this.name, this.value / this.scale);
       },
     };
   }
@@ -167,6 +180,11 @@
    * Real radios inside labels, grouped by a shared `name`, so arrow keys move
    * between options and the group is announced as one. `notes` supplies the
    * line of explanation under the current choice.
+   *
+   * `options` are canonical values and `labels` carries what the user reads, for
+   * the same reason the chips separate the two: the emitted value is a wire value,
+   * and a control that emits its own display string is a contract bug waiting to
+   * be found downstream.
    */
   function segmented(options) {
     var o = options || {};
@@ -176,7 +194,11 @@
       group: nextId('seg-group'),
       value: o.value,
       options: o.options || [],
+      labels: o.labels || {},
       notes: o.notes || {},
+      label: function (value) {
+        return this.labels[value] || value;
+      },
       get note() {
         return this.notes[this.value] || '';
       },
