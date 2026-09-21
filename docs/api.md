@@ -27,8 +27,14 @@ Files carry **€m**; `ProjectArrays` and everything downstream carry **euros an
 the API converts back to €m at its boundary. Those are the only two conversion points in the system
 (epic §5, [`pipeline-schema.md` §2](pipeline-schema.md#2-units-and-conventions)).
 
-**Every money field is in €m and its name ends `_m`.** A money field without the suffix is a defect.
-No other field carries a unit suffix except `Mw`, `Gwh` and `Kt`, which are part of the noun.
+**`_m` marks an amount denominated in €m, and every such field carries it.** `totalCapex_m`,
+`equity_m`, `cashflow30Y_m`. An amount in €m without the suffix is a defect.
+
+**A per-unit price is not an amount, and does not take `_m`.** It carries its unit in the noun
+instead: `ppaPrice`, `capturePrice`, `countryBaseloadPrice` and `lcoe` are €/MWh, `capexPerKw` and
+`opexPerKwYear` are €/kW. The suffix answers "in what magnitude is this total stated", which is the
+question that goes wrong at the €m boundary; a rate has no magnitude to get wrong. `Mw`, `Gwh` and
+`Kt` are part of the noun in the same way.
 
 **Shares, rates and ratios are fractions of one, never percentages.** `solarShare: 0.45`,
 `minLeverage: 0.6`, `equityIrr: 0.124`. The UI multiplies by 100; the wire never does. A percentage
@@ -92,10 +98,19 @@ run to the data it saw (§11).
 | `holdYears` | integer 5–30 | 10 | Sets the exit year for `equityIrr` and `moic`. Part of the ETag. |
 | `assumptionSetId` | string | the active set | Exit multiples, LCOE rate, CO₂ factor, caps. |
 
-**Scalars only, never the 30-year arrays.** 300 projects × ~40 scalars is about 250 KB of JSON; the
-arrays would be thirty times that, on an endpoint the mandate screen hits on every load. §7.5's
-detail sheet needs only scalars. The arrays live at
+**Scalars only, never the 30-year arrays.** Measured by serialising
+[`templates/project-template.json`](../templates/project-template.json), per project: the scalars
+below are 920 bytes and the abbreviated `provenance` a further 439, so 300 projects is **about
+400 KB**; the statement arrays are 6,149 bytes each, **1.8 MB** at 300 — four and a half times the
+whole rest of the response, on an endpoint the mandate screen hits on every load. §7.5's detail
+sheet needs only scalars, so the arrays live at
 [`GET /projects/{id}/statements`](#4-get-projectsidstatements).
+
+For the same reason `provenance` here is **abbreviated**: `estimateBasis` and `confidence` per
+group, without the free-text `note`. The notes are prose sentences and are the larger half of the
+block (654 of its 1,093 bytes); they come with the statements, where the detail sheet fetches them
+on demand. The labels the holdings table and drawer need — `contracted`, `benchmark`, `placeholder`
+— are in the abbreviated form.
 
 **200**
 
@@ -141,7 +156,7 @@ Each entry of `projects`, ordered by `id`:
 | `equityIrr` | number \| null | **At `holdYears`.** `null` per [§1.4](#14-undefined-irr). |
 | `moic` | number \| null | At `holdYears`. |
 | `paybackYear` | integer \| null | |
-| `provenance` | object | `estimateBasis` and `confidence` per group, for the detail sheet. |
+| `provenance` | object | **Abbreviated**: `estimateBasis` and `confidence` per group, no `note`. The full block, with notes, comes from the statements endpoint. |
 
 **ETag and 304.**
 
@@ -481,8 +496,8 @@ Size: 500 candidates × ~35 scalars is roughly 400 KB, on an endpoint fetched on
 than on every page load. `GET /pipeline` stays scalars-only for the reason in [§2](#2-get-pipeline);
 this is the one place the trade goes the other way, and it buys immutability.
 
-`holdings.csv` is `holdings` filtered to `selected`, projected onto the sixteen §7.4 columns, so the
-table and the export cannot disagree (§7.7).
+`holdings.csv` is `holdings` filtered to `selected`, projected onto the columns in
+[§9.1](#91-holdingscsv-columns) (§7.7).
 
 ### 8.3 `provenance` — the run record
 
@@ -514,13 +529,28 @@ Generated **server-side**, from the stored result, so they match it exactly (§1
 
 | Endpoint | Content-Type | Contents |
 |---|---|---|
-| `GET /optimisations/{id}/holdings.csv` | `text/csv` | All sixteen §7.4 columns, **selection only**, ordered by `id`. |
+| `GET /optimisations/{id}/holdings.csv` | `text/csv` | The columns in [§9.1](#91-holdingscsv-columns), **selection only**, ordered by `id`. |
 | `GET /optimisations/{id}/cashflow.csv` | `text/csv` | 30 rows: `year`, `fcfe_m`, from `cashflow30Y_m` — **no terminal value** (A-6). |
 | `GET /optimisations/{id}/pack` | `text/html` | The §12 offline committee pack. |
 
 Both CSVs carry the run reference and the mandate in a comment header, and use `\r\n` with a UTF-8
 BOM so they open correctly in Excel. Money columns are named `_m` and carry raw numbers, not
 formatted strings — a CSV is for a spreadsheet, not for reading.
+
+### 9.1 `holdings.csv` columns
+
+§7.4's sixteen columns are a **screen layout**, not a column set: the first is the lock control,
+which is a button rather than a value, and the second packs three fields into one cell. So the CSV
+is specified here in its own right, seventeen columns, in this order:
+
+`id` · `name` · `country` · `technology` · `stage` · `capacityMw` · `codYear` · `totalCapex_m` ·
+`equity_m` · `gearing` · `netCapacityFactor` · `annualGenerationGwh` · `lcoe` · `ppaShare` ·
+`equityIrr` · `minDscr` · `developmentRiskScore`
+
+The lock state is omitted: it is a steering control for the next run, not a property of the
+portfolio being exported. `equityIrr` and `minDscr` are empty when null — never `0`.
+
+### 9.2 The committee pack
 
 The pack is **a single self-contained HTML file that opens with no network access**: styles, fonts,
 map geometry and data inlined, no external reference of any kind. That is the §12 requirement, and a

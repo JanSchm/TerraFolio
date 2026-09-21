@@ -98,7 +98,16 @@ outside the box — frames every panel, figure and dialog. Corners are 11px, `--
 | Inline separator | Middle dot with spaces | `A · B` |
 | **Undefined** | **Em dash** | `—` |
 
-Locale is `en-GB` for grouping. Rounding is half-up at the stated precision.
+Locale is `en-GB` for grouping. Rounding is **half-up** at the stated precision — and half-up has to
+be implemented on purpose, in both places, because neither language gives it by default.
+
+These numbers are formatted twice: client-side in `js/format.js`, and server-side for `holdings.csv`
+and the committee pack. Python's `round()` is banker's rounding, so `round(2.5)` is `2` and a DSCR
+of 1.125 renders `1.12×`; JavaScript's `toFixed` rounds half away from zero but on the binary value,
+so `(1.005).toFixed(2)` is `1.00`. Left to the defaults the same stored run shows `1.13×` on screen
+and `1.12×` in its own export. Use `Decimal` with `ROUND_HALF_UP` on the server and an explicit
+scale-and-round on the client, and never `round()` or bare `toFixed` for a displayed figure. #12's
+parity tests compare the two on values that sit exactly on a half.
 
 **The em dash rule is load-bearing.** An undefined IRR arrives as JSON `null` and renders `—`. It is
 never `0.0`, never `0.0%`, never blank, and it is excluded from every weighted average (§13, A-6).
@@ -360,23 +369,28 @@ Sixteen columns:
 |---|---|---|---|---|
 | 1 | *(lock)* | left | `■` locked / `□` unlocked | not sortable |
 | 2 | Project | left | Name in heading font, `{country} · {id}` beneath | `name` |
-| 3 | Technology | left | `Solar` / `Wind` / `Offshore wind` | `tech` |
+| 3 | Technology | left | `Solar` / `Wind` / `Offshore wind` | `technology` |
 | 4 | Stage | left | `Greenfield` / `Ready-to-build` / `Construction` | `stage` |
-| 5 | MW | right | integer | `mw` |
-| 6 | COD | right | year | `cod` |
-| 7 | Capex €m | right | integer | `capex` |
-| 8 | Equity €m | right | integer | `equity` |
-| 9 | Lev | right | `{n}%`, 0 dp | `lev` |
-| 10 | Cap. factor | right | `{n}%`, 1 dp | `cf` |
-| 11 | P50 GWh/y | right | integer | `gwh` |
+| 5 | MW | right | integer | `capacityMw` |
+| 6 | COD | right | year | `codYear` |
+| 7 | Capex €m | right | integer | `totalCapex_m` |
+| 8 | Equity €m | right | integer | `equity_m` |
+| 9 | Lev | right | `{n}%`, 0 dp | `gearing` |
+| 10 | Cap. factor | right | `{n}%`, 1 dp | `netCapacityFactor` |
+| 11 | P50 GWh/y | right | integer | `annualGenerationGwh` |
 | 12 | LCOE €/MWh | right | integer | `lcoe` |
-| 13 | Contracted | right | `{n}%`, 0 dp | `offtake` |
-| 14 | Equity IRR | right | `{n}%`, 1 dp, **heading font**, `—` when undefined | `irr` |
-| 15 | Min DSCR | right | `{n}×`, 2 dp, **alert plus a mark below the mandate floor** | `dscr` |
-| 16 | Risk | right | 1 dp | `risk` |
+| 13 | Contracted | right | `{n}%`, 0 dp | `ppaShare` |
+| 14 | Equity IRR | right | `{n}%`, 1 dp, **heading font**, `—` when undefined | `equityIrr` |
+| 15 | Min DSCR | right | `{n}×`, 2 dp, **alert plus a mark below the mandate floor** | `minDscr` |
+| 16 | Risk | right | 1 dp | `developmentRiskScore` |
 
 Sorting: clicking a header sorts descending, clicking again reverses; the active header carries `↑`
-or `↓`. Default sort is `irr` descending.
+or `↓`. Default sort is `equityIrr` descending.
+
+**Sort keys are the field names in the run's `holdings` array**, not the design mockup's internal
+state names (`lev`, `cf`, `gwh`, `offtake`). #12 asserts client and server produce the same order,
+which needs one agreed name per column. A null `equityIrr` or `minDscr` sorts last in both
+directions — an em dash is absent, not small.
 
 Row states — each needs a non-colour affordance as well as its tone:
 

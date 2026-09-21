@@ -6,12 +6,17 @@ No PDF tooling exists on a stock macOS box -- no poppler, no pypdf, no
 library. The output is a pure function of the PDF: re-running reproduces
 ``docs/spec.md`` byte for byte, which ``--check`` asserts.
 
-The PDF is Skia/PDF, printed from Chrome, and has two traps.
+The PDF is Skia/PDF, printed from Chrome.
 
 *Two font types.* Section headings are ``/Type0`` Identity-H, whose codes are
 two bytes wide; every body paragraph is one of the 57 ``/Type3`` fonts Skia
-emits, whose codes are one byte. Decode everything at two bytes and you get a
-document of headings with no prose, which looks plausible enough to ship.
+emits, whose codes are one byte. The widths are handled because the format
+requires it, not because this file punishes getting them wrong: every ``Tj``
+here carries exactly one glyph, and every Identity-H CID is below 256, so a
+two-byte read of a one-byte string and a one-byte read of a two-byte CID both
+happen to land on the same code. Measured: forcing either width for every font
+reproduces the output byte for byte. A file with several glyphs per ``Tj``, or
+a CID above 255, would not be so forgiving.
 
 *Global coordinates.* Body text is laid out in a single document-wide space
 whose y runs from 109 to 16229 across the 15 pages, while the running header
@@ -96,28 +101,36 @@ def load_objects(data: bytes) -> dict[int, bytes]:
     return {int(m.group(1)): m.group(2) for m in OBJ_RE.finditer(data)}
 
 
+class ExtractionError(RuntimeError):
+    """The PDF did not decode to something we are willing to write out."""
+
+
 def inflate(objs: dict[int, bytes], num: int) -> bytes:
-    """Return an object's decompressed stream, or empty bytes if it has none."""
+    """Return an object's decompressed stream.
+
+    Every stream this tool asks for -- page contents and ``/ToUnicode`` CMaps --
+    is one it needs, so a failure raises rather than returning empty. Returning
+    empty would drop a whole page's text and still exit 0, which is the quiet
+    failure the module docstring warns about.
+    """
     body = objs.get(num)
     if body is None:
-        return b""
+        raise ExtractionError(f"object {num} is missing")
     start = body.find(b"stream")
     if start < 0:
-        return b""
+        raise ExtractionError(f"object {num} has no stream")
     raw = body[start + len(b"stream") :].lstrip(b"\r\n")
     end = raw.rfind(b"endstream")
     try:
         return zlib.decompress(raw[:end])
-    except zlib.error:
-        return b""
+    except zlib.error as exc:
+        raise ExtractionError(f"object {num} did not inflate: {exc}") from exc
 
 
 def parse_to_unicode(objs: dict[int, bytes], num: int) -> dict[int, str]:
     """Parse a ``/ToUnicode`` CMap into a code -> text mapping."""
     stream = inflate(objs, num)
     cmap: dict[int, str] = {}
-    if not stream:
-        return cmap
     for block in re.findall(rb"beginbfchar(.*?)endbfchar", stream, re.DOTALL):
         for src, dst in re.findall(rb"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>", block):
             cmap[int(src, 16)] = bytes.fromhex(dst.decode()).decode(
@@ -153,13 +166,21 @@ def page_order(objs: dict[int, bytes], catalog: int) -> list[int]:
 
 
 def find_catalog(objs: dict[int, bytes], data: bytes) -> int:
-    """Resolve ``/Root -> /Pages``, the root of the page tree."""
-    root = re.search(rb"/Root (\d+) 0 R", data)
+    """Resolve ``/Root -> /Pages``, the root of the page tree.
+
+    A PDF saved with an incremental update carries several trailers, and the
+    authoritative ``/Root`` is in the last one -- taking the first would walk a
+    stale page tree and emit the pre-update document while reporting success.
+    Searching from the last ``trailer`` keyword also avoids matching the bytes
+    of a compressed stream earlier in the file.
+    """
+    tail = data[data.rfind(b"trailer") :] if b"trailer" in data else data
+    root = re.search(rb"/Root (\d+) 0 R", tail)
     if root is None:
-        raise SystemExit("no /Root in trailer")
+        raise ExtractionError("no /Root in the trailer")
     pages = re.search(rb"/Pages (\d+) 0 R", objs[int(root.group(1))])
     if pages is None:
-        raise SystemExit("catalog has no /Pages")
+        raise ExtractionError("catalog has no /Pages")
     return int(pages.group(1))
 
 
@@ -169,8 +190,9 @@ def font_map(
     """Per-page resource name -> (is two-byte, code -> text).
 
     ``/Subtype /Type0`` is Identity-H and uses two-byte CIDs; the ``/Type3``
-    fonts Skia emits for body text use one-byte codes. Getting this wrong is
-    what silently yields a headings-only document.
+    fonts Skia emits for body text use one-byte codes. See the module docstring
+    for why this particular file tolerates the wrong width and a general one
+    would not.
     """
     body = objs[page]
     indirect = re.search(rb"/Resources (\d+) 0 R", body)
@@ -246,6 +268,15 @@ class Table:
 
 
 @dataclass(frozen=True)
+class Bullet:
+    """A disc drawn to the left of a list item, in page-global coordinates."""
+
+    page: int
+    x: float
+    y: float
+
+
+@dataclass(frozen=True)
 class Card:
     """One pane of the section 3 scope box, bounded by its blueprint corners."""
 
@@ -258,7 +289,7 @@ class Card:
 
 def read_page(
     objs: dict[int, bytes], page: int, index: int
-) -> tuple[list[Chunk], list[RuleLine], list[tuple[float, float]], list[Card]]:
+) -> tuple[list[Chunk], list[RuleLine], list[Bullet], list[Card]]:
     fonts = font_map(objs, page)
     stream = contents(objs, page)
 
@@ -302,7 +333,7 @@ def read_page(
         columns = (ordered[0][0], *(end for _, end in ordered))
         rules.append(RuleLine(index, ry, columns))
 
-    bullets: list[tuple[float, float]] = []
+    bullets: list[Bullet] = []
     for path in PATH_RE.finditer(stream):
         px, py = float(path.group(1)), float(path.group(2))
         numbers = [
@@ -310,7 +341,9 @@ def read_page(
         ]
         xs, ys = numbers[0::2] + [px], numbers[1::2] + [py]
         if max(xs) - min(xs) < 10.0 and max(ys) - min(ys) < 10.0:
-            bullets.append((round(min(xs), 1), round((min(ys) + max(ys)) / 2, 1)))
+            bullets.append(
+                Bullet(index, round(min(xs), 1), round((min(ys) + max(ys)) / 2, 1))
+            )
 
     cards: list[Card] = []
     if ticks:
@@ -319,7 +352,7 @@ def read_page(
         for left, right in zip(xs[0::2], xs[1::2]):
             cards.append(Card(index, left, right, ys[0], ys[-1] + 11.0))
 
-    return chunks, rules, sorted(bullets), cards
+    return chunks, rules, bullets, cards
 
 
 def group_tables(rules: list[RuleLine]) -> list[Table]:
@@ -364,66 +397,85 @@ def join(parts: list[str]) -> str:
 
 
 def cell_text(
-    chunks: list[Chunk], lo: float, hi: float, top: float, bottom: float
-) -> str:
-    inside = [c for c in chunks if top < c.y < bottom and lo - 1.0 <= c.x < hi - 1.0]
+    chunks: list[tuple[int, Chunk]],
+    lo: float,
+    hi: float,
+    top: float,
+    bottom: float,
+) -> tuple[str, set[int]]:
+    """Render one cell, and report which chunks it actually used.
+
+    Consumption is reported rather than inferred from the band, so a chunk that
+    lands on a boundary or outside every column falls through to prose instead
+    of being silently deleted.
+    """
+    inside = [
+        (i, c) for i, c in chunks if top < c.y < bottom and lo - 1.0 <= c.x < hi - 1.0
+    ]
     lines: dict[float, list[Chunk]] = {}
-    for chunk in inside:
+    for _, chunk in inside:
         lines.setdefault(chunk.y, []).append(chunk)
     parts = [
         "".join(c.text for c in sorted(lines[y], key=lambda c: c.x))
         for y in sorted(lines)
     ]
-    return join(parts).replace("|", r"\|")
+    return join(parts).replace("|", r"\|"), {i for i, _ in inside}
 
 
-def render_table(table: Table, chunks: list[Chunk]) -> tuple[float, list[str]]:
-    """Render one table, returning the y it should be placed at and its rows."""
+def render_table(
+    table: Table, chunks: list[Chunk]
+) -> tuple[float, list[str], set[int]]:
+    """Render one table: its anchor y, its rows, and the chunks it consumed."""
     columns = table.columns
-    page_chunks = [c for c in chunks if c.page == table.page]
+    page_chunks = [(i, c) for i, c in enumerate(chunks) if c.page == table.page]
     heads = [
         c
-        for c in page_chunks
+        for _, c in page_chunks
         if c.size == SIZE_TABLE_HEAD and table.top - HEADER_REACH < c.y < table.top
     ]
     header_top = min((c.y for c in heads), default=table.top) - 1.0
 
     rows: list[list[str]] = []
+    used: set[int] = set()
     bands = [(header_top, table.top)]
     bands += [(a.y, b.y) for a, b in zip(table.rules, table.rules[1:])]
     for top, bottom in bands:
-        rows.append(
-            [
-                cell_text(page_chunks, columns[i], columns[i + 1], top, bottom)
-                for i in range(len(columns) - 1)
-            ]
-        )
+        row: list[str] = []
+        for i in range(len(columns) - 1):
+            text, taken = cell_text(
+                page_chunks, columns[i], columns[i + 1], top, bottom
+            )
+            row.append(text)
+            used |= taken
+        rows.append(row)
 
     header, *body = rows
     lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
     lines += ["| " + " | ".join(row) + " |" for row in body]
-    return header_top, lines
+    return header_top, lines, used
 
 
 def render_cards(
-    cards: list[Card], chunks: list[Chunk], bullets: list[tuple[float, float]]
-) -> list[str]:
-    """Render the section 3 scope box as a two-column table."""
+    cards: list[Card], chunks: list[Chunk], bullets: list[Bullet]
+) -> tuple[list[str], set[int]]:
+    """Render the section 3 scope box, and report the chunks it consumed."""
     columns: list[tuple[str, list[str]]] = []
+    used: set[int] = set()
     for card in cards:
         inside = sorted(
             (
-                c
-                for c in chunks
+                (i, c)
+                for i, c in enumerate(chunks)
                 if c.page == card.page
                 and card.y0 < c.y < card.y1
                 and card.x0 <= c.x < card.x1
             ),
-            key=lambda c: (c.y, c.x),
+            key=lambda pair: (pair[1].y, pair[1].x),
         )
         if not inside:
             continue
-        title, *rest = inside
+        used |= {i for i, _ in inside}
+        title, *rest = (c for _, c in inside)
         items: list[list[str]] = []
         for chunk in rest:
             starts = discs(chunk, bullets, card.x0, card.x1)
@@ -434,22 +486,26 @@ def render_cards(
         columns.append((title.text.strip(), [join(part) for part in items]))
 
     if len(columns) != 2:
-        return []
+        return [], set()
     depth = max(len(items) for _, items in columns)
     lines = ["| " + " | ".join(title for title, _ in columns) + " |", "|---|---|"]
     for row in range(depth):
         cells = [items[row] if row < len(items) else "" for _, items in columns]
         lines.append("| " + " | ".join(cells) + " |")
-    return lines
+    return lines, used
 
 
-def discs(
-    chunk: Chunk, bullets: list[tuple[float, float]], lo: float, hi: float
-) -> bool:
-    """True if a bullet disc is drawn just above this line, within [lo, hi)."""
+def discs(chunk: Chunk, bullets: list[Bullet], lo: float, hi: float) -> bool:
+    """True if a bullet disc is drawn just above this line, within [lo, hi).
+
+    The page is part of the match. Matching on position alone is what made the
+    two panes of the section 3 scope box trigger each other's list items.
+    """
     return any(
-        lo <= bx < hi and abs(chunk.y - by - BULLET_BASELINE) < BULLET_OFFSET
-        for bx, by in bullets
+        b.page == chunk.page
+        and lo <= b.x < hi
+        and abs(chunk.y - b.y - BULLET_BASELINE) < BULLET_OFFSET
+        for b in bullets
     )
 
 
@@ -474,20 +530,18 @@ def merge_superscripts(chunks: list[Chunk]) -> list[Chunk]:
         # left is the base it belongs to.
         return max(candidates, key=lambda c: c.x, default=None)
 
-    raised = {
-        id(c): h
-        for c in chunks
-        if c.size < SIZE_SUPERSCRIPT and (h := host(c)) is not None
-    }
+    raised: set[int] = set()
+    suffix: dict[int, list[str]] = {}
+    for chunk in chunks:
+        if chunk.size < SIZE_SUPERSCRIPT and (found := host(chunk)) is not None:
+            raised.add(id(chunk))
+            suffix.setdefault(id(found), []).append("^" + chunk.text.strip())
+
     merged: list[Chunk] = []
     for chunk in chunks:
         if id(chunk) in raised:
             continue
-        text = chunk.text + "".join(
-            "^" + small.text.strip()
-            for small in chunks
-            if raised.get(id(small)) is chunk
-        )
+        text = chunk.text + "".join(suffix.get(id(chunk), ()))
         merged.append(Chunk(chunk.page, chunk.y, chunk.x, chunk.size, text))
     return merged
 
@@ -540,30 +594,24 @@ def heading(chunk: Chunk) -> str | None:
 def render(
     chunks: list[Chunk],
     tables: list[Table],
-    bullets: list[tuple[float, float]],
+    bullets: list[Bullet],
     cards: list[Card],
 ) -> str:
     """Interleave prose, tables and the scope box in reading order."""
     blocks: list[tuple[tuple[int, float], list[str]]] = []
-    consumed: list[tuple[int, float, float]] = []
+    taken: set[int] = set()
 
     for table in tables:
-        top, lines = render_table(table, chunks)
+        top, lines, used = render_table(table, chunks)
         blocks.append(((table.page, top), lines))
-        consumed.append((table.page, top, table.bottom))
+        taken |= used
     if cards:
-        lines = render_cards(cards, chunks, bullets)
+        lines, used = render_cards(cards, chunks, bullets)
         if lines:
             blocks.append(((cards[0].page, cards[0].y0), lines))
-        for card in cards:
-            consumed.append((card.page, card.y0, card.y1))
+            taken |= used
 
-    loose = [
-        c
-        for c in chunks
-        if not any(p == c.page and lo <= c.y <= hi for p, lo, hi in consumed)
-    ]
-    prose = merge_lines(loose)
+    prose = merge_lines([c for i, c in enumerate(chunks) if i not in taken])
 
     para: list[str] = []
     items: list[list[str]] = []
@@ -606,13 +654,53 @@ def render(
                 items.append([chunk.text])
             else:
                 items[-1].append(chunk.text)
-        else:
+        elif chunk.size in (SIZE_BODY, SIZE_SUBTITLE):
             para.append(chunk.text)
+        else:
+            raise ExtractionError(
+                f"unclassified font size {chunk.size} on page {chunk.page} "
+                f"at y={chunk.y}: {chunk.text[:60]!r}"
+            )
         previous = chunk
     flush()
 
     blocks.sort(key=lambda item: item[0])
     return "\n\n".join("\n".join(lines) for _, lines in blocks) + "\n"
+
+
+# What a correct extraction of this specification must contain. These are the
+# invariants a silent decode failure breaks -- a headings-only document has the
+# sections but almost no prose, and a lost page drops whole sections.
+EXPECTED_SECTIONS = 16
+EXPECTED_TABLES = 14  # 13 ruled, plus the section 3 scope box
+MIN_WORDS = 3000  # the real document runs to ~4,080; headings alone are ~200
+
+
+def validate(markdown: str, pages: int, chunks: list[Chunk]) -> None:
+    """Refuse to write a document that lost its content.
+
+    ``--check`` compares against a committed file that this same code produced,
+    so it catches drift but never a decode that was wrong the first time. These
+    checks are the ones that would have caught it.
+    """
+    empty = sorted({p for p in range(1, pages + 1)} - {c.page for c in chunks})
+    if empty:
+        raise ExtractionError(f"pages produced no text: {empty}")
+
+    numbers = [int(n) for n in re.findall(r"(?m)^## (\d+)\. ", markdown)]
+    if numbers != list(range(1, EXPECTED_SECTIONS + 1)):
+        raise ExtractionError(f"expected sections 1-{EXPECTED_SECTIONS}, got {numbers}")
+
+    tables = len(re.findall(r"(?m)^\|---", markdown))
+    if tables < EXPECTED_TABLES:
+        raise ExtractionError(f"expected {EXPECTED_TABLES} tables, got {tables}")
+
+    words = len(markdown.split())
+    if words < MIN_WORDS:
+        raise ExtractionError(
+            f"only {words} words: the body text is missing, which is what a "
+            f"lost /ToUnicode CMap or an undecoded content stream looks like"
+        )
 
 
 def extract() -> str:
@@ -622,7 +710,7 @@ def extract() -> str:
 
     chunks: list[Chunk] = []
     rules: list[RuleLine] = []
-    bullets: list[tuple[float, float]] = []
+    bullets: list[Bullet] = []
     cards: list[Card] = []
     for index, page in enumerate(pages, start=1):
         page_chunks, page_rules, page_bullets, page_cards = read_page(objs, page, index)
@@ -633,11 +721,13 @@ def extract() -> str:
 
     chunks = merge_superscripts(chunks)
     chunks.sort(key=lambda c: (c.page, c.y, c.x))
-    return render(chunks, group_tables(rules), bullets, cards)
+    markdown = render(chunks, group_tables(rules), bullets, cards)
+    validate(markdown, len(pages), chunks)
+    return markdown
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n", 1)[0])
     parser.add_argument(
         "--check",
         action="store_true",
@@ -646,7 +736,11 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=OUT, help="output path")
     args = parser.parse_args()
 
-    markdown = extract()
+    try:
+        markdown = extract()
+    except ExtractionError as exc:
+        print(f"extraction failed: {exc}", file=sys.stderr)
+        return 2
     if args.check:
         if not args.out.exists():
             print(f"{args.out} does not exist", file=sys.stderr)

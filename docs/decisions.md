@@ -391,8 +391,10 @@ together, and every portfolio cash flow, exit year and return would mix calendar
 `GET /pipeline` compounds it by exposing a single `baseYear` for the whole set.
 
 **Decided.** The pipeline base year is the `baseYear` **every** loaded file shares. Disagreement
-fails the load as a whole — not file by file — naming the majority year and every file that differs,
-so an analyst can see whether one file is stale or a re-basing is half-finished. Re-basing is the
+fails the load as a whole — not file by file — reporting every declared base year with its file
+count and ids, so an analyst can see whether one file is stale or a re-basing is half-finished. The
+full distribution rather than a majority: a half-migrated pipeline splits evenly and has no majority
+to report. Re-basing is the
 analyst's job; the loader never shifts a series to make it fit.
 
 This is the one declared assumption that is not merely reported by the dispersion report. Every
@@ -520,3 +522,11 @@ and [`pipeline-schema.md` §2](pipeline-schema.md#2-units-and-conventions).
 | 2026-09-21 | #3 | `POST /mandate/preview` returns `runnable: false` for exactly the two conditions `POST /optimisations` answers with 422. |
 | 2026-09-21 | #3 | `GET /pipeline` carries `debtRate` and `debtTenorYears`, and the statements endpoint carries the file's `assumptions`, for §7.5's drawer. |
 | 2026-09-21 | #3 | The workbook's tie-outs apply both limbs of the tolerance per year, and check DSCR coverage rather than assuming a blank cell is correct. |
+| 2026-09-21 | #3 | `GET /pipeline` carries an **abbreviated** `provenance` — basis and confidence, no notes. Measured: notes are 654 of the block's 1,093 bytes per project. |
+| 2026-09-21 | #3 | `api.md` payload sizes restated from measurement (400 KB scalars, 1.8 MB statements at 300 projects) rather than estimate. |
+| 2026-09-21 | #3 | `_m` marks an amount in €m; a per-unit price (€/MWh, €/kW) carries its unit in the noun and takes no suffix. |
+| 2026-09-21 | #3 | Holdings sort keys are `holdings` field names, not the mockup's internal state names. |
+| 2026-09-21 | #3 | `holdings.csv` has its own seventeen-column list; §7.4's sixteen are a screen layout, not a column set. |
+| 2026-09-21 | #3 | Half-up rounding is implemented explicitly on both client and server; neither language gives it by default. |
+| 2026-09-21 | #3 | A base-year disagreement reports the full distribution, not a majority — a half-migrated pipeline has none. |
+| 2026-09-21 | #3 | `tools/extract_spec.py` validates the extracted document's own invariants; `--check` alone only catches drift from a file it produced. |

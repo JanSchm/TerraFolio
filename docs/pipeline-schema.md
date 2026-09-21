@@ -183,9 +183,10 @@ calendar years (A-13).
 So:
 
 - The **pipeline base year** is the `baseYear` shared by every loaded file.
-- If the files do not agree, the **load fails as a whole** — not file by file. The error names the
-  majority year, and every file that disagrees with it, so an analyst can see at once whether one
-  file is stale or a re-basing is half-finished.
+- If the files do not agree, the **load fails as a whole** — not file by file. The error reports the
+  **full distribution**: every declared base year, how many files declare it, and the ids, capped at
+  ten per year. Not "the majority and the dissenters" — a pipeline half-migrated to a new base year
+  is the most likely way this happens, and an even split has no majority to name.
 - `GET /pipeline` exposes that single `baseYear` ([`api.md` §2](api.md#2-get-pipeline)), and the
   mandate's exit year is `baseYear + holdYears`.
 
@@ -369,7 +370,7 @@ file, because no subset of the pipeline is usable when one of them breaks.
 | Check | Rule |
 |---|---|
 | Unique ids | No two files declare the same `id`. The error names both files. |
-| One base year | Every file declares the same `assumptions.baseYear` (A-13, [§4.6.1](#461-the-pipeline-base-year-is-unanimous)). The error names the majority year and every file that disagrees. |
+| One base year | Every file declares the same `assumptions.baseYear` (A-13, [§4.6.1](#461-the-pipeline-base-year-is-unanimous)). The error reports every declared year with its file count and ids. |
 
 ---
 
