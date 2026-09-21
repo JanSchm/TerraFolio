@@ -9,7 +9,14 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Final
 
-__all__ = ["YEARS", "canonical_order", "exit_index", "ramp_index"]
+__all__ = [
+    "EUR_PER_EUR_MILLION",
+    "MWH_PER_GWH",
+    "YEARS",
+    "canonical_order",
+    "exit_index",
+    "ramp_index",
+]
 
 YEARS: Final = 30
 """The fixed length of every statement series.
@@ -18,6 +25,18 @@ Structural, not calibration: ``docs/pipeline-schema.md`` §5 defines the file
 format as exactly 30 contiguous years from ``assumptions.baseYear``. Changing it
 is a new schema version, not a configuration change.
 """
+
+
+EUR_PER_EUR_MILLION: Final = 1_000_000
+"""Definitional, not configuration: a million euros is not a tunable.
+
+Files are in €m and the numeric core is in euros (epic §5). This constant exists
+so the two conversion boundaries — the loader on the way in, the API on the way
+out — name the same number instead of each spelling ``1e6``.
+"""
+
+MWH_PER_GWH: Final = 1_000
+"""Definitional. Used where €/MWh prices meet GWh volumes."""
 
 
 def canonical_order(ids: Iterable[str]) -> tuple[str, ...]:

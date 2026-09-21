@@ -17,7 +17,7 @@ Steps are **not enforced**; see :class:`Bound.step`.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final
 
 __all__ = ["Bound"]
 
@@ -33,7 +33,7 @@ class Bound:
     unit: str
 
     @property
-    def multiple_of(self) -> dict[str, float]:
+    def multiple_of(self) -> dict[str, Any]:
         """JSON-schema metadata advertising the step to the UI.
 
         The step is published, never validated. §5's steps describe slider
@@ -44,36 +44,44 @@ class Bound:
         Reproducibility comes from hashing the mandate as submitted, not from
         quantising it.
         """
+        # Typed loosely because pydantic wants dict[str, JsonValue] and this
+        # module may not import pydantic — it is a stdlib-only leaf so that
+        # config, and through it the numeric core, can depend on domain.
         return {"multipleOf": self.step}
 
 
 # §5.1 Objective.
-AVAILABLE_EQUITY_M: Final = Bound(200.0, 4000.0, 50.0, 1200.0, "EURm")
+#
+# Units are those `docs/api.md` §6.1 pins for the wire: shares and rates are
+# fractions of one, never percentage points. Spec §5 states the same controls in
+# points because that is what the sliders show; converting here rather than at
+# the HTTP boundary would add a third unit boundary to a system that allows two.
+AVAILABLE_CAPITAL_M: Final = Bound(200.0, 4000.0, 50.0, 1200.0, "EURm")
 CAPACITY_TARGET_MW: Final = Bound(200.0, 4000.0, 50.0, 1500.0, "MW")
-SOLAR_SHARE_PCT: Final = Bound(0.0, 100.0, 5.0, 45.0, "percent")
-TARGET_EQUITY_IRR_PCT: Final = Bound(6.0, 18.0, 0.5, 11.0, "percent")
+SOLAR_SHARE: Final = Bound(0.0, 1.0, 0.05, 0.45, "fraction")
+TARGET_IRR: Final = Bound(0.06, 0.18, 0.005, 0.11, "fraction")
 HOLD_YEARS: Final = Bound(5.0, 30.0, 1.0, 10.0, "years")
 
 # §5.2 Hard constraints.
-MIN_LEVERAGE_PCT: Final = Bound(0.0, 85.0, 1.0, 60.0, "percent")
+MIN_LEVERAGE: Final = Bound(0.0, 0.85, 0.01, 0.60, "fraction")
 MIN_DSCR: Final = Bound(1.00, 2.00, 0.05, 1.25, "multiple")
-MAX_MERCHANT_PCT: Final = Bound(0.0, 100.0, 5.0, 35.0, "percent")
-MAX_COUNTRY_PCT: Final = Bound(10.0, 100.0, 5.0, 35.0, "percent")
-MAX_PROJECT_PCT: Final = Bound(5.0, 100.0, 5.0, 15.0, "percent")
+MAX_MERCHANT_SHARE: Final = Bound(0.0, 1.0, 0.05, 0.35, "fraction")
+MAX_COUNTRY_SHARE: Final = Bound(0.10, 1.0, 0.05, 0.35, "fraction")
+MAX_PROJECT_SHARE: Final = Bound(0.05, 1.0, 0.05, 0.15, "fraction")
 COD_FROM: Final = Bound(2027.0, 2033.0, 1.0, 2027.0, "year")
 COD_TO: Final = Bound(2027.0, 2033.0, 1.0, 2032.0, "year")
 
 ALL_BOUNDS: Final[dict[str, Bound]] = {
-    "available_equity_m": AVAILABLE_EQUITY_M,
+    "available_capital_m": AVAILABLE_CAPITAL_M,
     "capacity_target_mw": CAPACITY_TARGET_MW,
-    "solar_share_pct": SOLAR_SHARE_PCT,
-    "target_equity_irr_pct": TARGET_EQUITY_IRR_PCT,
+    "solar_share": SOLAR_SHARE,
+    "target_irr": TARGET_IRR,
     "hold_years": HOLD_YEARS,
-    "min_leverage_pct": MIN_LEVERAGE_PCT,
+    "min_leverage": MIN_LEVERAGE,
     "min_dscr": MIN_DSCR,
-    "max_merchant_pct": MAX_MERCHANT_PCT,
-    "max_country_pct": MAX_COUNTRY_PCT,
-    "max_project_pct": MAX_PROJECT_PCT,
+    "max_merchant_share": MAX_MERCHANT_SHARE,
+    "max_country_share": MAX_COUNTRY_SHARE,
+    "max_project_share": MAX_PROJECT_SHARE,
     "cod_from": COD_FROM,
     "cod_to": COD_TO,
 }
