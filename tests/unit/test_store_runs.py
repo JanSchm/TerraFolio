@@ -39,10 +39,12 @@ from terrafolio.domain.results import (
     RunRecord,
 )
 from terrafolio.store import (
+    DuplicateRunError,
     PipelineSnapshot,
     RunAlreadyFinishedError,
     RunFailure,
     RunIdentityChangedError,
+    RunNotFinishedError,
     RunNotFoundError,
     RunSubmission,
     StoredRun,
@@ -416,11 +418,30 @@ def test_a_result_whose_holdings_are_not_the_eligible_set_is_refused(
 
 
 def test_a_finished_run_must_report_its_duration(tmp_path: Path) -> None:
+    """§12 audits how long a run took, and the schema pairs `finished_at` with
+    `duration_ms`, so a result reporting neither is not an outcome."""
     with closing(opened_store(tmp_path / "runs.db")) as connection:
         stored = open_run(connection, submission())
         record = completed(stored.record, duration_ms=None)
-        with pytest.raises(RunIdentityChangedError, match="durationMs"):
+        with pytest.raises(RunNotFinishedError, match="no duration"):
             finish_run(connection, record=record, finished_at=CREATED_AT)
+
+
+def test_a_record_that_is_still_running_is_not_an_outcome(tmp_path: Path) -> None:
+    with closing(opened_store(tmp_path / "runs.db")) as connection:
+        stored = open_run(connection, submission())
+        record = stored.record.model_copy(update={"status": RunStatus.RUNNING})
+        with pytest.raises(RunNotFinishedError, match="is running"):
+            finish_run(connection, record=record, finished_at=CREATED_AT)
+
+
+def test_opening_a_run_twice_under_one_id_is_refused(tmp_path: Path) -> None:
+    """The id addresses the run (§11). Two runs under one id would make the
+    second silently unreachable."""
+    with closing(opened_store(tmp_path / "runs.db")) as connection:
+        open_run(connection, submission())
+        with pytest.raises(DuplicateRunError):
+            open_run(connection, submission())
 
 
 def test_finishing_a_run_that_was_never_opened_is_not_found(tmp_path: Path) -> None:

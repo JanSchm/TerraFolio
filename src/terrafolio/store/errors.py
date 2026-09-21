@@ -17,6 +17,7 @@ __all__ = [
     "DuplicateRunError",
     "RunAlreadyFinishedError",
     "RunIdentityChangedError",
+    "RunNotFinishedError",
     "RunNotFoundError",
     "SchemaUnsupportedError",
     "StoreError",
@@ -46,6 +47,20 @@ class DuplicateRunError(StoreError):
     def __init__(self, run_id: str) -> None:
         super().__init__(f"run {run_id!r} already exists")
         self.run_id = run_id
+
+
+class RunNotFinishedError(StoreError):
+    """A record was offered as a run's result without being one.
+
+    Separate from :class:`RunAlreadyFinishedError`, which is the opposite
+    problem: this is a caller handing over a record that is still ``running``,
+    or one that reports no duration, and calling it an outcome.
+    """
+
+    def __init__(self, run_id: str, reason: str) -> None:
+        super().__init__(f"run {run_id!r} is not finished: {reason}")
+        self.run_id = run_id
+        self.reason = reason
 
 
 class RunAlreadyFinishedError(StoreError):

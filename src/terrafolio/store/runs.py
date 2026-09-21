@@ -34,6 +34,7 @@ from terrafolio.store.errors import (
     DuplicateRunError,
     RunAlreadyFinishedError,
     RunIdentityChangedError,
+    RunNotFinishedError,
     RunNotFoundError,
     UnknownSnapshotError,
 )
@@ -252,9 +253,11 @@ def finish_run(
     raises rather than quietly rewriting an audit record.
     """
     if record.status not in TERMINAL_STATUSES:
-        raise RunAlreadyFinishedError(record.run_id, record.status.value)
+        raise RunNotFinishedError(record.run_id, f"the record is {record.status.value}")
     if record.duration_ms is None:
-        raise RunIdentityChangedError(record.run_id, "durationMs", "a duration", None)
+        # §12 audits how long a run took, and the schema pairs finished_at with
+        # duration_ms, so a result that reports neither cannot be stored.
+        raise RunNotFinishedError(record.run_id, "the record reports no duration")
     payload = record.model_dump_json()
     with writing(connection) as transaction:
         stored = _row(transaction, record.run_id)
