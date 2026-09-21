@@ -8,7 +8,7 @@
 //
 // Regenerate with: node tools/extract_reference.mjs
 
-import { defineComponent } from './component.js';
+import { defineComponent } from './component.mjs';
 
 class DCLogic {
   constructor(props) {

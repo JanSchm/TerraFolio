@@ -1420,7 +1420,7 @@
     "source": "javascript-reference",
     "bundle": "Portfolio Optimiser (standalone).html",
     "bundleSha256": "bc4722f836d1274a4351c1c986f7661ae0ef399c5f915cad758dbce4f10a7463",
-    "extractedBy": "tools/extract_reference.mjs@1.0.0",
+    "extractedBy": "tools/extract_reference.mjs@1.1.0",
     "basis": {
       "capex": "modelled",
       "generation": "modelled-p50",

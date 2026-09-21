@@ -192,3 +192,51 @@ treats a green golden run as evidence those branches work.
 Separately, `capexPerKW` is clamped to its entry-pricing band for **28 of 48** projects (25 at the
 floor, 3 at the cap), so "capex falls out of the revenue case" is literally true for only 20. Each
 file records `capexPerKWClamp` and `debtSizingBasis` (27 gearing-capped, 21 DSCR-sculpted).
+
+### 1C-13 · The extracted modules are `.mjs`, and the Node floor is enforced
+
+The extracted reference is ESM. Emitting it as `component.js` left its module classification to
+Node's module-syntax detection, which is version-dependent and can be switched off — under
+`--no-experimental-detect-module` the import fails with
+`Named export 'defineComponent' not found`. Both documented commands depended on an undeclared
+Node behaviour.
+
+The modules are now `component.mjs` and `harness.mjs`, which is unambiguous on every Node that
+supports ESM at all, and the tool asserts a Node 18 floor rather than leaving it implicit. The
+alternative — adding a `package.json` with `"type": "module"` — was rejected: `package.json` is not
+in 1C's ownership, and dropping one into `tests/golden/fixtures/` would change how Node resolves
+every future `.js` file under that directory for other issues.
+
+### 1C-14 · Regeneration is transactional
+
+The tool used to build straight into the live fixture directory, and `loadReference()` writes the
+extracted modules before anything has been validated. A failure after that point left new modules
+paired with old fixtures and an old manifest — a tree that is internally inconsistent while its
+manifest claims it is intact. Writing was also overwrite-only, so a renamed or removed artefact
+lingered: a project whose slug changed would appear twice and a directory scan would load both.
+
+The tool now stages the complete set in a sibling directory, validates it there, and only then
+swaps it in, reporting any stale files it removed. Staging is a sibling rather than `os.tmpdir()`
+so the rename stays on one filesystem and cannot fail with `EXDEV`. A failed build leaves the
+committed fixtures byte-identical; a successful one leaves nothing stale behind.
+
+### 1C-15 · A second GA trace with locked projects
+
+The reference's `run()` forces locked genes to 1 at initialisation and on every child. With an
+empty lock list that operator is the identity, so a single unlocked trace cannot distinguish a
+correct port from one that dropped lock enforcement entirely — and "locked projects survive the
+run" is a user-visible promise (§7.4's lock control), not an internal detail.
+
+`ga_trace_fast_seed42_locked.json` locks two projects **chosen from the set the unlocked run
+rejected**, worst IRR first, so they are demonstrably projects the objective does not want.
+Fitness falls from 7.220 to 3.483, which the tool asserts — if locking projects the optimiser
+rejected did not cost anything, the locks would not be binding and the trace would prove nothing.
+
+Two assertions cover the two halves of the operator, verified by neutering each in turn:
+initialisation forcing is caught by the initial-population reconstruction, and crossover forcing by
+the requirement that every locked id appears in the best selection of every generation. The force
+operator and both of its call sites are also pinned as extraction integrity markers.
+
+`locked` is now carried in every emitted mandate. It was previously omitted because `fitness()`
+never reads it — but a fixture should describe the whole mandate, not the part that happens to
+reach the objective function.
