@@ -32,6 +32,16 @@ offshore_wind = 9.5
 [lcoe]
 real_discount_rate = 0.06
 
+[irr]
+# IRR is found by bisection over this bracket. A cash flow whose NPV has the
+# same sign at both ends has no root inside it, and its IRR is **undefined** --
+# reported as null and rendered as an em dash, never as zero (§13, epic §5).
+# So the bracket is a modelling choice rather than a numerical detail: widening
+# it defines an IRR for a series that previously had none.
+low = -0.5
+high = 1.2
+iterations = 70
+
 [emissions]
 co2_t_per_mwh = 0.32
 
@@ -174,10 +184,21 @@ construction = 0.75
 # against the reference and pin the one that matches.
 
 [interpretation]
-# Does the exit year's own FCFE count alongside the terminal value?
+# Both pinned by the sweep in tests/golden/test_interpretations.py against 1C's
+# derived_expectations.json, not by argument. See docs/decisions.md A-23, A-24.
+
+# Does the exit year's own FCFE count alongside the terminal value, or does the
+# terminal value replace it? Counting it reproduces all 144 oracle cases to
+# within an ulp; replacing it reproduces none of them.
 exit_year_fcfe_included = true
-# Real opex discounted from COD, or nominal opex from the base year?
-lcoe_opex_basis = "real_from_cod"
+
+# What §9.4's "PV of opex" is discounted from, and whether it escalates.
+# Unescalated opex discounted from the model base year reproduces all 48
+# reference LCOEs exactly. Issue #8 offered two readings and neither is this
+# one: discounting from COD matches 10 of 48 and misses by up to 16 EUR/MWh,
+# and escalating the opex matches none. Capex enters undiscounted at t0 under
+# every reading.
+lcoe_opex_basis = "real_from_base_year"
 
 # --- The seed-pipeline generator (§9.1-9.4) -----------------------------------
 #

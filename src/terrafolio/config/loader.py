@@ -27,6 +27,7 @@ from terrafolio.config.assumptions import (
     GaParams,
     GeneratorParams,
     Interpretation,
+    IrrBracket,
     Metadata,
     ObjectiveWeights,
     Range,
@@ -554,6 +555,11 @@ def load_assumption_set(path: Path) -> AssumptionSet:
             _table(raw, "exit_multiples"), Technology, _float, "exit_multiples"
         ),
         lcoe_real_discount_rate=_float(_table(raw, "lcoe"), "real_discount_rate", "lcoe"),
+        irr=IrrBracket(
+            low=_float(_table(raw, "irr"), "low", "irr"),
+            high=_float(_table(raw, "irr"), "high", "irr"),
+            iterations=_int(_table(raw, "irr"), "iterations", "irr"),
+        ),
         co2_t_per_mwh=_float(_table(raw, "emissions"), "co2_t_per_mwh", "emissions"),
         objective=_objective(raw),
         ga=_ga(raw),
