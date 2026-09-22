@@ -553,6 +553,192 @@ far less cannot reach it at all.
 
 Raise it on #3 if the symmetric reading was intended; the change is one comparison.
 
+### A-23 — the exit year's own FCFE counts alongside the terminal value
+
+*Raised by issue #8. Affects: #6, #7, #9, #11.*
+
+§9.4 puts the IRR "over the equity cash flow truncated at the hold year, with a terminal value of
+the exit multiple x exit-year EBITDA less outstanding debt". That does not say whether the exit
+year's *own* free cash flow is still in the series or whether the terminal value replaces it, and
+the two give materially different returns.
+
+**Decided.** It counts. The terminal value is **added to** the exit year's FCFE, at the same index.
+
+Measured against [`derived_expectations.json`](../tests/golden/fixtures/derived_expectations.json)
+over 48 projects at three exit-multiple bases: including it reproduces **144 of 144** IRRs and
+MOICs to within an ulp; excluding it reproduces **none**. Kept as
+`interpretation.exit_year_fcfe_included` so that a fund taking the other reading is a configuration
+change, and pinned by `tests/golden/test_interpretations.py`, which also asserts the alternative
+fails.
+
+The debt netted off is the balance **after** the exit year's repayment, so the exit-year cash flow
+and the exit bridge do not both take credit for it.
+
+### A-24 — LCOE discounts unescalated opex from the base year, which is neither reading issue #8 names
+
+*Raised by issue #8. Affects: #6, #9, #11.*
+
+§9.4 gives LCOE as "(capex + PV of opex) / PV of generation, 6% real" without saying what the opex
+is discounted *from*, or whether it escalates. Issue #8 offers two readings: real opex from COD, or
+nominal opex from the base year. Measured, **neither is right**.
+
+**Decided.** `real_from_base_year`: **unescalated** opex, discounted from the model's base year,
+with capex entering undiscounted at t0.
+
+| basis | reproduces the 48 reference LCOEs |
+|---|---|
+| `real_from_base_year` | **48 / 48, exactly** |
+| `real_from_cod` | 10 / 48, missing by up to 16 EUR/MWh |
+| `nominal_from_base_year` | 0 / 48 |
+
+Discounting from the base year rather than from COD means a late-COD asset is discounted for years
+before it exists, which is arguably wrong as economics and is unarguably what the reference
+computes and what every published figure in this project was calibrated against. It is pinned
+because it reproduces the corpus, and named `real_from_base_year` rather than being filed under one
+of issue #8's two labels, because calling it something it is not is how the next reader gets it
+wrong. `docs/spec.md` §15 is the place to revisit the economics; changing it here is one flag.
+
+### A-25 — debt is sized by dividing by the annuity payment factor
+
+*Raised by issue #8, from its own arithmetic. Affects: #6.*
+
+Issue #8 writes the sizing as `min(maxGearing x capex, stabilised_ebitda / 1.40 /
+annuity_pv_factor(0.055, 18))` and, in the same list, pins
+`annuity_pv_factor(0.055, 18) = 11.246074465287`. Those contradict: the PV factor is the present
+value of one unit a year, so **dividing** by it gives a project financing of EUR 0.70m where the
+template project's senior debt is EUR 74.39m.
+
+**Decided.** `debt = min(max_gearing x capex, stabilised / target_dscr / annuity_payment_factor)`,
+where the payment factor is `r / (1 - (1+r)^-n)` -- the reciprocal, and what the reference divides
+by. `annuity_pv_factor` is implemented and tested at the pinned value, because that is a real and
+useful quantity and the criterion names it.
+
+Written as a division rather than as `x annuity_pv_factor`, which is the same quantity the other
+way up: `(x x d) / r` and `x x (d / r)` round differently, and the multiplied form sits 5.7e-14 from
+the corpus on the DSCR-sculpted projects. Inert against the EUR 0.01m tolerance, fatal to a
+field-for-field match.
+
+### A-26 — a range the generator draws from states its span; a band it tests against states a high
+
+*Raised by issue #8, in measurement. Affects: #2, #6.*
+
+The generator's jitter was landed as `low`/`high` pairs and drawn as `low + u x (high - low)`. The
+reference writes the width directly -- `0.94 + rnd() * 0.12` -- and the two are not the same number:
+`1.06 - 0.94` is `0.1200000000000001`. Four of the ten generator ranges are like that.
+
+**Decided.** Two types. `Band` is an inclusive pair something is **tested** against, as §10's
+plausibility checks use it. `Range` is one a value is **drawn** from, stated as `low` and `span` and
+drawn as `low + u x span`, with `high` derived.
+
+The gap is about 1e-17 relative and would be unreachable anywhere else in this system. It matters
+here because it lands in `netCapacityFactor`, which is emitted at full precision and multiplies
+every year of generation -- so it is the difference between reproducing the reference corpus and
+merely agreeing with it.
+
+### A-27 — the generator has two seeding modes, and only one of them ships
+
+*Raised by issue #8. Affects: #6, #7, #9.*
+
+Issue #8 requires two things that one seeding scheme cannot do. "Seeded to match the reference, the
+generator reproduces 1C's 48 projects field for field" needs the reference's **index**-keyed
+`xorshift32`, seeded `i * 97 + 13`. "Inserting a project at the head of the pipeline changes no
+other project's capex" needs a key that does not move when the directory does.
+
+**Decided.** The draw plan and every formula are shared; only the stream source differs.
+
+- **Parity mode** seeds `Xorshift32(index * 97 + 13)`. Used to reproduce the corpus, and by nothing
+  that ships.
+- **The shipped generator** keys on `(project id, assumption set id)` through
+  `SeedSequence([salt, sha256(id), attempt])`, never Python's `hash`, which is salted per process
+  and would make a pipeline irreproducible between runs of the same build.
+
+Because the salt is the assumption-set id, re-calibrating reprices the whole pipeline -- which is
+correct, and is what makes a stored run explain its own numbers.
+
+The **site pool** is drawn from numpy rather than the ported PRNG. Seven draws per site means every
+technology choice reads a stride-7 subsequence of one xorshift32 stream, and that subsequence is not
+uniform: the measured mix came out 49.7 / 38.7 / 11.7 against a target of 45 / 44 / 11, a five-point
+bias more samples did not wash out. The port exists for parity; the reference has no opinion about a
+300-project pipeline's composition.
+
+### A-28 — issue #8's provenance names are mapped onto §8.1's closed vocabulary
+
+*Raised by issue #8. Affects: #6, #9.*
+
+Issue #8 asks generated files to carry greenfield `analyst_estimate` / low, ready-to-build
+`budget_quote` / medium and construction `signed_contract` / high. None of those three values is in
+[`pipeline-schema.md` §8.1](pipeline-schema.md#81-estimatebasis), which is a closed vocabulary.
+
+**Decided.** They are mapped to the values that mean the same thing: `internal_model`,
+`binding_offer` and `contracted` respectively. The confidences are used as given.
+
+Grid and O&M carry what the project actually has rather than what its stage suggests -- a greenfield
+project with a firm connection agreement has a contract, and saying otherwise would make the
+provenance block disagree with the field it describes.
+
+This is also why the 48 parity files differ from 1C's in their `provenance` and nowhere else: 1C's
+files were produced by its extractor and say so, and these are produced by the house model. Copying
+1C's notes across to make the comparison total would put false provenance in every generated file.
+
+### A-29 — a generated project outside the min-DSCR band is redrawn, not shipped with a warning
+
+*Raised by issue #8. Affects: #6.*
+
+Issue #8 wants 300 files that pass with **zero** plausibility warnings, and separately wants a
+realistic share of them below the 1.25 default mandate floor. §10's band is 1.20-2.50, so the
+target window is narrow on one side.
+
+**Decided.** A project whose min DSCR falls outside the band is redrawn from its own stream --
+`SeedSequence([salt, sha256(id), attempt])` -- up to `generator.dscr_resample_attempts`. Each
+attempt stays a pure function of the project's own identity, so a redraw disturbs nothing else in
+the directory. A project that cannot be placed is emitted anyway with its attempt count, rather than
+dropped: silently dropping one would make `--count` a suggestion.
+
+Measured on the shipped pipeline: 283 of 300 land first time, min DSCR spans 1.2013-2.1210, none
+falls outside the band, and 17 (5.7%) sit below 1.25 -- which is what keeps §5.2's DSCR slider a
+live control and §7.4's red-below-floor able to fire.
+
+Parity mode does not resample. The reference's 48 are already inside the band, so the two modes
+cannot disagree about the corpus.
+
+### A-30 — a workbook is written at full double precision, which Excel itself does not keep
+
+*Raised by issue #8. Affects: #9.*
+
+`openpyxl` formats every number with `%.16g`, and a binary64 needs **seventeen** significant digits
+to survive a round trip. Measured over 40 generated files, 8,578 of 32,400 values came back changed
+in their last digit -- about 1e-16 relative, far inside the EUR 0.01m tie-out tolerance, and not
+lossless.
+
+**Decided.** The writer installs `repr` -- the shortest string that reads back as the identical
+double -- for the duration of one save, and asserts the attribute it replaces still exists so an
+`openpyxl` restructure fails loudly. A JSON -> xlsx -> JSON round trip is then exact: 32,400 leaves,
+zero differences.
+
+**This does not make Excel exact.** Excel carries fifteen significant digits, so a workbook a human
+opens and saves loses the last two, by about 1e-15 relative -- three orders inside the file's own
+tie-out tolerance, and a property of the format rather than of this code. Recorded rather than
+hidden, because "lossless" is otherwise a promise the spreadsheet path cannot keep.
+
+### A-31 — the exit bridge reads `debtSchedule.closing` rather than re-amortising the facility
+
+*Raised by issue #8. Affects: #6.*
+
+The JavaScript reference computes the debt outstanding at exit in a **third** independent
+amortisation loop, separate from both the one that builds the schedule and the one that finds min
+DSCR. Its answer sits an ulp from the `debtSchedule.closing` in the same file.
+
+**Decided.** Read the schedule. §7.4 ties `closing` out year by year, and
+[§9](pipeline-schema.md#9-the-reject-derived-fields-rule) exists precisely to stop a second source
+for one number -- "the one that drifts is always the stored one" applies just as well to a fourth
+derivation in code.
+
+The cost is visible and bounded: 35 of 1,440 oracle cells in
+`derived_expectations.json` differ in their last bit, which is why the interpretation sweep compares
+the hold-truncated series, IRR and MOIC at 1e-12 rather than exactly. LCOE and the 30-year IRR have
+no second derivation and are compared exactly, 48/48.
+
+
 ## Open questions
 
 Numbered `Q-n`, append-only. Each carries a recommended default that has been applied, so a
@@ -1493,3 +1679,14 @@ emit one that balances to 4.8e-13 — so the cost looks close to zero, and the
 | 2026-09-21 | #2 | C-17…C-19 — result models carry the file's domains; the two guards cannot be switched off quietly; `nan` and `inf` are not calibration values. |
 | 2026-09-21 | #2 | C-1 **reversed** — `asset.technology` is `solar` after all; the cost argument for `solar_pv` stopped holding once #3, #4 and #5 merged. 1C's `reconciled` contract is what the epic should settle on. |
 | 2026-09-21 | #2 | C-15 extended — balances (`debtSchedule.opening`/`closing`, `balanceSheet.ppe`) carry a 1e-9 floor; a flow gets none. All 48 golden files validate and round-trip under `reconciled`. |
+| 2026-09-22 | #8 | A-23 — the exit year's own FCFE counts alongside the terminal value; 144/144 against the oracle. |
+| 2026-09-22 | #8 | A-24 — LCOE discounts unescalated opex from the base year; neither reading issue #8 names matches. |
+| 2026-09-22 | #8 | A-25 — debt is sized by dividing by the annuity **payment** factor; issue #8's prose divides by the PV factor. |
+| 2026-09-22 | #8 | A-26 — a draw `Range` states its span; a test `Band` states its high. |
+| 2026-09-22 | #8 | A-27 — two seeding modes: index-keyed for parity, `(id, assumption_set_id)` for the shipped pipeline. |
+| 2026-09-22 | #8 | A-28 — issue #8's provenance names mapped onto §8.1's closed vocabulary. |
+| 2026-09-22 | #8 | A-29 — a project outside the min-DSCR band is redrawn from its own stream, bounded. |
+| 2026-09-22 | #8 | A-30 — workbooks are written at full double precision; Excel's own fifteen digits are not. |
+| 2026-09-22 | #8 | A-31 — the exit bridge reads `debtSchedule.closing` instead of re-amortising. |
+| 2026-09-22 | #8 | The `reconciled` file contract is applied: fixtures regenerated, template and §4.6 updated. |
+| 2026-09-22 | #8 | `assumption_set_id` moves to 9e5bfe51aeb2f40a as the generator and IRR bracket land. |
