@@ -112,7 +112,7 @@ def _by_year(
             residual_m=residual,
             message=(
                 f"{check}: {base_year + index} is out by €{residual:+.6f}m "
-                f"({int(breaches.size)} of {YEARS} years breach tolerance)"
+                f"({int(breaches.size)} of {actual.size} years breach tolerance)"
             ),
         )
     ]

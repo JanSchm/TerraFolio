@@ -49,7 +49,6 @@ from terrafolio.optimiser.feasibility import (
 from terrafolio.optimiser.features import build_features
 from terrafolio.optimiser.ga import SearchControls, run_search
 from terrafolio.optimiser.result import RunResult, SelectionOutcome, build_result
-from terrafolio.optimiser.screens import apply_screens
 from terrafolio.pipeline.loader import LoadResult, PipelineLoadError, load_pipeline
 
 EM_DASH = "\u2014"
@@ -253,25 +252,25 @@ def _search(
     mandate: MandateScalars,
     assumptions: AssumptionSet,
     args: argparse.Namespace,
+    effort: Effort,
 ) -> tuple[RunResult, int, float]:
     """Screen, derive, search and aggregate. Returns the result, seed and elapsed ms."""
     arrays = loaded.arrays
     started = time.perf_counter()
 
-    screens = apply_screens(
-        arrays, mandate, assumptions, locked_ids=args.lock, excluded_ids=args.exclude
-    )
-    rows = np.flatnonzero(screens.eligible)
     # §13 has two conditions that block a run, and `POST /optimisations` answers 422
-    # on exactly these two. Checking only for an empty pool left the other one — locks
-    # whose equity alone exceeds the budget — to the repair operator, which drops the
-    # locked holdings that do not fit and returns a portfolio silently missing them.
+    # on exactly these two. The preview decides both, and it carries the screening it
+    # did — so this takes `preview.screens` rather than screening the pipeline a
+    # second time, which recomputed every project's minimum DSCR for nothing.
     preview = preview_feasibility(
         arrays, mandate, assumptions, locked_ids=args.lock, excluded_ids=args.exclude
     )
     if not preview.runnable:
         blocking = [signal for signal in preview.signals if signal.blocks_the_run]
         raise MandateError(_blocked_run_message(blocking, preview))
+
+    screens = preview.screens
+    rows = np.flatnonzero(screens.eligible)
 
     returns = project_returns(arrays, assumptions, mandate.hold_years)
     features = build_features(
@@ -281,14 +280,17 @@ def _search(
         merchant_share=1.0 - arrays.revenue.ppa_share,
     ).take(rows)
 
-    locked_all = np.array(
-        [project_id in set(args.lock) for project_id in arrays.ids], dtype=np.bool_
-    )
+    # One definition of "locked", and the same one the screens used: an exclusion is
+    # the more specific instruction, so a project that is both stays excluded. Two
+    # definitions in one function is how the holdings end up flagged `locked` for a
+    # project the user struck out.
+    held = set(args.lock) - set(args.exclude)
+    locked_all = np.array([project_id in held for project_id in arrays.ids], dtype=np.bool_)
     outcome = run_search(
         features,
         mandate,
         assumptions,
-        SearchControls(effort=Effort(args.effort), locked=locked_all[rows], seed=args.seed),
+        SearchControls(effort=effort, locked=locked_all[rows], seed=args.seed),
     )
     result = build_result(
         arrays,
@@ -387,7 +389,7 @@ def _print_tiles(result: RunResult, mandate: MandateScalars) -> None:
 def _run(args: argparse.Namespace, assumptions: AssumptionSet) -> int:
     loaded = _load(args, assumptions)
     mandate = _mandate_from(args)
-    result, seed, elapsed = _search(loaded, mandate, assumptions, args)
+    result, seed, elapsed = _search(loaded, mandate, assumptions, args, Effort(args.effort))
 
     print(
         f"Run complete in {elapsed:,.0f} ms · seed {seed} · effort {args.effort} "
@@ -401,9 +403,13 @@ def _run(args: argparse.Namespace, assumptions: AssumptionSet) -> int:
     print("\nHeadline metrics:")
     _print_tiles(result, mandate)
 
-    print("\nObjective terms:")
-    for name, value in result.terms.items():
-        print(f"  {name:30s} {value:+.6f}")
+    if result.terms is None:
+        # An override decided the score, so the nine terms are not its explanation.
+        print("\nObjective terms: not applicable — the score came from an override.")
+    else:
+        print("\nObjective terms:")
+        for name, value in result.terms.items():
+            print(f"  {name:30s} {value:+.6f}")
 
     print(
         f"\n30-year FCFE series sums to {millions(float(result.cashflow_30y.sum()))} "
@@ -432,10 +438,9 @@ def _bench(args: argparse.Namespace, assumptions: AssumptionSet) -> int:
 
     mandate = _mandate_from(args)
     for effort in Effort:
-        args.effort = effort.value
         timings = []
         for _ in range(args.repeats):
-            _, _, elapsed = _search(loaded, mandate, assumptions, args)
+            _, _, elapsed = _search(loaded, mandate, assumptions, args, effort)
             timings.append(elapsed)
         params = assumptions.ga.effort[effort]
         print(

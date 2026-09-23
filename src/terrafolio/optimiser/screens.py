@@ -149,9 +149,12 @@ def apply_screens(
     for mask in passes.values():
         survives_every_screen &= mask
 
-    locked = np.array(
-        [project_id in set(locked_ids) - excluded for project_id in arrays.ids], dtype=np.bool_
-    )
+    # Built once, outside the comprehension. Rebuilding it per project was O(n x k)
+    # for a value that never changes — and, worse, silently wrong for a generator:
+    # `locked_ids` is typed `Iterable`, so the first project consumed it and every
+    # project after that saw an empty set, dropping every lock without an error.
+    held = set(locked_ids) - excluded
+    locked = np.array([project_id in held for project_id in arrays.ids], dtype=np.bool_)
     eligible = survives_every_screen | locked
     readmitted = tuple(
         arrays.ids[index] for index in np.flatnonzero(locked & ~survives_every_screen).tolist()

@@ -111,9 +111,10 @@ def preview_feasibility(
     solar_share = solar_capacity / capacity if capacity > 0.0 else 0.0
     gearing = debt / capex if capex > 0.0 else 0.0
 
-    locked_rows = np.array(
-        [project_id in set(locked) - set(excluded) for project_id in arrays.ids], dtype=np.bool_
-    )
+    # Hoisted: this ran two set constructions per project, and §12 budgets the whole
+    # preview at under 100 ms.
+    held = set(locked) - set(excluded)
+    locked_rows = np.array([project_id in held for project_id in arrays.ids], dtype=np.bool_)
     locked_equity = float(arrays.capital.equity[locked_rows].sum())
 
     signals: list[FeasibilitySignal] = []

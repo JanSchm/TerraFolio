@@ -22,6 +22,10 @@ from terrafolio.optimiser.objective import score, score_terms
 
 ASSUMPTIONS = load_default()
 
+# No deadline. These assert arithmetic properties of the objective, not how fast it
+# runs, and hypothesis's default 200 ms wall clock measures the machine instead: on a
+# loaded box the same example took 336 ms once and 42 ms on retry, failing the suite
+# for a reason that has nothing to do with the code. Timing belongs in tests/perf.
 PENALTIES = (
     "leveragePenalty",
     "merchantPenalty",
@@ -105,7 +109,7 @@ breach = st.floats(min_value=0.0, max_value=0.6, allow_nan=False, allow_infinity
 # ---------------------------------------------------------------------------
 
 
-@settings(max_examples=200)
+@settings(max_examples=200, deadline=None)
 @given(smaller=breach, extra=breach)
 def test_the_leverage_penalty_never_rises_as_the_shortfall_grows(
     smaller: float, extra: float
@@ -115,7 +119,7 @@ def test_the_leverage_penalty_never_rises_as_the_shortfall_grows(
     assert more <= less
 
 
-@settings(max_examples=200)
+@settings(max_examples=200, deadline=None)
 @given(smaller=breach, extra=breach)
 def test_the_merchant_penalty_never_rises_as_the_overshoot_grows(
     smaller: float, extra: float
@@ -125,7 +129,7 @@ def test_the_merchant_penalty_never_rises_as_the_overshoot_grows(
     assert more <= less
 
 
-@settings(max_examples=200)
+@settings(max_examples=200, deadline=None)
 @given(smaller=breach, extra=breach)
 def test_the_risk_penalty_never_rises_as_the_overshoot_grows(smaller: float, extra: float) -> None:
     less = _term("riskPenalty", _totals(risk=PORTFOLIO_RISK_CAP + smaller))
@@ -133,7 +137,7 @@ def test_the_risk_penalty_never_rises_as_the_overshoot_grows(smaller: float, ext
     assert more <= less
 
 
-@settings(max_examples=200)
+@settings(max_examples=200, deadline=None)
 @given(smaller=breach, extra=breach)
 def test_the_country_penalty_never_rises_as_the_concentration_grows(
     smaller: float, extra: float
@@ -143,7 +147,7 @@ def test_the_country_penalty_never_rises_as_the_concentration_grows(
     assert more <= less
 
 
-@settings(max_examples=200)
+@settings(max_examples=200, deadline=None)
 @given(smaller=breach, extra=breach)
 def test_the_project_penalty_never_rises_as_the_concentration_grows(
     smaller: float, extra: float
@@ -153,7 +157,7 @@ def test_the_project_penalty_never_rises_as_the_concentration_grows(
     assert more <= less
 
 
-@settings(max_examples=100)
+@settings(max_examples=100, deadline=None)
 @given(inside=st.floats(min_value=0.0, max_value=0.3))
 def test_a_penalty_is_exactly_zero_until_the_cap_is_crossed(inside: float) -> None:
     """Not merely small: a constraint that is met costs nothing at all."""
@@ -167,7 +171,7 @@ def test_a_penalty_is_exactly_zero_until_the_cap_is_crossed(inside: float) -> No
 # ---------------------------------------------------------------------------
 
 
-@settings(max_examples=200)
+@settings(max_examples=200, deadline=None)
 @given(amount=st.floats(min_value=1e-9, max_value=0.5))
 def test_breaching_the_merchant_cap_never_improves_fitness(amount: float) -> None:
     """The tuning goal of §10.2, stated as a test.
@@ -181,7 +185,7 @@ def test_breaching_the_merchant_cap_never_improves_fitness(amount: float) -> Non
     assert over <= at_the_cap
 
 
-@settings(max_examples=200)
+@settings(max_examples=200, deadline=None)
 @given(amount=st.floats(min_value=1e-9, max_value=0.5))
 def test_missing_the_leverage_floor_never_improves_fitness(amount: float) -> None:
     at_the_floor = _fitness(_totals(gearing=MANDATE.min_leverage))
@@ -189,7 +193,7 @@ def test_missing_the_leverage_floor_never_improves_fitness(amount: float) -> Non
     assert under <= at_the_floor
 
 
-@settings(max_examples=200)
+@settings(max_examples=200, deadline=None)
 @given(amount=st.floats(min_value=1e-9, max_value=1.5))
 def test_breaching_the_risk_cap_never_improves_fitness(amount: float) -> None:
     at_the_cap = _fitness(_totals(risk=PORTFOLIO_RISK_CAP))
@@ -197,7 +201,7 @@ def test_breaching_the_risk_cap_never_improves_fitness(amount: float) -> None:
     assert over <= at_the_cap
 
 
-@settings(max_examples=200)
+@settings(max_examples=200, deadline=None)
 @given(amount=st.floats(min_value=1e-9, max_value=0.5))
 def test_concentrating_further_never_improves_fitness(amount: float) -> None:
     at_the_cap = _fitness(_totals(country_excess=0.0, project_excess=0.0))
@@ -210,7 +214,7 @@ def test_concentrating_further_never_improves_fitness(amount: float) -> None:
 # ---------------------------------------------------------------------------
 
 
-@settings(max_examples=200)
+@settings(max_examples=200, deadline=None)
 @given(
     equity=st.floats(min_value=0.0, max_value=4_000e6),
     gearing=st.floats(min_value=0.0, max_value=1.0),
@@ -230,7 +234,7 @@ def test_a_rejected_portfolio_always_scores_below_the_empty_one(
         assert fitness < ASSUMPTIONS.objective.empty_portfolio_score
 
 
-@settings(max_examples=200)
+@settings(max_examples=200, deadline=None)
 @given(overshoot=st.floats(min_value=0.0, max_value=20.0))
 def test_the_reject_score_grades_monotonically_in_the_overshoot(overshoot: float) -> None:
     """Graded, so selection has something to work with among infeasible chromosomes."""
@@ -240,7 +244,7 @@ def test_the_reject_score_grades_monotonically_in_the_overshoot(overshoot: float
     assert further <= nearer
 
 
-@settings(max_examples=100)
+@settings(max_examples=100, deadline=None)
 @given(gearing=st.floats(min_value=0.0, max_value=1.0))
 def test_an_empty_portfolio_scores_the_floor_whatever_else_is_true(gearing: float) -> None:
     """Checked first, because an empty portfolio is feasible on equity."""

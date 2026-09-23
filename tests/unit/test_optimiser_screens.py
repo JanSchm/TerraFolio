@@ -171,6 +171,28 @@ def test_a_lock_re_admits_a_project_the_screens_rejected() -> None:
     assert result.readmitted == ("P02",)
 
 
+def test_locks_and_exclusions_accept_any_iterable_not_only_a_sequence() -> None:
+    """The signature says ``Iterable``, so a generator has to work.
+
+    Building the lock set inside the per-project comprehension consumed a generator
+    on the first project and left every project after it looking unlocked — no error,
+    just a silently different portfolio. 3A receives these ids over the wire and may
+    well hand over a comprehension.
+    """
+    wanted = ["P02"]
+    from_list = apply_screens(ARRAYS, mandate(countries=("ES",)), ASSUMPTIONS, locked_ids=wanted)
+    from_generator = apply_screens(
+        ARRAYS, mandate(countries=("ES",)), ASSUMPTIONS, locked_ids=(p for p in wanted)
+    )
+    assert from_generator.readmitted == from_list.readmitted == ("P02",)
+    assert from_generator.eligible.tolist() == from_list.eligible.tolist()
+
+    excluded_from_generator = apply_screens(
+        ARRAYS, mandate(), ASSUMPTIONS, excluded_ids=(p for p in ["P01"])
+    )
+    assert excluded_from_generator.eligible.tolist() == [False, True]
+
+
 def test_a_lock_that_changes_nothing_is_not_reported_as_a_re_admission() -> None:
     result = apply_screens(ARRAYS, mandate(), ASSUMPTIONS, locked_ids=["P01"])
     assert result.readmitted == ()

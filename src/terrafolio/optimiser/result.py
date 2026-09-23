@@ -37,9 +37,9 @@ from terrafolio.domain.scalars import MandateScalars
 from terrafolio.economics.irr import irr
 from terrafolio.economics.lcoe import lcoe
 from terrafolio.economics.returns import ProjectReturns, moic
-from terrafolio.optimiser.aggregate import aggregate
+from terrafolio.optimiser.aggregate import Aggregates, aggregate
 from terrafolio.optimiser.features import Features
-from terrafolio.optimiser.objective import Terms, quantise, score, score_terms
+from terrafolio.optimiser.objective import TERM_ORDER, Terms, quantise, score, score_terms
 from terrafolio.pipeline.arrays import BoolVector, ProjectArrays, Vector
 from terrafolio.pipeline.derive import annual_generation_gwh, min_dscr
 
@@ -204,7 +204,17 @@ class RunResult:
     selected_ids: tuple[str, ...]
     totals: PortfolioTotals
     holdings: tuple[Holding, ...]
-    terms: dict[str, float]
+
+    terms: dict[str, float] | None
+    """The nine §10.2 contributions, which sum to ``totals.fitness`` — or ``None``.
+
+    ``None`` whenever an override decided the score instead: an empty portfolio takes
+    the configured floor and an over-budget one the graded reject, and in neither case
+    did the nine terms produce the number. Returning the decomposition anyway would
+    hand a caller nine figures that sum to something else — an empty winner scores
+    -50 against terms totalling about -5 — and both the CLI and 2B print or persist
+    the two side by side.
+    """
 
     cashflow_30y: Vector
     """Thirty elements, euros, **no** terminal value."""
@@ -215,16 +225,64 @@ class RunResult:
     hold_years: int
 
 
-def _country_shares(
-    arrays: ProjectArrays, selection: BoolVector, total_capex: float
-) -> dict[str, float]:
-    if total_capex <= 0.0:
-        return {}
-    shares: dict[str, float] = {}
-    for index in np.flatnonzero(selection).tolist():
-        code = arrays.location.country_codes[index]
-        shares[code] = shares.get(code, 0.0) + float(arrays.capital.total_capex[index])
-    return {code: shares[code] / total_capex for code in sorted(shares)}
+def _country_shares(features: Features, totals: Aggregates) -> dict[str, float]:
+    """Name the shares the reduction already produced — do not recompute them.
+
+    ``aggregate`` computes country concentration for the whole population because
+    §10.2's penalty needs it; §7.1's tile needs the same figures for one row. Summing
+    capex by country again here would be a second implementation of one number, which
+    is exactly what ``aggregate``'s module docstring says must not exist: the two
+    would drift in the last bits first and in substance later, and the tile would stop
+    agreeing with the penalty that shaped the portfolio.
+
+    Zero shares are dropped: a country with nothing selected is not part of the
+    portfolio's concentration, and ``docs/api.md`` §4 lists only the ones held.
+    """
+    shares = totals.country_shares[0]
+    return {
+        code: float(shares[index])
+        for index, code in enumerate(features.country_codes)
+        if shares[index] > 0.0
+    }
+
+
+def _term_breakdown(
+    totals: Aggregates,
+    mandate: MandateScalars,
+    assumptions: AssumptionSet,
+    fitness: float,
+) -> dict[str, float] | None:
+    """The nine contributions, or ``None`` when an override decided the score.
+
+    Checked against the score that was actually reported rather than by re-testing
+    the override conditions, so the two cannot come apart: if the terms do not add up
+    to the fitness, they are not the explanation for it and saying nothing is better
+    than saying something that does not reconcile.
+    """
+    terms: Terms = score_terms(totals, mandate, assumptions)
+    breakdown = {name: float(value[0]) for name, value in terms.contributions.items()}
+    explained = quantise(np.array([sum(breakdown[name] for name in TERM_ORDER)]), assumptions)
+    return breakdown if float(explained[0]) == fitness else None
+
+
+def _weighted_lcoe(levelised: Vector, generation: Vector, selection: BoolVector) -> float:
+    """Generation-weighted LCOE across the selection, ignoring undefined projects.
+
+    ``lcoe`` is ``NaN`` for a project that generates nothing over its life, and a
+    weighted average cannot simply multiply through: ``NaN x 0.0`` is ``NaN``, so one
+    such project poisons the sum even though every other project contributes a real
+    figure. ``PortfolioAggregates.weighted_lcoe`` refuses ``NaN``, so that would fail
+    validation at the API boundary rather than here.
+
+    Dropping the undefined rows from **both** halves is the same rule the objective
+    applies to an undefined IRR: a project nobody can price is excluded from the
+    average, not counted as zero.
+    """
+    priced = selection & ~np.isnan(levelised)
+    weight = float(generation[priced].sum())
+    if weight <= 0.0:
+        return 0.0
+    return float((levelised[priced] * generation[priced]).sum() / weight)
 
 
 def _worst_min_dscr(lowest: Vector, selection: BoolVector) -> float | None:
@@ -299,7 +357,6 @@ class _ResultContext:
     eligible: BoolVector
     selection: BoolVector
     locked: BoolVector
-    merchant_share: Vector
     contracted_share: Vector
     min_dscr: Vector
     lcoe: Vector
@@ -330,12 +387,10 @@ def build_result(
         scattered[np.flatnonzero(eligible)] = lock_mask
         lock_mask = scattered
 
-    merchant_share = 1.0 - arrays.revenue.ppa_share
     context = _ResultContext(
         eligible=eligible,
         selection=selection,
         locked=lock_mask,
-        merchant_share=merchant_share,
         contracted_share=outcome.contracted_share,
         min_dscr=min_dscr(arrays),
         lcoe=lcoe(arrays, assumptions),
@@ -343,8 +398,8 @@ def build_result(
     )
 
     totals_row = aggregate(features, winner[None, :].astype(np.float64))
-    terms: Terms = score_terms(totals_row, mandate, assumptions)
     fitness = float(quantise(score(totals_row, mandate, assumptions), assumptions)[0])
+    terms = _term_breakdown(totals_row, mandate, assumptions, fitness)
 
     cashflow_30y: Vector = arrays.statements.cash_flow.fcfe[selection].sum(axis=0)
     cashflow_hold: Vector = returns.series[selection].sum(axis=0)
@@ -355,14 +410,9 @@ def build_result(
     capex = float(totals_row.total_capex[0])
     capacity = float(totals_row.capacity_mw[0])
     generation = float(context.annual_generation[selection].sum())
-    shares = _country_shares(arrays, selection, capex)
+    shares = _country_shares(features, totals_row)
     largest = max(shares, key=lambda code: (shares[code], code)) if shares else None
-
-    weighted_lcoe = (
-        float((context.lcoe[selection] * context.annual_generation[selection]).sum() / generation)
-        if generation > 0.0
-        else 0.0
-    )
+    weighted_lcoe = _weighted_lcoe(context.lcoe, context.annual_generation, selection)
     blended = float(totals_row.blended_irr[0])
     gearing = float(totals_row.gearing[0])
     merchant = float(totals_row.merchant_share[0])
@@ -411,7 +461,7 @@ def build_result(
         selected_ids=tuple(arrays.ids[index] for index in np.flatnonzero(selection).tolist()),
         totals=totals,
         holdings=_holdings(arrays, returns, context),
-        terms={name: float(value[0]) for name, value in terms.contributions.items()},
+        terms=terms,
         cashflow_30y=cashflow_30y,
         cashflow_hold=cashflow_hold,
         hold_years=returns.hold_years,
