@@ -34,8 +34,8 @@ from typing import Final
 
 __all__ = ["Xorshift32", "draws"]
 
-_SHIFTS: Final = (13, 17, 5)  # structural: xorshift32's defining shift triple
-_UINT32_MASK: Final = 0xFFFFFFFF  # structural: 32-bit wraparound, not a calibration value
+# The algorithm itself: its three defining shifts and the 32-bit wrap they act in.
+_SHIFTS, _UINT32_MASK = (13, 17, 5), 0xFFFFFFFF  # structural: xorshift32, not calibration
 
 _UINT32_SCALE: Final = _UINT32_MASK + 1
 """``2**32``, derived rather than written, so the mask and the divisor cannot disagree."""

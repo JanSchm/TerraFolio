@@ -40,19 +40,21 @@ import numpy as np
 
 from terrafolio.config.assumptions import AssumptionSet, Range
 from terrafolio.domain.enums import Currency, Stage, Technology
+from terrafolio.generate.precision import CAPACITY_PLACES, COORDINATE_PLACES
 
-__all__ = ["Market", "Site", "build_pool", "market_key", "markets", "reference_sites"]
+__all__ = [
+    "Market",
+    "Site",
+    "build_pool",
+    "market_key",
+    "markets",
+    "reference_seeding",
+    "reference_sites",
+]
 
 _DATA: Final = Path(__file__).resolve().parent
 _COUNTRIES: Final = _DATA / "countries.json"
 _REFERENCE: Final = _DATA / "reference_sites.json"
-
-# How precisely a drawn site is quoted: coordinates to a site centroid, which
-# §8 says is sufficient for the map, and nameplate to a tenth of a megawatt.
-# Neither is a tolerance or a band -- they are the precision the numbers are
-# written at, and rounding them keeps a generated pipeline readable next to the
-# reference corpus, whose capacities are whole megawatts.
-_COORDINATE_PLACES, _CAPACITY_PLACES = 2, 1  # structural: quoted precision, not calibration
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -130,6 +132,18 @@ def markets() -> tuple[Market, ...]:
         )
         for entry in _load(_COUNTRIES)["countries"]
     )
+
+
+@lru_cache(maxsize=1)
+def reference_seeding() -> tuple[int, int]:
+    """The stride and offset the reference seeds each project with.
+
+    Data about the reference rather than a tunable, so it lives beside the
+    reference's own site table. ``js_prng.json`` pins the seed it produces for
+    all 48 projects, and ``tests/unit/test_generate_draws.py`` checks it.
+    """
+    seeding = _load(_REFERENCE)["seeding"]
+    return int(seeding["stride"]), int(seeding["offset"])
 
 
 @lru_cache(maxsize=1)
@@ -267,11 +281,11 @@ def build_pool(count: int, seed: int, assumptions: AssumptionSet) -> tuple[Site,
                 country_code=market.code,
                 country=market.name,
                 iso3=market.iso3,
-                lat=round(lat, _COORDINATE_PLACES),
-                lon=round(lon, _COORDINATE_PLACES),
+                lat=round(lat, COORDINATE_PLACES),
+                lon=round(lon, COORDINATE_PLACES),
                 technology=technology,
                 stage=stage,
-                capacity_mw=round(capacity, _CAPACITY_PLACES),
+                capacity_mw=round(capacity, CAPACITY_PLACES),
                 cod_year=cod,
                 currency=market.currency,
             )

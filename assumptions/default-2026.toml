@@ -32,16 +32,6 @@ offshore_wind = 9.5
 [lcoe]
 real_discount_rate = 0.06
 
-[irr]
-# IRR is found by bisection over this bracket. A cash flow whose NPV has the
-# same sign at both ends has no root inside it, and its IRR is **undefined** --
-# reported as null and rendered as an em dash, never as zero (§13, epic §5).
-# So the bracket is a modelling choice rather than a numerical detail: widening
-# it defines an IRR for a series that previously had none.
-low = -0.5
-high = 1.2
-iterations = 70
-
 [emissions]
 co2_t_per_mwh = 0.32
 
@@ -197,8 +187,10 @@ exit_year_fcfe_included = true
 # reference LCOEs exactly. Issue #8 offered two readings and neither is this
 # one: discounting from COD matches 10 of 48 and misses by up to 16 EUR/MWh,
 # and escalating the opex matches none. Capex enters undiscounted at t0 under
-# every reading.
-lcoe_opex_basis = "real_from_base_year"
+# every reading. The value is spelled as economics/lcoe.py's REAL_FROM_BASE,
+# which owns the vocabulary; 2A and 2C reached this answer independently
+# (2A-4 and A-24).
+lcoe_opex_basis = "real_from_base"
 
 # --- The seed-pipeline generator (§9.1-9.4) -----------------------------------
 #

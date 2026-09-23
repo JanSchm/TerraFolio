@@ -41,6 +41,8 @@ from typing import Final, NamedTuple
 import numpy as np
 import numpy.typing as npt
 
+from terrafolio.economics.annuity import annuity_pv_factor
+
 __all__ = [
     "Schedule",
     "annuity_payment_factor",
@@ -69,25 +71,6 @@ class Schedule(NamedTuple):
 def _discount(rate: float, periods: int) -> float:
     """``(1 + r)^-n``, the factor both annuity factors are built on."""
     return float((1 + rate) ** -periods)
-
-
-def annuity_pv_factor(rate: float, periods: int) -> float:
-    """Present value of one unit paid annually for ``periods`` years.
-
-    ``annuity_pv_factor(0.055, 18) == 11.246074465287…`` — the figure issue #8
-    pins. Sizing debt off a cover ratio multiplies by this factor; note that
-    issue #8's prose divides by it, which is a slip, since dividing by 11.246
-    rather than multiplying puts the template project's senior debt at €0.70m
-    against its actual €74.39m. See ``docs/decisions.md``.
-
-    At a zero rate the limit is ``periods``, computed as such rather than
-    dividing by zero.
-    """
-    if periods < 0:
-        raise ValueError(f"periods must not be negative, got {periods}")
-    if rate == 0:
-        return float(periods)
-    return (1 - _discount(rate, periods)) / rate
 
 
 def annuity_payment_factor(rate: float, periods: int) -> float:

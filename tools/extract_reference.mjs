@@ -573,9 +573,13 @@ const debtSizingBasisOf = (p) =>
 // That comment left one action outstanding — "`DEFAULT_CONTRACT = 'reconciled'`
 // in tools/extract_reference.mjs, then regenerate" — which #4 closed without
 // doing, leaving all 48 committed fixtures and 1B's own template failing 1A's
-// pydantic ProjectFile 48/48 on the five missing `assumptions` fields.  Issue
-// 2C (#8) applies it here, since it blocks 2C's parity test and 2A's first
-// acceptance criterion alike.
+// pydantic ProjectFile 48/48 on the five missing `assumptions` fields.  It
+// blocked 2A's first acceptance criterion and 2C's parity test alike, and both
+// applied it independently: 2A (#6) flipped DEFAULT_CONTRACT and regenerated,
+// and 2C (#8) did the same and also brought templates/project-template.json up
+// to the settled contract, which is what TEMPLATE_CONTRACT below now reflects.
+// The regenerated fixtures were byte-identical, which is the point of a
+// deterministic extractor.
 //
 // The parameterisation stays.  `--contract=<name>` still selects one, so the
 // superseded shapes remain reproducible and the next contract change is again

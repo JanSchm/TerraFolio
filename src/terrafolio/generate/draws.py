@@ -45,14 +45,13 @@ from collections.abc import Callable
 
 import numpy as np
 
+from terrafolio.generate.sites import reference_seeding
 from terrafolio.model.prng import Xorshift32
 
 __all__ = ["DrawSource", "project_stream", "reference_stream"]
 
 DrawSource = Callable[[], float]
 """Anything that yields the next draw in ``[0, 1)``. Both stream sources are one."""
-
-_REFERENCE_SEED_STRIDE, _REFERENCE_SEED_OFFSET = 97, 13  # structural: the reference's own seeding
 
 
 def reference_stream(index: int) -> DrawSource:
@@ -61,7 +60,8 @@ def reference_stream(index: int) -> DrawSource:
     Index-keyed, and therefore only for reproducing the 48-project corpus. The
     shipped generator uses :func:`project_stream`.
     """
-    return Xorshift32(index * _REFERENCE_SEED_STRIDE + _REFERENCE_SEED_OFFSET)
+    stride, offset = reference_seeding()
+    return Xorshift32(index * stride + offset)
 
 
 def project_stream(project_id: str, assumption_set_id: str, attempt: int = 0) -> DrawSource:

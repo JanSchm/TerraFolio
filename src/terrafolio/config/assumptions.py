@@ -25,7 +25,6 @@ __all__ = [
     "GaParams",
     "GeneratorParams",
     "Interpretation",
-    "IrrBracket",
     "Metadata",
     "ObjectiveWeights",
     "Range",
@@ -65,20 +64,6 @@ class Range:
     def high(self) -> float:
         """The top of the range. Derived, because the span is what is drawn with."""
         return self.low + self.span
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class IrrBracket:
-    """The bisection bracket IRR is searched in, and how finely.
-
-    Its width decides which cash flows have an IRR at all: a series whose NPV
-    does not change sign inside it is undefined, which §13 requires be rendered
-    as an em dash and never coerced to zero.
-    """
-
-    low: float
-    high: float
-    iterations: int
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -259,7 +244,6 @@ class AssumptionSet:
     meta: Metadata
     exit_multiples: Mapping[Technology, float]
     lcoe_real_discount_rate: float
-    irr: IrrBracket
     co2_t_per_mwh: float
     objective: ObjectiveWeights
     ga: GaParams

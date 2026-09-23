@@ -582,21 +582,22 @@ and the exit bridge do not both take credit for it.
 is discounted *from*, or whether it escalates. Issue #8 offers two readings: real opex from COD, or
 nominal opex from the base year. Measured, **neither is right**.
 
-**Decided.** `real_from_base_year`: **unescalated** opex, discounted from the model's base year,
-with capex entering undiscounted at t0.
+**Decided.** `real_from_base`: **unescalated** opex, discounted from the model's base year, with
+capex entering undiscounted at t0. Spelled as `economics/lcoe.py`'s `REAL_FROM_BASE`, which owns the
+vocabulary — 2A reached the same answer independently and recorded it as 2A-4, and the two were
+reconciled on the merge.
 
 | basis | reproduces the 48 reference LCOEs |
 |---|---|
-| `real_from_base_year` | **48 / 48, exactly** |
+| `real_from_base` | **48 / 48, exactly** |
 | `real_from_cod` | 10 / 48, missing by up to 16 EUR/MWh |
 | `nominal_from_base_year` | 0 / 48 |
 
 Discounting from the base year rather than from COD means a late-COD asset is discounted for years
 before it exists, which is arguably wrong as economics and is unarguably what the reference
 computes and what every published figure in this project was calibrated against. It is pinned
-because it reproduces the corpus, and named `real_from_base_year` rather than being filed under one
-of issue #8's two labels, because calling it something it is not is how the next reader gets it
-wrong. `docs/spec.md` §15 is the place to revisit the economics; changing it here is one flag.
+because it reproduces the corpus, and named for what it is rather than filed under one of issue
+#8's two labels, because calling it something it is not is how the next reader gets it wrong. `docs/spec.md` §15 is the place to revisit the economics; changing it here is one flag.
 
 ### A-25 — debt is sized by dividing by the annuity payment factor
 
@@ -708,6 +709,18 @@ plausibility band" and exited zero, which was simply false when the band could n
 recalibration could have shipped a knowingly out-of-band pipeline that reported success. "Zero
 plausibility warnings" is a property of what ships or it is nothing.
 
+**And a site that cannot be placed at all is skipped** (added on the 2A merge, which moved
+`assumption_set_id` and so every jitter stream). Redrawing fixes an unlucky jitter; it cannot fix a
+market. A solar park in Finland draws a 0.098 capacity factor and clamps to the 560 €/kW floor, so
+its cover ratio is whatever the resource allows — 0.97 after twenty-four redraws. §9.1 puts that
+asset in the pipeline deliberately, "so the screens have something to reject"; §10 then calls it
+implausible, and issue #8 asks for zero plausibility warnings. Both cannot hold for one shipped
+file, so the generator draws the pool deeper than asked and takes the first `count` placeable sites.
+
+Ids come from a site's position in the pool, so skipping one leaves a gap and changes nothing about
+any other project — the same property that keying the jitter on the id buys (A-27). Ids are unique
+and uniformly padded, which is all §4 and C-5 ask; they were never promised to be contiguous.
+
 ### A-30 — a workbook is written at full double precision, which Excel itself does not keep
 
 *Raised by issue #8. Affects: #9.*
@@ -799,10 +812,10 @@ regime, a tax-loss carryforward, a merchant floor — and gating on those would 
 authoritative again, which is exactly what the input design set out to change. A file whose
 *inputs* were altered still ingests, with the variance reported.
 
-The checks live in `model/tieouts.py` rather than in `pipeline/`, which is #6's row, because the
-generator and the spreadsheet path both have to apply them before writing. `pipeline` ranks below
-`model` in `LAYERS`, so #6 cannot import them as things stand; re-ranking is the one-line change
-that guard's docstring sanctions, and is better than a second copy of the identities.
+**Superseded in part by A-35.** The checks were briefly `model/tieouts.py`, written before 2A
+landed. 2A's `pipeline/validator.py` is the owner, takes a `ProjectFile` directly and produces
+better messages, so the CLI calls that instead and the duplicate is gone. What the entry decides —
+that tie-outs block ingestion and a variance does not — is unchanged.
 
 ### A-34 — a project's own text is written to a workbook as text, never as a formula
 
@@ -822,6 +835,45 @@ This is reachable without an attacker: `pipeline ingest` accepts an analyst-auth
 place, the `TieOuts` sheet, which builds its own from the layout and never from project text.
 Asserted in the stored XML rather than only through openpyxl's reader: `<f>` appears in one of the
 five sheets, and it is that one.
+
+
+### A-35 — 2C converges onto 2A's economics and validator rather than shipping a second copy
+
+*Raised by issue #8, merging 2A (#19) and 2B (#18). Affects: #6, #9.*
+
+2C was written against an empty `pipeline/` and `economics/`, because 2A had not landed. When it
+did, four things existed twice, and one of them was actively broken by the merge.
+
+**The break.** 2C had pinned `interpretation.lcoe_opex_basis = "real_from_base_year"`; 2A's
+`economics/lcoe.py` accepts `real_from_cod`, `real_from_base` and `nominal_from_base` and raises on
+anything else. The merged tree therefore could not compute an LCOE at all. **2A owns `economics/`
+and landed first, so 2C conforms** — the value is now `real_from_base`, per epic §8's rule that a
+non-owner conforms and raises any disagreement separately. There is none to raise: both issues
+measured the same thing and got the same answer (2A-4 and A-24), which is the best evidence either
+of us had that it is right.
+
+**The duplicates, and what happened to each.**
+
+| was | now | why |
+|---|---|---|
+| `model/tieouts.py` | `pipeline/validator.py` | 2A's row, takes a `ProjectFile` directly, and names the calendar year rather than an array index. |
+| `model/returns.py` | `economics/{lcoe,irr,returns,terminal}` | 2A's are vectorised over the whole pipeline and read the same two flags. The sweep now pins the **shipped** path. |
+| `model/annuity.py`'s `annuity_pv_factor` | re-exports `economics/annuity.py`'s | The two agreed to the last bit. The amortisation *schedule* stays, because `economics` has no use for one. |
+| `[irr]` in the assumption set | 2A's `IRR_BRACKET_LOW`/`HIGH` | See below. |
+
+**The IRR bracket is the one place we disagreed, and 2A wins on merit rather than on ownership.**
+2C put it in the assumption set, arguing that its width decides which cash flows have an IRR at all
+and is therefore a modelling choice. 2A hardcodes `[-0.9999, 10.0]` with a `# structural:` escape,
+having deliberately chosen a bracket *wider* than the reference's `[-0.5, 1.2]` so that the endpoint
+is the arithmetic limit rather than a number anyone picked. That is the better argument: a bracket
+chosen to be unreachable is not a dial, and leaving a second one in the assumption set would have
+moved `assumption_set_id` for a value nothing read.
+
+**What this does not change.** The interpretation sweep still pins both flags against
+`derived_expectations.json` and still shows every alternative failing — it now does so through the
+code the optimiser runs, which is strictly more useful than pinning a private copy. The two
+implementations agreed before they were merged, which is why the convergence cost no coverage:
+2A's IRR reproduces the oracle to 2.2e-16 and its LCOE to the last rounded euro.
 
 
 ## Open questions
@@ -1706,6 +1758,603 @@ because epic §2 says files carry a balance sheet and 1C reports it can already
 emit one that balances to 4.8e-13 — so the cost looks close to zero, and the
 "balance sheet" in a file is currently a single line.
 
+---
+
+## 2A — the compute spine
+
+Loading, validation, dispersion, the mandate-dependent derivations, the screens, the objective, the
+genetic algorithm and the result aggregation. Numbered `2A-n`, following the per-issue sections #4
+and #2 established above rather than the single `A-` series the header describes; the numbering
+question raised on the epic was never settled, and matching what the file already does seemed
+better than being the third convention in it.
+
+### 2A-1 · The mandate-independent derivations live in `pipeline`, not `economics`
+
+Issue #6 lists min DSCR and LCOE under `economics/`. `docs/api.md` §1.4 classifies them the other
+way — *"mandate-dependent: `equityIrr`, `moic`, `terminalValue_m`, `paybackYear`;
+mandate-independent: `minDscr`, `lcoe`, `gearing`, `equity_m`"* — and the classification is the one
+that matters structurally.
+
+§10's DSCR-sizing plausibility band is stated in terms of the same minimum, and `pipeline` ranks
+below `economics` so it cannot import it. Putting min DSCR in `economics` would have meant deriving
+it twice, once for the warning and once for the reported scalar, which is precisely how two copies
+of one number come to disagree. So `pipeline/derive.py` holds min DSCR and the P50 full-year
+generation, `economics/lcoe.py` holds LCOE, and `economics/` holds everything that moves with the
+hold period.
+
+### 2A-2 · The IRR bracket is #6's, not the reference's, and an all-zero series has no rate
+
+#6 specifies bisection over `[-0.9999, 10.0]` in 100 iterations; the JavaScript reference uses
+`[-0.5, 1.2]` in 70. #6's is implemented. Wider is the better answer — a 150% IRR is a number, not
+"undefined" — and it costs nothing against the oracle: all 192 IRR figures in
+`derived_expectations.json` lie inside `[-0.148, 0.165]`, so both brackets find the same root and
+neither produces a null. 100 halvings of an interval of 11 leaves 1e-29, far below the resolution
+of a double.
+
+A second, smaller departure. The reference's null rule is "no sign change across the bracket", which
+an **all-zero** series passes vacuously — its NPV is zero at every rate — so the reference returns
+the bottom of its bracket, a number that means nothing. #6 requires `NaN` there alongside the
+all-negative case, and that is what is implemented: a project with no cash flows has no rate of
+return.
+
+The NPV is evaluated in Horner form, which puts the first element at exponent zero where the
+reference puts it at one. That is a *different NPV* — by a constant positive factor — and therefore
+the **same root** and the same sign changes. The bracket and the null rule are what a port has to
+reproduce, not the NPV's scale.
+
+### 2A-3 · Min DSCR screens on the raw value, not the reference's rounded one
+
+The reference stores and screens on `round(min(minDSCR, 3.2), 2)` (1C-4). Production does neither.
+`docs/api.md` §2 asks for the minimum over the debt life excluding the ramp year and nothing else,
+and a 2 dp rounding decides whether a project at 1.2449 clears a 1.25 floor —
+which is a modelling accident, not a rule anyone wrote down.
+
+The divergence is asserted **as** a divergence rather than tolerated: rounding our raw figure
+reproduces the reference's to 1e-9 for all 48 projects, so it stays a rounding and cannot quietly
+become something else.
+
+### 2A-4 · Neither documented LCOE basis reproduces the reference; a third does
+
+1C-10 warned that the reference *"discounts unescalated opex from the model base year rather than
+from COD, and leaves capex undiscounted, all of which a reimplementation will otherwise fix"*. The
+assumption set carries `interpretation.lcoe_opex_basis` as a flag with two documented values — real
+opex from COD, or nominal opex from the base year — so that 2C's sweep can pin the one that matches.
+
+Measured against `derived_expectations.lcoeEURPerMWh`, across all 48 projects:
+
+| Basis | Mean absolute difference | Worst | Reproduces the golden integers |
+|---|---|---|---|
+| `real_from_cod` (shipped) | 4.46 €/MWh | 15.72 | 10 of 48 |
+| `nominal_from_base` | 3.74 €/MWh | 6.82 | 0 of 48 |
+| `real_from_base` | 0.23 €/MWh | 0.49 | **48 of 48** |
+
+The reference's basis is a **third** combination: unescalated opex discounted from the base year.
+`economics/lcoe.py` supports it as `real_from_base` so 2C's sweep has the combination to select, and
+so the gap between the shipped default and the reference is a configuration difference rather than
+an unexplained variance. The shipped flag is **not** changed — `assumptions/` is issue 1A's
+ownership row and the choice is 2C's to pin.
+
+### 2A-5 · Merchant exposure is capex-weighted on `ppaShare`; the revenue-weighted share is separate
+
+#6 asks for contracted revenue share *"revenue-weighted over life, not simply `1 − ppaShare`"*. That
+is a different quantity from the one the objective and §7.1's tile use, and three normative sources
+agree on the latter: `spec.md` §7.1 and §10.2 both say **capex-weighted**, `docs/api.md` §4 gives
+`merchantShare` as capex-weighted, and every one of 1C's 206 objective cases records
+`merchantShare = 1 − ppaShare` for a single-project selection.
+
+Both are computed. `economics.returns.contracted_revenue_share` reconstructs the revenue-weighted
+figure from the file's declared escalators, and it is carried on the per-project holding row; the
+objective and the tile take the capex-weighted one. Across the corpus they differ substantially —
+0.048–0.443 against a `ppaShare` of 0.16–0.90 — because a ten-year PPA on a thirty-year asset leaves
+two thirds of the life fully merchant whatever the volume share was.
+
+Feeding the revenue-weighted figure to the objective would move every merchant penalty and put all
+206 cases out of reach. **N-1 on the epic is the open question** about whether the two should be
+reconciled by storing the revenue split in the file; until it is answered, the objective follows the
+specification and the extra figure is reported beside it.
+
+Worth recording: reconstructing the price path from `priceEscalation`, `merchantEscalation`,
+`ppaShare` and `ppaTenorYears` reproduces each file's own `achievedPrice` to **3.4e-16**. That is
+the evidence C-2's five fields earn their place.
+
+### 2A-6 · The €1 cap tolerance admits one of 1C's 206 cases; that is what it is for
+
+`OBJ-205` sets available capital one ulp below the selection's equity and the reference rejects it,
+because it compares on a strict `equity > capital`. Epic §6.2 amends that with a €1 tolerance
+*"so a portfolio landing exactly on it is not rejected by a rounding artefact"* — and one ulp of
+€278.699m is about 1e-7 euros, which is the rounding artefact. The case therefore scores as feasible
+here.
+
+It is the **only** one of the 206 this implementation disagrees with, and it is asserted as a
+required divergence rather than skipped. Its sibling `OBJ-204`, exactly on the cap, agrees with the
+reference. The other 205 reproduce to 1e-12, worst 2.3e-13.
+
+### 2A-7 · Quantisation belongs to the comparison, not to the objective
+
+Epic §5 requires fitness quantised to 6 dp before any comparison. Applying that inside the objective
+put every one of 1C's cases six decimal places out of reach, because the oracle records the exact
+§10.2 value.
+
+So `objective.score` returns the unrounded score — the number the specification defines — and
+`quantise` is applied by the genetic algorithm before any selection and by the result layer before
+any number is reported. The invariant is unchanged; only its location moved.
+
+### 2A-8 · Per-screen drop counts are independent, and overlap
+
+§13 requires a warning that *names the screens to widen*. Evaluating the nine screens in order and
+stopping at the first failure cannot produce one: every rejection is attributed to whichever screen
+happens to run first, so "countries" absorbs the blame for a COD window that is really what is too
+tight, and a user widening the named control gets nothing back.
+
+Each screen is therefore evaluated **independently, against the whole pipeline**. The counts overlap
+deliberately and summing them is meaningless; each answers "what would widening *this* control give
+me back", which is the question actually being asked.
+
+### 2A-9 · The `UK` alias applies to mandates as well as to files
+
+`docs/pipeline-schema.md` §4.1 keeps `UK` as an alias of `GB`, and the loader normalised it on the
+way in. The mandate's eligible-country chips were **not** normalised, so a mandate listing `UK` —
+which the reference's own default mandate does — silently rejected every British project. It cost
+one project out of the reference's 33-candidate pool and nothing else would have caught it.
+
+`normalise_country_code` is now applied at both ends. An alias that holds in one direction only is
+not an alias; it is a screen.
+
+### 2A-10 · A pipeline with mixed-width ids fails the load
+
+C-5 records that canonical order is a plain lexicographic sort, so `"P10" < "P9"`, and that the GA's
+PRNG draws are indexed by position — meaning a pipeline mixing `P9` with `P10` changes every result
+and nothing notices. C-5 and `domain/conventions.py` both say the loader is the place to reject it,
+and neither had anywhere to put the check.
+
+It is now a **pipeline-level** failure, alongside §7.9's duplicate ids and unanimous base year: all
+three break the index rather than a file, and no subset of the pipeline is usable once one does.
+
+### 2A-11 · Duplicate ids abort the load, naming both files
+
+`docs/pipeline-schema.md` §4 and §7.9 both say a duplicate id aborts the **load**; #6 says it
+"rejects both files". §7.9 is the normative one and gives the reason — *"no subset of the pipeline
+is usable when one of them breaks"* — so the load fails, with the error naming every file that
+claims the id. Both readings agree on what must not happen, which is silently preferring one.
+
+### 2A-12 · §7.7 is checked in its multiplied form
+
+`dscr = ebitda ÷ (interestPaid + debtRepayment)` is verified as `dscr × service = ebitda`.
+Algebraically the same identity, but it compares €m to €m, which is the unit §7's €0.01m tolerance
+is quoted in — an absolute tolerance against a bare ratio means nothing. It also never divides, so a
+year with no debt service cannot raise a numpy warning that `filterwarnings = ["error"]` turns into
+a test failure; such a year fails the identity on its own terms, which is correct.
+
+### 2A-13 · The budget repair keeps a prefix, and spends on locks first
+
+Epic §6.1's repair keeps holdings in a random priority order "until the cumulative equity no longer
+fits". That is a **prefix** rule: once the running total is exceeded, everything after it is dropped,
+including anything cheap enough to have squeezed in. Skipping the expensive holding and carrying on
+would be a better knapsack heuristic, and that is the objection — a repair operator that quietly
+optimises biases the search towards cheap projects in a way no weight in the assumption set asked
+for.
+
+Locked holdings sort first, so the budget is spent on them before anything else. Forcing locks
+*after* repair would let repair drop one and the forcing put it back over budget; forcing before
+repair without the priority would let repair drop it. The case where locks alone exceed the budget
+never reaches the search — §5.4's `LOCKS_EXCEED_CAPITAL` is blocking.
+
+### 2A-14 · The PRNG draw order is five calls per generation, not four
+
+Two at initialisation — inclusion, then repair priority — and five per generation: two tournament
+draws, the crossover coin, the mutation draw, the repair priority.
+
+The two tournaments must be drawn **separately**. Drawing one `(tournament_size, children)` block
+and reversing it for the second parent gives the same winner except on ties, so almost every child
+would cross a chromosome with itself and the search would stop exploring. The order is asserted call
+by call and shape by shape by a counting proxy, and a second test checks the call count is a
+function of the generation count alone — which a per-chromosome loop anywhere would break.
+
+The crossover coin is drawn as an integer in `{0, 1}` rather than compared against a probability.
+An even Bernoulli draw is what makes uniform crossover *uniform*; it is not a tunable, and the
+assumption set should not have to carry one.
+
+### 2A-15 · `optimiser/result.py` emits euros and plain dataclasses
+
+`domain/results.py`'s `PortfolioAggregates` and `Holding` are pydantic and denominated in €m; the
+numeric core may not import pydantic, and every package that can see both ranks *above* `optimiser`.
+So the assembly cannot live in 2A at all.
+
+`result.py` emits frozen dataclasses in **euros** whose field names mirror those models one for one
+minus the `_m` suffix. 3A's `runner` maps them and crosses the unit boundary; 2B persists the same
+shape. `tests/unit/test_optimiser_result.py` asserts the two field sets line up in both directions,
+so the hand-off is a failing test rather than a convention — it caught two fields with no wire home
+the first time it ran.
+
+For the same reason `optimiser/feasibility.py` returns `(WarningCode, numeric detail in euros)`
+rather than a rendered message. Formatting "€1,200m" inside the numeric core would be a third unit
+boundary in a system that permits two, and `docs/ui-contract.md` §3.5 already owns the copy.
+
+### 2A-16 · Tiles 1 and 3 carry deviations rather than a banded verdict
+
+`docs/ui-contract.md` §5.1 bands the capacity tile at "within 8% of target" and the technology-split
+tile at "within 8 points". Those two numbers live in that document and in no configuration file, so
+banding them inside the numeric core would put a display constant where the literal guard — and the
+epic's "every rate, weight, floor, clamp and band lives in the assumption set" — says one may not go.
+
+The ten tiles whose threshold is a mandate value carry a verdict. Tiles 1 and 3 carry their signed
+deviation, and the layer that owns the band applies it. **Raised on #6** as the one place §7.1's
+compliance states are not fully computed here.
+
+### 2A-17 · Undefined blended IRR falls back to the hurdle
+
+When no selected project has a defined IRR the return term contributes exactly zero, because the
+blend is replaced by the mandate's own hurdle. Substituting a return of *nought* would instead
+charge the portfolio the full −1.2 rail for a number nobody has.
+
+The two feature columns that make this expressible — `equity × irr × defined` over
+`equity × defined` — are a pair on purpose: splitting the weighted average into two linear
+quantities is what lets an undefined project be excluded from **both** halves inside a single matrix
+product, rather than coalesced to zero and then averaged in, which is what the reference does
+(1C-6).
+
+1C predicted this would diverge from the objective cases at short holds. It does not, and the reason
+is worth recording: all five cases with a null per-project IRR have their returns term already
+pinned to its negative rail, so excluding and coalescing give the same clipped contribution. The
+difference is real; that corpus does not reach it. A handcrafted interior case does, and is tested.
+
+### 2A-18 · Measured performance, and a closed gap
+
+On an otherwise idle machine (Apple silicon, numpy 2.4.6):
+
+| Candidates | Load | Fast 50×35 | Standard 90×60 | Exhaustive 160×110 |
+|---|---|---|---|---|
+| 48 | 49 ms | 10 ms | 18 ms | 41 ms |
+| 300 | 268 ms | 29 ms | 73 ms | 216 ms |
+| 500 | 354 ms | 43 ms | **107 ms** | 323 ms |
+| 2,000 | 1,403 ms | 146 ms | 383 ms | **1,182 ms** |
+
+Against epic §7: Standard at 500 candidates budgets 5 s and measures **107 ms**; a 300-file load
+budgets 2 s and measures **268 ms**.
+
+Epic §7 also records a known gap — *"Exhaustive 160×110 at 2,000 candidates measures 30 s. Closing
+it is issue 4B's repair-masking work"*. It now measures **1.18 s**. The vectorised budget repair and
+the single-GEMM reduction appear to have closed it; 4B should re-measure before spending effort on
+repair masking.
+
+**Timings taken under load are worthless.** An earlier measurement of the same 300-file load gave
+5–15 s with a load average above 400 on this machine; the same code measures 268 ms with the machine
+idle. Any performance number in this project should carry the load average it was taken under.
+
+### 2A-19 · An empty eligible pool raises `NO_CANDIDATES` and nothing else
+
+A pool with no candidates has zero capacity, zero equity and a zero solar share, so
+every advisory test fires on figures that describe nothing: the preview reads as five
+problems where there is one, and the four extra warnings all point at controls that are
+not what is wrong.
+
+`web/js/feasibility.js` guards `CAPACITY_BELOW_TARGET`, `LEVERAGE_UNREACHABLE`,
+`SOLAR_MIX_UNREACHABLE` and `CAPITAL_UNDERUSED` on a non-empty pool; only
+`LEVERAGE_UNREACHABLE` was guarded here. Since 4B proves the two implementations agree
+and `api.md` §5 says the client is wrong if it diverges, a preview that disagrees with
+its own mirror is worse than one that says less — so all four are now guarded the same
+way. `LOCKS_EXCEED_CAPITAL` and `LOCKS_PRESENT` are deliberately **not** guarded: both
+are about the user's own edits, not about the pool.
+
+### 2A-20 · Locked projects still re-admit past the screens
+
+Raised in review as a defect: a lock re-admits a project that fails a hard pre-screen —
+a changed country, stage, COD window, DSCR floor or risk cap — and the optimiser may
+then select it.
+
+**Kept, because it is what the issue asks for.** #6's screens section says *"Locked
+projects re-admit regardless of screens, with the re-admitted IDs surfaced — the same
+principle as §13 already allowing locks to breach a concentration cap visibly."* §13
+sets that principle out in two adjacent rows: locks alone exceeding capital **block**
+the run, and locks alone breaching a concentration cap let the run **proceed with the
+breach surfaced**. A lock is a user instruction that outranks a soft screen, and the
+design answer to "this is dangerous" is to show it, not to drop it silently.
+
+The re-admitted ids are on `ScreenResult.readmitted` and drive `LOCKS_PRESENT`, so the
+override is visible rather than implicit. The one case where a lock does **not** win is
+an id that is both locked and excluded: the exclusion is the more specific instruction,
+and a stale lock should not resurrect a project the user has just struck out.
+
+Worth naming the alternative, since it is a reasonable position: screening locks would
+make the eligible set a pure function of the mandate, which is simpler to reason about
+and to serve. If that is wanted it should change #6 and §13 together, not just this
+module.
+
+---
+
+## 2B — the run store and the CSV exports
+
+Issue #7. The store behind §11's addressable run and §12's audit trail, and the
+two exports §7.7 asks for.
+
+### 2B-1 — the CSV cells carry raw numbers; §14 formatting goes in the header
+
+Two landed documents disagree. [`api.md` §9](api.md#9-exports) says money
+columns "carry raw numbers, not formatted strings — a CSV is for a spreadsheet,
+not for reading". [`ui-contract.md` §2](ui-contract.md) says these numbers are
+"formatted twice: client-side in `js/format.js`, and server-side for
+`holdings.csv`". Issue #7 asks for §14 formatting and for "€ signs and
+thousands separators intact" in Excel.
+
+**Decided: raw cells, formatted header.** `api.md` is the contract the endpoint
+implements and is specific to the export, so it wins for the cells. Three
+reasons beyond precedence:
+
+- A CSV cannot carry cell *formatting* at all. `€1,200m` in a cell is a string,
+  and Excel imports it as text — so the column stops summing, which is the one
+  thing a spreadsheet is for.
+- #7's own acceptance criterion requires `cashflow.csv` totals to match
+  `cashflow30Y_m`. Rounded display values cannot sum to the stored number; raw
+  ones do, exactly.
+- The euro signs and separators the criterion asks for **are** in the file, in
+  the `#` comment lines carrying the run reference and the mandate, where a
+  human reads them. The UTF-8 BOM is what keeps them intact in Excel, and
+  `api.md` §9 already requires the BOM for exactly that reason.
+
+The §14 half-up formatter is implemented and exported from `export/csv.py`, so
+`ui-contract.md` §2's requirement is met where it applies — the header now, the
+committee pack and #12's client/server parity tests next. Rounding is `Decimal`
+with `ROUND_HALF_UP`: Python's `round` is half-even, so left to the default the
+same stored run shows `1.13×` on screen and `1.12×` in its own export.
+
+**`ui-contract.md` §2's sentence about `holdings.csv` needs narrowing to the
+committee pack.** That file is #3's and then #10's; raised on #1 rather than
+edited here.
+
+### 2B-2 — `holdings.csv` has seventeen columns, not the eighteen in issue #7
+
+Issue #7's scope says "emit **eighteen** columns, not §7.4's sixteen: split
+project name, country and internal ID into their own columns".
+[`api.md` §9.1](api.md#91-holdingscsv-columns) had already answered the same
+question and got seventeen, by the same reasoning: of §7.4's sixteen, the first
+is the lock control — a button rather than a value — and the second packs three
+fields into one cell, so `16 − 1 + 2 = 17`. The Log already records it.
+
+**Decided: seventeen, per `api.md`.** The wire contract names and orders them,
+#9 serves them and #11 tests against them; forking it for one extra column
+would be a contract change with no beneficiary. The issue's count appears to
+predate `api.md` §9.1 rather than to disagree with it.
+
+### 2B-3 — the run reference is an integer; `run_ref` is its label
+
+§7.6 says "each run gets an incrementing reference used in the export", and
+`RunRecord.run_ref` is a string whose only published example is `api.md` §8's
+`"A-4"`. Nothing defines the letter.
+
+**Decided.** `run_reference` is the monotonic integer and the ordering key for
+every list query — never `created_at`, whose clock can skew between worker
+hosts and silently reorder history. `run_ref` is `f"{series}-{reference}"`,
+which reproduces `A-4` for run 4.
+
+The series letter is a **store-generation marker**, fixed at `A` for v1, and it
+is the primary key of the `run_sequence` table rather than a hardcoded prefix.
+It exists so that a store rebuilt from a backup, or a reference that ever has
+to be scoped per fund, can start a distinct series instead of minting labels
+that collide with references a committee has already been shown.
+
+### 2B-4 — the reference is claimed from a counter, not from `AUTOINCREMENT`
+
+`POST /optimisations` answers **202 with a run id** before any result exists,
+and a run still in flight answers `GET /optimisations/{id}` with a valid body.
+So the queued `RunRecord` already carries its `runRef`, and the reference has
+to exist *before* the row is written.
+
+**Decided: a one-row `run_sequence` table, incremented by
+`UPDATE … RETURNING` as the first statement of an IMMEDIATE transaction.** This
+is a fifth table beyond the four #7 names, and it is worth it:
+
+- `INTEGER PRIMARY KEY AUTOINCREMENT` can only report a value *after* the
+  insert, which forces a nullable `run_ref` and `result_json` plus a second
+  UPDATE — so the row would be briefly invalid, in a table whose whole point is
+  that its rows are not.
+- `MAX(run_reference) + 1` is correct only while nothing is ever deleted. That
+  is enforced by a trigger, which is a policy rather than a law; a counter does
+  not reuse a number even if the policy is someday relaxed.
+
+Under WAL there is one writer at a time database-wide, and IMMEDIATE takes the
+write lock at `BEGIN`, so the read-modify-write is serialised. A *deferred*
+transaction would take its snapshot first and fail with `SQLITE_BUSY_SNAPSHOT`,
+which the busy handler does not retry — so the store never uses one. Asserted
+by four writer processes minting a contiguous 1…20.
+
+### 2B-5 — a run carries its inputs; only its outcome is written later
+
+`queued → running → succeeded | failed | cancelled` is a lifecycle, not
+mutation, but everything fixed at submission is frozen by a trigger: the id,
+the reference, the mandate, the lock and exclusion sets, the eligible set, the
+seed, the pipeline hash and the assumption snapshot. Without that, finishing a
+run could quietly re-point it at a different mandate and leave a stored pair
+that is internally consistent and historically false.
+
+**A second `finish_run` on a finished run raises** — unless the bytes are
+byte-identical, which is a redelivered acknowledgement after a crash between
+commit and reply, and is returned unchanged. Differing bytes mean two workers
+believe they own the run, and that must reach a human rather than overwrite an
+audit record.
+
+`eligible_ids` is recorded at submission rather than derived from `holdings`
+afterwards: the screens have already run by then (§13 makes `NO_CANDIDATES` a
+422 at submission), min DSCR is a *derived* screen so the set is not
+recoverable from the mandate, and the search indexes it by position.
+
+### 2B-6 — the assumption snapshot is keyed on its own bytes, and both digests are kept
+
+An assumption set is copied into the database on first use. The table is keyed
+on the digest of **the payload stored here**, not on `assumption_set_id`,
+because [C-10](#c-10) excludes `[meta]` from the loader's id by design — so
+fixing a typo in a label yields the same id and different bytes. Keying on the
+id would silently keep the first `[meta]` and misattribute every later run.
+
+The payload's digest is **not** `assumption_set_hash`, by construction: the
+dataclass tree flattens the TOML's nesting and the payload keeps `meta`. The
+schema records `snapshot_hash`, `assumption_set_id` and `assumption_set_hash`
+separately, under names that cannot be mistaken for one another, and a test
+asserts the first differs from the third so that nobody later "fixes" them into
+one value.
+
+`dataclasses.asdict` cannot produce the payload — it deep-copies anything that
+is not a dataclass or a builtin container, and `AssumptionSet`'s mappings are
+`MappingProxyType`, which is unpicklable. The recursion is hand-rolled, and it
+is also what renders an enum *key* as `solar` rather than `Technology.SOLAR`. A
+test walks `dataclasses.fields` recursively and asserts no field is missing, so
+a field added to the tree and forgotten by the serialiser cannot leave an audit
+record that merely looks whole.
+
+**Not** passed through `numbers_as_floats`: by the time an `AssumptionSet`
+exists, int-ness is a typed fact, and `generations: 110.0` in an audit payload
+would be both wrong-looking and lossy.
+
+### 2B-10 — the submission names its assumption snapshot; nothing is inferred
+
+Found in review. `open_run` looked the snapshot up by
+`(assumption_set_id, assumption_set_hash)`, taking the most recently recorded
+match. Both halves of that are wrong:
+
+- Two snapshots that differ only in `[meta]` or in file name share **both**
+  values by design ([2B-6](#2b-6)), so no query over them can tell the payloads
+  apart.
+- Re-recording an already-stored variant does not move its `recorded_at`, so
+  after a newer variant is inserted, a run using the older one is attached to
+  the newer payload — an audit record citing a calibration the run never read.
+
+**Decided.** `RunSubmission` carries `assumption_snapshot_hash`, the value
+`record_assumption_set` returns. The caller already holds the right answer, so
+the store does not guess at it. `open_run` additionally checks that the named
+snapshot's id and hash match the provenance, so a run cannot cite one
+calibration while serving another; the foreign key proves the snapshot exists,
+this proves it is the right one.
+
+### 2B-11 — what "the same run" and "the same outcome" mean, exactly
+
+Three more from the same review, all of the same kind: a check that was narrower
+than the thing it claimed to guarantee.
+
+**The whole provenance is compared, not three fields of it.** `_assert_same_run`
+checked the seed, the pipeline hash and the assumption-set id — the three that
+have columns. A worker returning a different `fileHashes`, `numpyVersion`,
+`blasThreads`, `pythonVersion`, `platform` or `engineVersion` was stored
+happily, and the run then claimed to be reproducible from inputs it never saw.
+The comparison is now against the record the run was *opened* with, parsed back
+out of the row, so it covers every field rather than every indexed field.
+
+**The curve is reconciled by value.** `finish_run` compared the number of
+persisted events with `len(convergence)`, which passes a worker that logged the
+right number of wrong points — and the result would then show one shape live
+and another on reload. Every generation and both its fitness values are
+compared now. An **empty** log stays legal: that is a run executed without a
+subscriber, the CLI path among others, and an absent log is not a disagreeing
+one. A *partial* log is what the check catches.
+
+**The generation log closes when the run does.** An event delivered after
+`finish_run` committed still inserted, because the foreign key only asks whether
+the run exists. That grew the curve of a run whose result had already been
+served — a mutation of something §11 calls immutable. A `BEFORE INSERT` trigger
+refuses it, at the database layer rather than in the caller, because the check
+and the insert have to be one statement to be free of a race with the finish.
+
+**A redelivery repeats the whole outcome.** The idempotent second `finish_run`
+compared `result_json` alone, but the failure reason and the warnings are stored
+*beside* it and are not in it — so one record with two different failure codes
+was waved through as a retry. All three are compared now.
+
+### 2B-12 — a pipeline hash does not digest what is stored beside it
+
+Found in review. `record_pipeline_snapshot` used `ON CONFLICT DO NOTHING`,
+copying the pattern from `record_assumption_set` — where it is safe, because
+there the key *is* a digest of everything the row holds.
+
+It is not safe here. `pipeline_hash` digests the project files; `base_year`,
+`project_count`, `validation_status` and `validation_json` are not in it. So a
+second snapshot under the same hash with a different base year was silently
+discarded while the caller was handed the hash back as though it had been
+stored — and a run citing it took its year labels from a base year nobody
+recorded for it, on a `cashflow.csv` that carries no other year information.
+
+**Decided.** A conflict whose stored row *agrees* is the ordinary case and
+passes: every reload of an unchanged pipeline hits it. A conflict that
+disagrees raises `SnapshotConflictError`, naming each field that differs.
+`source_label` and `loaded_at` are excluded from the comparison — the same
+pipeline read twice, or read from a copy of the directory, is the same
+snapshot.
+
+### 2B-13 — five smaller things the same review found
+
+**Percentages are scaled inside the decimal domain.** `percent` computed
+`value * 100` in binary float before converting to `Decimal`, which put back
+exactly the representation error `Decimal` was chosen to remove: `0.145 * 100`
+is `14.499999999999998`, so a 14.5% solar target exported as `14% solar`.
+These are the values `ui-contract.md` §2 says #12's parity tests compare.
+
+**A project name cannot become a formula.** Names come from files analysts drop
+into the pipeline directory, and this export exists to be opened in Excel. A
+name beginning `=`, `+`, `-`, `@` or a leading tab was imported as a live
+formula; CSV quoting does not help, because Excel strips it before evaluating
+what is inside. Text cells now carry a leading apostrophe when they start one
+of those. **Numbers do not take that path**, so a negative cash flow stays
+`-28.93` and the column still sums.
+
+**The comment header is kept to one line per line.** It bypasses `csv.writer` —
+it is not a row — so nothing else escapes it, and a newline in an interpolated
+hash would have added physical lines ahead of the column header.
+
+**The version guard guards.** `initialise` accepted any older file, re-ran DDL
+that `CREATE TABLE IF NOT EXISTS` cannot apply to an existing table, and then
+stamped it current. It now refuses anything that is neither 0 nor the current
+version, and only stamps a file it actually provisioned. As a side effect the
+schema no longer re-executes on every connection open.
+
+**A duplicate generation inside one batch names itself.** It is caught before
+the insert, while the offending generation is still known; afterwards the
+transaction has rolled back and the stored log holds no trace of it.
+
+### 2B-7 — `pipeline_snapshot` records 2A's verdict without knowing its shape
+
+#7 requires the "validation status of the loaded set", and #6 owns the loader
+and its report type while running in parallel with this.
+
+**Decided.** The store defines a four-value `ValidationStatus`
+(`valid | warnings | invalid | unknown`) that answers only the question the
+store has to answer — may a run cite this snapshot? — and keeps #6's report
+beside it as an opaque JSON object it stores, checks for well-formedness and
+never parses. Mapping one onto the other belongs above both, in `runner`.
+`unknown` is the only status allowed to carry no report, so a caller written
+before #6 lands is visibly uncertain rather than silently clean.
+
+### 2B-8 — the base year lives on the snapshot, because nothing else carries it
+
+`cashflow.csv` needs "one row per year from the base year". Neither
+`RunRecord` nor `Mandate` carries a base year — only `GET /pipeline` does — and
+[A-13](#a-13) makes it one value for the whole loaded set, enforced at load.
+
+**Decided: `pipeline_snapshot.base_year`**, returned on `StoredRun`, so the
+exports stay pure functions of a stored run. This is a gap in the wire contract
+rather than in the store: `ui-contract.md` §5.2's thirty bars are "one per year
+from the base year", so #11 cannot label the chart of a reopened run either.
+Raised on #1 for #3 and #9; adding `baseYear` to `GET /optimisations/{id}` would
+close it for everyone.
+
+### 2B-9 — ULIDs on the standard library
+
+No ULID package exists in the lock file, CI runs `uv sync --frozen`, and a new
+dependency has to be argued on the epic first. The encoding is thirty lines,
+and taking one would make every run's id depend on a library version that
+nothing in the run record names.
+
+Crockford's base32 drops I, L, O and U, so an id read aloud from a committee
+pack cannot be retyped into a different run. Ids minted inside one millisecond
+step the random component rather than redrawing it, so a burst still sorts in
+submission order — though `run_reference` remains the authoritative order, since
+a ULID is only as monotonic as the clock that minted it.
+
+Worth recording for #12: none of this needed a `# structural:` escape. The
+numbers a naive implementation writes — 5, 10, 16, 80 — are all in the
+assumption set, and deriving them (`RANDOM_BITS = ULID_BITS - TIMESTAMP_BITS`,
+`len(_ALPHABET)`) is both cheaper and clearer than an opt-out. The one
+collision that did surface, a `3` inside a SQLite version tuple, was resolved by
+storing the floor as text.
+
+---
+
 ## Log
 
 | Date | Issue | Entry |
@@ -1764,6 +2413,37 @@ emit one that balances to 4.8e-13 — so the cost looks close to zero, and the
 | 2026-09-21 | #2 | C-17…C-19 — result models carry the file's domains; the two guards cannot be switched off quietly; `nan` and `inf` are not calibration values. |
 | 2026-09-21 | #2 | C-1 **reversed** — `asset.technology` is `solar` after all; the cost argument for `solar_pv` stopped holding once #3, #4 and #5 merged. 1C's `reconciled` contract is what the epic should settle on. |
 | 2026-09-21 | #2 | C-15 extended — balances (`debtSchedule.opening`/`closing`, `balanceSheet.ppe`) carry a 1e-9 floor; a flow gets none. All 48 golden files validate and round-trip under `reconciled`. |
+| 2026-09-21 | #6 | 2A-1 — mandate-independent derivations live in `pipeline`; `api.md` §1.4's split is the structural one. |
+| 2026-09-21 | #6 | 2A-2 — the IRR bracket is #6's `[-0.9999, 10.0]`; an all-zero series has no rate, where the reference returns one. |
+| 2026-09-21 | #6 | 2A-3 — min DSCR screens raw; the reference's 2 dp rounding decides 1.2449 against a 1.25 floor. |
+| 2026-09-21 | #6 | 2A-4 — neither documented LCOE basis reproduces the reference; `real_from_base` does, 48 of 48. |
+| 2026-09-21 | #6 | 2A-5 — merchant exposure stays capex-weighted on `ppaShare`; the revenue-weighted share is reported beside it. N-1 still open. |
+| 2026-09-21 | #6 | 2A-6 — the €1 cap tolerance admits `OBJ-205`; the other 205 objective cases reproduce to 1e-12. |
+| 2026-09-21 | #6 | 2A-7 — quantisation belongs to the comparison, not to the objective. |
+| 2026-09-21 | #6 | 2A-8 — per-screen drop counts are independent and overlap; §13 cannot name a screen otherwise. |
+| 2026-09-21 | #6 | 2A-9 — the `UK` alias applies to mandates too; it had rejected every British project. |
+| 2026-09-21 | #6 | 2A-10/2A-11 — mixed-width ids and duplicate ids fail the load, not a file. |
+| 2026-09-21 | #6 | 2A-12 — §7.7 is checked multiplied, so the €0.01m tolerance means something and nothing divides. |
+| 2026-09-21 | #6 | 2A-13 — budget repair keeps a prefix and spends on locks first; a smarter repair would bias the search. |
+| 2026-09-21 | #6 | 2A-14 — five PRNG draws per generation; the two tournaments must be independent. |
+| 2026-09-21 | #6 | 2A-15/2A-16 — the core emits euros and plain dataclasses; tiles 1 and 3 carry deviations, not `ui-contract`'s bands. |
+| 2026-09-21 | #6 | 2A-17 — an undefined blend falls back to the hurdle, so the return term contributes zero rather than the rail. |
+| 2026-09-21 | #6 | 2A-18 — Standard at 500 candidates measures 107 ms against a 5 s budget; §7's 30 s Exhaustive-at-2,000 gap now measures 1.18 s. |
+| 2026-09-23 | #6 | 2A-19 — an empty eligible pool raises only `NO_CANDIDATES`; the four advisory checks are guarded as `feasibility.js` guards them. |
+| 2026-09-23 | #6 | 2A-20 — locks still re-admit past the screens, per #6 and §13; challenged in review and kept, with the alternative recorded. |
+| 2026-09-23 | #6 | Review fixes: `paybackYear` is a calendar year at the result boundary (it was a period, which `ProjectScalars` rejects); the CLI validates through the pydantic `Mandate` and refuses §13's two blocking conditions; a non-UTF-8 file is rejected per-file rather than aborting the load. |
+| 2026-09-22 | #7 | 2B-1 — CSV cells carry raw numbers per `api.md` §9; §14 formatting serves the comment header, where the euro signs survive on the BOM. `ui-contract.md` §2 needs narrowing. |
+| 2026-09-22 | #7 | 2B-2 — `holdings.csv` is the seventeen columns `api.md` §9.1 names, not the eighteen in #7's body. |
+| 2026-09-22 | #7 | 2B-3/2B-4 — `run_reference` is the monotonic integer and the sort key; `run_ref` is its `A-4` label; both come from a `run_sequence` counter claimed under an IMMEDIATE transaction. |
+| 2026-09-22 | #7 | 2B-5 — inputs are frozen at submission by trigger; a second finish raises unless the bytes are identical, which is a redelivery. |
+| 2026-09-22 | #7 | 2B-6 — the assumption snapshot is keyed on its own payload digest, and `snapshot_hash` ≠ `assumption_set_hash` by construction. |
+| 2026-09-22 | #7 | 2B-7 — `ValidationStatus` is the store's own four-value vocabulary; #6's report is stored opaquely beside it. |
+| 2026-09-22 | #7 | 2B-8 — `base_year` lives on `pipeline_snapshot`; the run result carries none, which also blocks #11's chart labels. Raised on #1. |
+| 2026-09-22 | #7 | 2B-9 — ULIDs on the standard library, no new dependency, and no `# structural:` escape spent. |
+| 2026-09-23 | #7 | 2B-10 — the submission names its assumption snapshot; inferring it from `(id, hash)` attached runs to the wrong payload, since two snapshots share both by design. |
+| 2026-09-23 | #7 | 2B-11 — the whole provenance is compared at finish, the curve is reconciled by value, the event log closes when the run does, and a redelivery must repeat the failure and warnings too. |
+| 2026-09-23 | #7 | 2B-12 — a pipeline hash digests the files, not the base year or verdict stored beside them, so a disagreeing re-record raises instead of being silently dropped. |
+| 2026-09-23 | #7 | 2B-13 — percentages scale inside `Decimal`; a project name cannot become an Excel formula; the CSV comment header is newline-safe; the schema version guard refuses un-migratable files. |
 | 2026-09-22 | #8 | A-23 — the exit year's own FCFE counts alongside the terminal value; 144/144 against the oracle. |
 | 2026-09-22 | #8 | A-24 — LCOE discounts unescalated opex from the base year; neither reading issue #8 names matches. |
 | 2026-09-22 | #8 | A-25 — debt is sized by dividing by the annuity **payment** factor; issue #8's prose divides by the PV factor. |
@@ -1779,3 +2459,5 @@ emit one that balances to 4.8e-13 — so the cost looks close to zero, and the
 | 2026-09-23 | #8 | A-33 — tie-out failures block ingestion; a house-model variance stays advisory. |
 | 2026-09-23 | #8 | A-34 — project text is written as an explicit string cell, never as an Excel formula. |
 | 2026-09-23 | #8 | A-29 extended — `pipeline generate` refuses to write when any project is outside the band. |
+| 2026-09-23 | #8 | A-35 — 2C converges onto 2A's `economics/` and `pipeline/validator.py`; the LCOE basis is spelled 2A's way and the duplicate IRR bracket is gone. |
+| 2026-09-23 | #8 | A-29 extended again — a site the model cannot place inside §10's band is skipped and the pool drawn deeper, rather than shipped with a warning. |

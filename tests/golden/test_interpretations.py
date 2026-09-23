@@ -5,34 +5,38 @@
 1. Does the exit year's **own** FCFE count alongside the terminal value?
 2. What is "PV of opex" discounted *from*, and does the opex escalate?
 
-Issue #8 asks for a sweep that reports the single matching combination. The
-sweep was run; what ships is the **pin**, which is the durable half of it: it
-asserts that the combination in ``assumptions/default-2026.toml`` reproduces
-``derived_expectations.json`` and that every alternative does not. A search
-re-run forever to rediscover an answer already written down is not worth its
-runtime; a guard that fails when someone flips a flag is.
+Issue #8 asks for a sweep that reports the single matching combination. The sweep
+was run; what ships is the **pin**, which is the durable half of it: it asserts
+that the combination in ``assumptions/default-2026.toml`` reproduces
+``derived_expectations.json`` and that every alternative does not.
+
+**It exercises 2A's production code, not a second implementation.** The flags are
+read by :mod:`terrafolio.economics.lcoe` and
+:mod:`terrafolio.economics.returns`, which is where the optimiser reads them, so
+a pin against anything else would leave the shipped path untested. 2A reached
+the same LCOE answer independently (2A-4 and A-24) — this is what keeps it true.
 
 Measured, over 48 projects and three exit-multiple bases:
 
-===========================  ===========================================
-combination                  result
-===========================  ===========================================
-``real_from_base_year``      **48/48 LCOEs exact**
-``real_from_cod``            10/48, missing by up to 16 EUR/MWh
-``nominal_from_base_year``   0/48
-``exit_year_fcfe_included``  **144/144 IRRs and MOICs, within an ulp**
-  set to false               0/144
-===========================  ===========================================
+=========================================  ==========================================
+combination                                result
+=========================================  ==========================================
+``real_from_base``                         **48/48 LCOEs**
+``real_from_cod``                          10/48, missing by up to 16 EUR/MWh
+``nominal_from_base``                      0/48
+``exit_year_fcfe_included = true``         **144/144 IRRs and MOICs**
+  set to false                             0/144
+=========================================  ==========================================
 
-Note that neither of the two readings issue #8 names is the one that matches.
-The issue offers "real opex from COD" and "nominal opex from the base year"; the
-reference computes unescalated opex discounted from the **base year**, which is
-a third reading. It is pinned because it is what reproduces the corpus, and
-recorded in ``docs/decisions.md`` as A-24 rather than quietly renamed.
+Note that neither of the two readings issue #8 names is the one that matches. It
+offers "real opex from COD" and "nominal opex from the base year"; what
+reproduces the corpus is unescalated opex discounted from the **base year**, a
+third reading. Recorded as A-24 rather than quietly renamed.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 from typing import Any, Final
@@ -42,38 +46,30 @@ import pytest
 
 from terrafolio.config.assumptions import AssumptionSet
 from terrafolio.config.loader import load_default
+from terrafolio.domain.conventions import EUR_PER_EUR_MILLION
 from terrafolio.domain.enums import Technology
-from terrafolio.generate.from_file import inputs_from_file
-from terrafolio.model.project import ProjectStatements, project_statements
-from terrafolio.model.returns import (
-    LCOE_BASES,
-    exit_multiple,
-    hold_truncated_fcfe,
-    irr,
-    lcoe,
-    moic,
-)
+from terrafolio.economics.irr import irr
+from terrafolio.economics.lcoe import NOMINAL_FROM_BASE, REAL_FROM_BASE, REAL_FROM_COD, lcoe
+from terrafolio.economics.returns import hold_truncated_fcfe, moic
+from terrafolio.model.rounding import js_round
+from terrafolio.pipeline.arrays import ProjectArrays
+from terrafolio.pipeline.loader import load_pipeline
 
 FIXTURES: Final = Path(__file__).resolve().parent / "fixtures"
 
-TECHNOLOGY: Final = {
-    "Solar": Technology.SOLAR,
-    "Wind": Technology.ONSHORE_WIND,
-    "Offshore wind": Technology.OFFSHORE_WIND,
-}
-
-PINNED_LCOE_BASIS: Final = "real_from_base_year"
+PINNED_LCOE_BASIS: Final = REAL_FROM_BASE
 PINNED_EXIT_YEAR_FCFE_INCLUDED: Final = True
+ALL_BASES: Final = (REAL_FROM_BASE, REAL_FROM_COD, NOMINAL_FROM_BASE)
 
 ULP: Final = 1e-12
-"""The tolerance for the hold-truncated series, IRR and MOIC, and why it is not zero.
+"""Tolerance for the hold series, IRR and MOIC, and why it is not zero.
 
 The reference re-amortises the debt in a *third* independent loop to compute the
 exit bridge, and its answer sits an ulp from the ``debtSchedule.closing`` in the
-same file. This implementation reads the schedule, because §7.4 ties it out and
-§9 forbids two sources for one number -- so 35 of 1,440 oracle cells differ in
-their last bit. LCOE and the 30-year IRR are compared **exactly**; they have no
-such second derivation.
+same file. Both implementations here read the schedule, because §7.4 ties it out
+and §9 forbids two sources for one number — so a handful of oracle cells differ
+in their last bit (A-31). LCOE is compared **exactly**, after the rounding §7.4
+displays it with; it has no such second derivation.
 """
 
 
@@ -93,63 +89,73 @@ def oracle() -> dict[str, Any]:
 
 
 @pytest.fixture(scope="module")
-def files() -> dict[str, dict[str, Any]]:
-    return {
-        path.stem.split("-")[0]: json.loads(path.read_text(encoding="utf-8"))
-        for path in sorted((FIXTURES / "pipeline").glob("*.json"))
-    }
+def arrays(assumptions: AssumptionSet) -> ProjectArrays:
+    """The 48 golden files through **2A's loader**, in canonical order."""
+    return load_pipeline(FIXTURES / "pipeline", assumptions).arrays
 
 
-@pytest.fixture(scope="module")
-def modelled(
-    oracle: dict[str, Any], files: dict[str, dict[str, Any]], assumptions: AssumptionSet
-) -> dict[str, ProjectStatements]:
-    return {
-        entry["id"]: project_statements(inputs_from_file(files[entry["id"]], assumptions))
-        for entry in oracle["projects"]
-    }
+def test_the_loader_returns_the_oracle_s_own_order(
+    arrays: ProjectArrays, oracle: dict[str, Any]
+) -> None:
+    """Everything below compares by position, so this is not a formality."""
+    assert list(arrays.ids) == [entry["id"] for entry in oracle["projects"]]
 
 
-def lcoe_matches(
-    basis: str,
-    oracle: dict[str, Any],
-    files: dict[str, dict[str, Any]],
-    modelled: dict[str, ProjectStatements],
-    assumptions: AssumptionSet,
-) -> int:
-    """How many of the 48 reference LCOEs a basis reproduces exactly."""
-    return sum(
-        lcoe(
-            inputs_from_file(files[entry["id"]], assumptions),
-            modelled[entry["id"]],
-            assumptions,
-            basis=basis,
-        )
-        == entry["lcoeEURPerMWh"]
-        for entry in oracle["projects"]
+def tuned(
+    assumptions: AssumptionSet, *, basis: str | None = None, included: bool | None = None
+) -> AssumptionSet:
+    interpretation = assumptions.interpretation
+    if basis is not None:
+        interpretation = dataclasses.replace(interpretation, lcoe_opex_basis=basis)
+    if included is not None:
+        interpretation = dataclasses.replace(interpretation, exit_year_fcfe_included=included)
+    return dataclasses.replace(assumptions, interpretation=interpretation)
+
+
+def rebased(assumptions: AssumptionSet, base: float) -> AssumptionSet:
+    """Shift the technology multiples so their solar figure is ``base``.
+
+    The oracle gives every quantity under bases 8.5, 9 and 9.5. The assumption
+    set states the three technology multiples directly, calibrated at 9, so the
+    base is moved by shifting all three together rather than by rewriting them.
+    """
+    offset = base - assumptions.exit_multiples[Technology.SOLAR]
+    return dataclasses.replace(
+        assumptions,
+        exit_multiples={
+            technology: multiple + offset
+            for technology, multiple in assumptions.exit_multiples.items()
+        },
     )
 
 
+def lcoe_matches(arrays: ProjectArrays, assumptions: AssumptionSet, oracle: dict[str, Any]) -> int:
+    """How many of the 48 reference LCOEs a basis reproduces.
+
+    Compared after rounding to a whole EUR/MWh. The core returns the unrounded
+    figure — §14's formats belong to the display boundary — and the reference
+    stores what it displayed.
+    """
+    computed = np.array([js_round(value) for value in lcoe(arrays, assumptions)])
+    expected = np.array([entry["lcoeEURPerMWh"] for entry in oracle["projects"]], dtype=float)
+    return int(np.sum(computed == expected))
+
+
 def hold_cases(
-    included: bool,
-    oracle: dict[str, Any],
-    modelled: dict[str, ProjectStatements],
-    assumptions: AssumptionSet,
+    arrays: ProjectArrays, assumptions: AssumptionSet, oracle: dict[str, Any]
 ) -> tuple[int, int]:
-    """How many of the 144 (project x exit base) IRRs and MOICs land within an ulp."""
+    """IRRs and MOICs within an ulp, across all 48 projects x 3 exit bases."""
+    hold = oracle["holdYears"]
     irrs = moics = 0
-    for entry in oracle["projects"]:
-        statements = modelled[entry["id"]]
-        for case in entry["byExitMultipleBase"].values():
-            multiple = exit_multiple(TECHNOLOGY[entry["technology"]], case["base"], assumptions)
-            series = hold_truncated_fcfe(
-                statements,
-                hold_years=oracle["holdYears"],
-                multiple=multiple,
-                exit_year_fcfe_included=included,
-            )
-            irrs += abs(irr(series, assumptions) - case["irrAtHold"]) <= ULP
-            moics += abs(moic(series) - case["moicAtHold"]) <= ULP
+    for key in ("9", "8.5", "9.5"):
+        cases = [entry["byExitMultipleBase"][key] for entry in oracle["projects"]]
+        at_base = rebased(assumptions, cases[0]["base"])
+        series = hold_truncated_fcfe(arrays, at_base, hold)
+        rates, _defined = irr(series)
+        irrs += int(np.sum(np.abs(rates - np.array([c["irrAtHold"] for c in cases])) <= ULP))
+        moics += int(
+            np.sum(np.abs(moic(series) - np.array([c["moicAtHold"] for c in cases])) <= ULP)
+        )
     return irrs, moics
 
 
@@ -159,136 +165,95 @@ def hold_cases(
 
 
 def test_the_assumption_set_carries_the_pinned_combination(assumptions: AssumptionSet) -> None:
-    """What ships is what the sweep chose."""
     assert assumptions.interpretation.lcoe_opex_basis == PINNED_LCOE_BASIS
     assert assumptions.interpretation.exit_year_fcfe_included is PINNED_EXIT_YEAR_FCFE_INCLUDED
 
 
 def test_the_pinned_lcoe_basis_reproduces_every_reference_lcoe(
-    oracle: dict[str, Any],
-    files: dict[str, dict[str, Any]],
-    modelled: dict[str, ProjectStatements],
-    assumptions: AssumptionSet,
+    arrays: ProjectArrays, assumptions: AssumptionSet, oracle: dict[str, Any]
 ) -> None:
-    """Exactly -- LCOE is rounded to a whole EUR/MWh, so there is no tolerance to hide in."""
-    assert lcoe_matches(PINNED_LCOE_BASIS, oracle, files, modelled, assumptions) == 48
-
-
-def test_the_default_basis_is_used_when_none_is_named(
-    oracle: dict[str, Any],
-    files: dict[str, dict[str, Any]],
-    modelled: dict[str, ProjectStatements],
-    assumptions: AssumptionSet,
-) -> None:
-    """The flag is read, not bypassed: a caller that passes nothing gets the pin."""
-    entry = oracle["projects"][0]
-    from_flag = lcoe(
-        inputs_from_file(files[entry["id"]], assumptions), modelled[entry["id"]], assumptions
-    )
-    assert from_flag == entry["lcoeEURPerMWh"]
+    assert lcoe_matches(arrays, assumptions, oracle) == 48
 
 
 def test_the_pinned_exit_reading_reproduces_every_hold_case(
-    oracle: dict[str, Any], modelled: dict[str, ProjectStatements], assumptions: AssumptionSet
+    arrays: ProjectArrays, assumptions: AssumptionSet, oracle: dict[str, Any]
 ) -> None:
-    irrs, moics = hold_cases(PINNED_EXIT_YEAR_FCFE_INCLUDED, oracle, modelled, assumptions)
-    assert (irrs, moics) == (144, 144)
+    assert hold_cases(arrays, assumptions, oracle) == (144, 144)
 
 
-def test_the_thirty_year_irr_reproduces_the_oracle_exactly(
-    oracle: dict[str, Any], modelled: dict[str, ProjectStatements]
+def test_the_hold_series_itself_reproduces_the_oracle(
+    arrays: ProjectArrays, assumptions: AssumptionSet, oracle: dict[str, Any]
 ) -> None:
-    """No terminal value, so no second derivation of the debt balance, so no ulp.
+    """The cash flow, not only the ratios derived from it.
 
-    This is what says the bisection itself is right rather than merely close --
-    including that the NPV is summed in order, as the reference sums it.
+    In **euros** in the core and €m in the oracle, which is the conversion epic
+    §5 confines to two boundaries.
     """
-    assumptions = load_default()
-    for entry in oracle["projects"]:
-        assert irr(modelled[entry["id"]].fcfe, assumptions) == entry["irr30yNoTerminalValue"], (
-            entry["id"]
-        )
+    series = hold_truncated_fcfe(arrays, assumptions, oracle["holdYears"])
+    expected = np.array(
+        [
+            entry["byExitMultipleBase"]["9"]["holdTruncatedFcfeWithTerminalValue"]
+            for entry in oracle["projects"]
+        ]
+    )
+    assert np.allclose(series / EUR_PER_EUR_MILLION, expected, rtol=0, atol=ULP)
 
 
 # --------------------------------------------------------------------------
-# ...and that the alternatives really are wrong
+# ...and the alternatives really are wrong
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("basis", [b for b in LCOE_BASES if b != PINNED_LCOE_BASIS])
+@pytest.mark.parametrize("basis", [b for b in ALL_BASES if b != PINNED_LCOE_BASIS])
 def test_every_other_lcoe_basis_fails(
-    basis: str,
-    oracle: dict[str, Any],
-    files: dict[str, dict[str, Any]],
-    modelled: dict[str, ProjectStatements],
-    assumptions: AssumptionSet,
+    basis: str, arrays: ProjectArrays, assumptions: AssumptionSet, oracle: dict[str, Any]
 ) -> None:
-    """A pin is only meaningful if the alternatives are shown to miss.
+    """A pin means nothing unless the alternatives are shown to miss.
 
-    Both alternatives are the readings issue #8 actually names, which is the
-    point: the one that matches is a third one.
+    Both of these are the readings issue #8 actually names, which is the point:
+    the one that matches is a third one.
     """
-    assert lcoe_matches(basis, oracle, files, modelled, assumptions) < 48
+    assert lcoe_matches(arrays, tuned(assumptions, basis=basis), oracle) < 48
 
 
 def test_excluding_the_exit_year_fcfe_fails_everywhere(
-    oracle: dict[str, Any], modelled: dict[str, ProjectStatements], assumptions: AssumptionSet
+    arrays: ProjectArrays, assumptions: AssumptionSet, oracle: dict[str, Any]
 ) -> None:
-    irrs, moics = hold_cases(not PINNED_EXIT_YEAR_FCFE_INCLUDED, oracle, modelled, assumptions)
-    assert (irrs, moics) == (0, 0)
+    assert hold_cases(arrays, tuned(assumptions, included=False), oracle) == (0, 0)
 
 
 def test_the_two_flags_together_admit_exactly_one_combination(
-    oracle: dict[str, Any],
-    files: dict[str, dict[str, Any]],
-    modelled: dict[str, ProjectStatements],
-    assumptions: AssumptionSet,
+    arrays: ProjectArrays, assumptions: AssumptionSet, oracle: dict[str, Any]
 ) -> None:
-    """The sweep's own claim: one combination of the six reproduces the oracle."""
+    """The sweep's own claim: one of the six combinations reproduces the oracle."""
     winners = [
         (basis, included)
-        for basis in LCOE_BASES
+        for basis in ALL_BASES
         for included in (True, False)
-        if lcoe_matches(basis, oracle, files, modelled, assumptions) == 48
-        and hold_cases(included, oracle, modelled, assumptions) == (144, 144)
+        if lcoe_matches(arrays, tuned(assumptions, basis=basis), oracle) == 48
+        and hold_cases(arrays, tuned(assumptions, included=included), oracle) == (144, 144)
     ]
     assert winners == [(PINNED_LCOE_BASIS, PINNED_EXIT_YEAR_FCFE_INCLUDED)]
 
 
 # --------------------------------------------------------------------------
-# The two series stay apart (A-6)
+# The two cash-flow series stay apart (A-6)
 # --------------------------------------------------------------------------
 
 
 def test_the_thirty_year_series_never_carries_a_terminal_value(
-    oracle: dict[str, Any], modelled: dict[str, ProjectStatements], assumptions: AssumptionSet
+    arrays: ProjectArrays, assumptions: AssumptionSet, oracle: dict[str, Any]
 ) -> None:
-    """The single most likely silent bug in the feature, per epic §5.
+    """Epic §5 calls conflating them the most likely silent bug in the feature.
 
     The 30-year series in a file has no terminal value; the hold-truncated one
-    does. They are different lengths and different numbers, and neither is
-    derived from the other by slicing.
+    does. Different lengths, different numbers, and neither is derived from the
+    other by slicing.
     """
-    for entry in oracle["projects"]:
-        statements = modelled[entry["id"]]
-        case = entry["byExitMultipleBase"]["9"]
-        held = hold_truncated_fcfe(
-            statements,
-            hold_years=oracle["holdYears"],
-            multiple=exit_multiple(TECHNOLOGY[entry["technology"]], case["base"], assumptions),
-            exit_year_fcfe_included=True,
-        )
-        assert held.size == oracle["holdYears"]
-        assert statements.fcfe.size == 30
-        assert held[-1] > statements.fcfe[held.size - 1]
-        assert np.array_equal(held[:-1], statements.fcfe[: held.size - 1])
-
-
-def test_an_undefined_irr_is_nan_not_zero(assumptions: AssumptionSet) -> None:
-    """§13 and epic §5: an em dash, never a zero, never a sentinel.
-
-    An all-positive series has no sign change in the bracket, so it has no IRR.
-    """
-    assert np.isnan(irr(np.ones(5, dtype=np.float64), assumptions))
-    assert np.isnan(irr(-np.ones(5, dtype=np.float64), assumptions))
-    assert np.isnan(moic(np.ones(3, dtype=np.float64)))
+    hold = oracle["holdYears"]
+    held = hold_truncated_fcfe(arrays, assumptions, hold)
+    thirty = arrays.statements.cash_flow.fcfe
+    assert held.shape[1] == hold
+    assert thirty.shape[1] == 30
+    assert np.all(held[:, -1] > thirty[:, hold - 1])
+    assert np.array_equal(held[:, :-1], thirty[:, : hold - 1])

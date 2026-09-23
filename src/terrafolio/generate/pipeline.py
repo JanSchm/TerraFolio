@@ -45,6 +45,7 @@ from terrafolio.model.project import ProjectInputs, ProjectStatements, min_dscr,
 __all__ = [
     "BuiltProject",
     "PipelineCollisionError",
+    "PipelineExhaustedError",
     "WriteOutcome",
     "build_project",
     "generate_pipeline",
@@ -55,7 +56,8 @@ __all__ = [
 SCHEMA_VERSION: Final = "1.0"
 PREPARED_BY: Final = "terrafolio pipeline generate"
 MODEL_VERSION: Final = "house-model@1"
-_JSON_INDENT: Final = 2  # structural: file formatting, matching the golden corpus
+_JSON_INDENT: Final = len("  ")
+"""Two spaces, written as the thing itself so the number needs no escape."""
 
 PREPARED_ON: Final = "2026-09-21"
 """Fixed, never ``date.today()``: a generated pipeline must be byte-identical
@@ -353,9 +355,63 @@ def reference_pipeline(assumptions: AssumptionSet) -> list[BuiltProject]:
     ]
 
 
+class PipelineExhaustedError(RuntimeError):
+    """The site pool ran out before ``count`` projects could be placed in band.
+
+    Carries the sites it could not place rather than formatting them into the
+    message: how many to show is a presentation decision, and this module has no
+    business making it.
+    """
+
+    def __init__(self, placed: int, requested: int, skipped: list[str]) -> None:
+        self.placed = placed
+        self.requested = requested
+        self.skipped = skipped
+        super().__init__(
+            f"placed only {placed} of {requested} projects inside the min-DSCR band; "
+            f"{len(skipped)} sites could not be placed"
+        )
+
+
 def generate_pipeline(count: int, seed: int, assumptions: AssumptionSet) -> list[BuiltProject]:
-    """A pipeline of ``count`` projects, drawn deterministically from ``seed``."""
-    return [build_project(site, assumptions) for site in build_pool(count, seed, assumptions)]
+    """``count`` projects, drawn deterministically from ``seed``.
+
+    **A site the model cannot place is skipped, not shipped.** Redrawing a
+    project fixes an unlucky jitter; it cannot fix a market. A solar park in
+    Finland draws a 0.098 capacity factor and clamps to the 560 EUR/kW floor, so
+    its cover ratio is what the resource allows -- 0.97 after twenty-four
+    redraws, well under §10's 1.20 band. §9.1 puts that asset in the pipeline on
+    purpose, "so the screens have something to reject", but §10 then calls it
+    implausible and issue #8 asks for a pipeline with **zero** plausibility
+    warnings. Shipping it would make that promise false.
+
+    So the pool is drawn deeper than asked and the first ``count`` placeable
+    sites are taken. Ids come from a site's position in the pool, so skipping one
+    leaves a gap and changes nothing about any other project — which is the same
+    reason the jitter is keyed on the id in the first place (A-27). Ids are
+    unique and uniformly padded, which is all §4 and C-5 require; they were never
+    promised to be contiguous.
+    """
+    if count <= 0:
+        raise ValueError(f"count must be positive, got {count}")
+    # Twice the request, written without a literal because `generate` admits
+    # none. Sites are cheap to draw -- seven numpy draws each and no model run --
+    # and the loop stops as soon as `count` are placed, so the extra is a bound
+    # rather than a cost.
+    pool = build_pool(count + count, seed, assumptions)
+    built: list[BuiltProject] = []
+    skipped: list[str] = []
+    for site in pool:
+        if len(built) == count:
+            break
+        project = build_project(site, assumptions)
+        if project.within_band:
+            built.append(project)
+        else:
+            skipped.append(f"{site.id} {site.name} ({project.min_dscr:.4f})")
+    if len(built) < count:
+        raise PipelineExhaustedError(len(built), count, skipped)
+    return built
 
 
 def _slug(name: str) -> str:

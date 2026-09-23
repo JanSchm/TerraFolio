@@ -65,14 +65,15 @@ def _recalibrated(tmp_path: Path, *, low: float, high: float) -> Path:
 
 def test_generate_writes_a_pipeline(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert (
-        main(["pipeline", "generate", "--count", "8", "--seed", "1", "--out", str(tmp_path)]) == 0
+        main(["--pipeline", str(tmp_path), "pipeline", "generate", "--count", "8", "--seed", "1"])
+        == 0
     )
     assert len(files_in(tmp_path)) == 8
     assert "wrote 8 project files" in capsys.readouterr().out
 
 
 def test_generate_is_idempotent(tmp_path: Path) -> None:
-    argv = ["pipeline", "generate", "--count", "8", "--seed", "1", "--out", str(tmp_path)]
+    argv = ["--pipeline", str(tmp_path), "pipeline", "generate", "--count", "8", "--seed", "1"]
     assert main(argv) == 0
     first = {path.name: path.read_text(encoding="utf-8") for path in tmp_path.glob("*.json")}
     assert main(argv) == 0
@@ -82,7 +83,7 @@ def test_generate_is_idempotent(tmp_path: Path) -> None:
 
 
 def test_generate_refuses_a_non_positive_count(tmp_path: Path) -> None:
-    assert main(["pipeline", "generate", "--count", "0", "--out", str(tmp_path)]) == 2
+    assert main(["--pipeline", str(tmp_path), "pipeline", "generate", "--count", "0"]) == 2
     assert files_in(tmp_path) == []
 
 
@@ -100,7 +101,9 @@ def test_generate_refuses_to_write_when_a_project_cannot_be_placed(
     monkeypatch.setenv("TERRAFOLIO_ASSUMPTIONS_DIR", str(calibration))
 
     out = tmp_path / "pipeline"
-    assert main(["pipeline", "generate", "--count", "12", "--seed", "1", "--out", str(out)]) == 1
+    assert (
+        main(["--pipeline", str(out), "pipeline", "generate", "--count", "12", "--seed", "1"]) == 1
+    )
     assert files_in(out) == [], "a refusal must not write anything"
     assert "refusing to write" in capsys.readouterr().err
 
@@ -115,7 +118,7 @@ def test_ingest_accepts_a_coherent_workbook(
 ) -> None:
     book = write_workbook(template, tmp_path / "p.xlsx")
     out = tmp_path / "ingested"
-    assert main(["pipeline", "ingest", str(book), "--out", str(out)]) == 0
+    assert main(["--pipeline", str(out), "pipeline", "ingest", str(book)]) == 0
     assert files_in(out) == ["P01.json"]
     assert "reproduces this file on every line" in capsys.readouterr().out
 
@@ -134,12 +137,12 @@ def test_ingest_refuses_a_workbook_that_disagrees_with_itself(
     book = write_workbook(broken, tmp_path / "broken.xlsx")
     out = tmp_path / "ingested"
 
-    assert main(["pipeline", "ingest", str(book), "--out", str(out)]) == 1
+    assert main(["--pipeline", str(out), "pipeline", "ingest", str(book)]) == 1
     assert files_in(out) == [], "a file that fails a tie-out must not be written"
     captured = capsys.readouterr().err
     assert "tie-out failure" in captured
-    assert "ebitda = revenue - opex" in captured
-    assert "year index 5" in captured
+    assert "7.1 ebitda = revenue - opex" in captured
+    assert "2032" in captured, "the failure should name the calendar year it is in"
 
 
 def test_ingest_keeps_a_house_model_variance_advisory(
@@ -156,13 +159,15 @@ def test_ingest_keeps_a_house_model_variance_advisory(
     book = write_workbook(varied, tmp_path / "varied.xlsx")
     out = tmp_path / "ingested"
 
-    assert main(["pipeline", "ingest", str(book), "--out", str(out)]) == 0
+    assert main(["--pipeline", str(out), "pipeline", "ingest", str(book)]) == 0
     assert files_in(out) == ["P01.json"]
     assert "the house model differs on" in capsys.readouterr().out
 
 
 def test_ingest_refuses_a_missing_file(tmp_path: Path) -> None:
-    assert main(["pipeline", "ingest", str(tmp_path / "nope.xlsx"), "--out", str(tmp_path)]) == 2
+    assert (
+        main(["--pipeline", str(tmp_path), "pipeline", "ingest", str(tmp_path / "nope.xlsx")]) == 2
+    )
 
 
 # --------------------------------------------------------------------------
@@ -172,19 +177,22 @@ def test_ingest_refuses_a_missing_file(tmp_path: Path) -> None:
 
 def test_export_round_trips_through_ingest(tmp_path: Path) -> None:
     source = tmp_path / "pipeline"
-    assert main(["pipeline", "generate", "--count", "6", "--seed", "1", "--out", str(source)]) == 0
+    assert (
+        main(["--pipeline", str(source), "pipeline", "generate", "--count", "6", "--seed", "1"])
+        == 0
+    )
     identifier = json.loads(sorted(source.glob("*.json"))[0].read_text(encoding="utf-8"))["id"]
 
     book = tmp_path / "exported.xlsx"
     assert (
         main(
             [
+                "--pipeline",
+                str(source),
                 "pipeline",
                 "export",
                 "--id",
                 identifier,
-                "--pipeline",
-                str(source),
                 "--out",
                 str(book),
                 "--xlsx",
@@ -193,7 +201,7 @@ def test_export_round_trips_through_ingest(tmp_path: Path) -> None:
         == 0
     )
     out = tmp_path / "back"
-    assert main(["pipeline", "ingest", str(book), "--out", str(out)]) == 0
+    assert main(["--pipeline", str(out), "pipeline", "ingest", str(book)]) == 0
 
     original = next(
         json.loads(path.read_text(encoding="utf-8"))
@@ -205,16 +213,16 @@ def test_export_round_trips_through_ingest(tmp_path: Path) -> None:
 
 def test_export_refuses_an_unknown_id(tmp_path: Path) -> None:
     source = tmp_path / "pipeline"
-    assert main(["pipeline", "generate", "--count", "3", "--out", str(source)]) == 0
-    assert main(["pipeline", "export", "--id", "NOPE", "--pipeline", str(source), "--xlsx"]) == 1
+    assert main(["--pipeline", str(source), "pipeline", "generate", "--count", "3"]) == 0
+    assert main(["--pipeline", str(source), "pipeline", "export", "--id", "NOPE", "--xlsx"]) == 1
 
 
 def test_export_requires_a_named_format(tmp_path: Path) -> None:
     """There is one format, and it is still stated rather than assumed."""
     source = tmp_path / "pipeline"
-    assert main(["pipeline", "generate", "--count", "3", "--out", str(source)]) == 0
+    assert main(["--pipeline", str(source), "pipeline", "generate", "--count", "3"]) == 0
     identifier = json.loads(sorted(source.glob("*.json"))[0].read_text(encoding="utf-8"))["id"]
-    assert main(["pipeline", "export", "--id", identifier, "--pipeline", str(source)]) == 2
+    assert main(["--pipeline", str(source), "pipeline", "export", "--id", identifier]) == 2
 
 
 def test_export_writes_no_formula_from_project_text(tmp_path: Path) -> None:
@@ -229,12 +237,12 @@ def test_export_writes_no_formula_from_project_text(tmp_path: Path) -> None:
     assert (
         main(
             [
+                "--pipeline",
+                str(source),
                 "pipeline",
                 "export",
                 "--id",
                 "P01",
-                "--pipeline",
-                str(source),
                 "--out",
                 str(book),
                 "--xlsx",

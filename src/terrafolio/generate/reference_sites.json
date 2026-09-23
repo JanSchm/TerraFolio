@@ -1,6 +1,11 @@
 {
   "$schemaId": "terrafolio/reference-sites/v1",
   "note": "The 48 sites the JavaScript reference hard-codes, extracted by running its own buildPipeline() rather than transcribed, with the technology and stage labels mapped to the canonical enum values. Used only by the parity mode, which reproduces tests/golden/fixtures/ field for field. `countryCode` keeps the reference's `UK`, which docs/pipeline-schema.md §4.1 accepts as an alias of GB; the shipped pipeline uses the canonical GB throughout.",
+  "seeding": {
+    "stride": 97,
+    "offset": 13,
+    "note": "The reference seeds each project `index * stride + offset`. Recorded here because it is a fact about the reference, like the sites themselves, and js_prng.json pins the resulting seed for all 48."
+  },
   "sites": [
     {
       "id": "P01",

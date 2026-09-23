@@ -20,12 +20,11 @@ both sides of the wire rather than assumed. This is the server half of that.
 from __future__ import annotations
 
 import math
-from typing import Final
 
 __all__ = ["js_round", "js_round_to"]
 
-_HALF: Final = 0.5  # structural: the half-up tie rule itself, not a calibration value
-_DECIMAL_BASE: Final = 10  # structural: base ten, for shifting by a number of places
+# The tie rule itself, and the base a decimal place is a place in.
+_HALF, _DECIMAL_BASE = 0.5, 10  # structural: the rounding rule, not calibration
 
 
 def js_round(value: float) -> float:

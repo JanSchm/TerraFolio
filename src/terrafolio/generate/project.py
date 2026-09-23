@@ -18,6 +18,7 @@ from terrafolio.config.assumptions import AssumptionSet, Range
 from terrafolio.domain.conventions import EUR_PER_EUR_MILLION, KW_PER_MW
 from terrafolio.domain.enums import Stage, Technology
 from terrafolio.generate.draws import DrawSource
+from terrafolio.generate.precision import RISK_PLACES, SHARE_PLACES
 from terrafolio.generate.sites import Site, market_key
 from terrafolio.model.project import (
     DebtTerms,
@@ -29,8 +30,6 @@ from terrafolio.model.project import (
 from terrafolio.model.rounding import js_round, js_round_to
 
 __all__ = ["DrawnProject", "draw_project"]
-
-_SHARE_PLACES, _RISK_PLACES = 2, 1  # structural: quoted precision, not calibration
 
 
 def _between(draw: float, span: Range) -> float:
@@ -106,7 +105,7 @@ def draw_project(site: Site, draw: DrawSource, assumptions: AssumptionSet) -> Dr
     risk += next_draw() * generator.development_risk_jitter
     development_risk = min(
         generator.development_risk.high,
-        max(generator.development_risk.low, js_round_to(risk, _RISK_PLACES)),
+        max(generator.development_risk.low, js_round_to(risk, RISK_PLACES)),
     )
 
     # 4. Grid connection: secured by definition once past greenfield.
@@ -121,7 +120,7 @@ def draw_project(site: Site, draw: DrawSource, assumptions: AssumptionSet) -> Dr
 
     # 6. Contracted share, quoted to two decimals.
     ppa_share = js_round_to(
-        _between(next_draw(), generator.contracted_share[site.stage]), _SHARE_PLACES
+        _between(next_draw(), generator.contracted_share[site.stage]), SHARE_PLACES
     )
 
     # 7. Contracted price, off the rounded capture price.
