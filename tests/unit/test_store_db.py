@@ -22,6 +22,7 @@ from terrafolio.store import (
     SchemaUnsupportedError,
     StoreError,
     backup_into,
+    db,
     from_db_time,
     initialise,
     load_result_json,
@@ -79,6 +80,54 @@ def test_a_database_from_a_newer_release_is_refused(tmp_path: Path) -> None:
         pytest.raises(SchemaUnsupportedError, match="schema version"),
     ):
         initialise(connection)
+
+
+def test_a_database_from_an_older_release_is_refused_until_a_migration_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The case that does not exist yet and will.
+
+    `CREATE TABLE IF NOT EXISTS` cannot alter an existing table and
+    `CREATE TRIGGER IF NOT EXISTS` cannot install a trigger a later release
+    added — `run_event_only_while_in_flight` would be exactly such a trigger —
+    so re-running the DDL over an older file and stamping it current marks it
+    migrated when nobody migrated it. §12 keeps runs indefinitely, so those
+    files outlive the code that wrote them.
+
+    Today `SCHEMA_VERSION` is 1 and 0 means "fresh", so the older-file case
+    cannot be built from real versions. The next release is simulated instead.
+    """
+    path = tmp_path / "runs.db"
+    with closing(open_store(path)) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+
+    monkeypatch.setattr(db, "SCHEMA_VERSION", SCHEMA_VERSION + 1)
+    with (
+        closing(sqlite3.connect(path, autocommit=True)) as connection,
+        pytest.raises(SchemaUnsupportedError, match="no migration"),
+    ):
+        initialise(connection)
+
+    # And the file is left as it was, rather than stamped with a version no
+    # migration produced.
+    with closing(sqlite3.connect(path, autocommit=True)) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+
+
+def test_the_schema_runs_once_not_on_every_open(tmp_path: Path) -> None:
+    """The DDL is ~290 lines of `IF NOT EXISTS`, and this package's own rule is
+    that every caller owns a connection — so re-executing it per open is pure
+    parsing. A current file is left alone."""
+    path = tmp_path / "runs.db"
+    with closing(open_store(path)) as connection:
+        connection.execute("DROP TRIGGER run_is_never_deleted")
+    with closing(open_store(path)) as connection:
+        # Still gone: a current file is not re-provisioned behind the operator.
+        names = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'trigger'")
+        }
+        assert "run_is_never_deleted" not in names
 
 
 def test_the_schema_is_packaged_alongside_the_code(tmp_path: Path) -> None:

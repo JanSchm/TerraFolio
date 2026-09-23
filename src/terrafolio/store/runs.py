@@ -38,6 +38,7 @@ from terrafolio.store.errors import (
     RunIdentityChangedError,
     RunNotFinishedError,
     RunNotFoundError,
+    StoreError,
     UnknownSnapshotError,
 )
 from terrafolio.store.events import read_events
@@ -55,9 +56,23 @@ __all__ = [
     "start_run",
 ]
 
+IN_FLIGHT_STATUSES: Final = frozenset({RunStatus.QUEUED, RunStatus.RUNNING})
 TERMINAL_STATUSES: Final = frozenset({RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED})
+"""The two halves of ``RunStatus``. A test asserts they partition it, so a
+status added later cannot land in neither and be silently treated as in-flight
+by one check and terminal by another."""
 
-_IN_FLIGHT_SQL: Final = "status IN ('queued', 'running')"
+
+def status_list_sql(statuses: frozenset[RunStatus]) -> str:
+    """A status set as a SQL list, so the vocabulary is written once in Python.
+
+    ``schema.sql`` states it a second time, in a CHECK and two triggers, which
+    SQL gives no way to derive; a test compares the two.
+    """
+    return ", ".join(f"'{status.value}'" for status in sorted(statuses))
+
+
+_IN_FLIGHT_SQL: Final = f"status IN ({status_list_sql(IN_FLIGHT_STATUSES)})"
 
 
 def _ids_json(ids: Sequence[str]) -> str:
@@ -190,7 +205,7 @@ def open_run(
         if "run.run_id" in message:
             raise DuplicateRunError(identifier) from error
         raise
-    return load_run(connection, run_id=identifier)
+    return _audit(connection, identifier, record, result_json)
 
 
 def _failure_columns(failure: RunFailure | None) -> tuple[str | None, str | None]:
@@ -225,21 +240,43 @@ def _assert_curve_agrees(connection: sqlite3.Connection, record: RunRecord) -> N
         (point.generation, point.best_fitness, point.mean_fitness) for point in record.convergence
     )
     if persisted != served:
+        at = _first_difference(persisted, served)
         raise RunIdentityChangedError(
             record.run_id,
             "convergence",
-            _describe_curve(persisted),
-            _describe_curve(served),
+            _describe_curve(persisted, at),
+            _describe_curve(served, at),
         )
 
 
-def _describe_curve(curve: tuple[tuple[int, float, float], ...]) -> str:
-    """Enough of a curve to see what differs without printing 160 generations."""
+_Curve = tuple[tuple[int, float, float], ...]
+
+
+def _first_difference(persisted: _Curve, served: _Curve) -> int:
+    """The index the two curves first disagree at."""
+    for index, (left, right) in enumerate(zip(persisted, served, strict=False)):
+        if left != right:
+            return index
+    return min(len(persisted), len(served))
+
+
+def _describe_curve(curve: _Curve, at: int) -> str:
+    """A curve summarised *at the point it differs*.
+
+    Length and endpoints alone are not enough: two curves that diverge in the
+    middle produce the same string on both sides of the message, and the error
+    then proves a disagreement exists while withholding where it is.
+    """
     if not curve:
         return "no generations"
-    generations = [str(point[0]) for point in curve]
-    span = generations[0] if len(curve) == 1 else f"{generations[0]}-{generations[-1]}"
-    return f"{len(curve)} generations ({span}), best {curve[0][1]}...{curve[-1][1]}"
+    span = f"{curve[0][0]}-{curve[-1][0]}" if len(curve) > 1 else str(curve[0][0])
+    if at >= len(curve):
+        return f"{len(curve)} generations ({span}), nothing at index {at}"
+    generation, best, mean = curve[at]
+    return (
+        f"{len(curve)} generations ({span}); at index {at}, "
+        f"generation {generation} best {best} mean {mean}"
+    )
 
 
 def _verify_snapshot_matches_provenance(
@@ -286,11 +323,13 @@ def start_run(connection: sqlite3.Connection, *, run_id: str) -> StoredRun:
             raise RunAlreadyFinishedError(run_id, status.value)
         record = RunRecord.model_validate_json(stored["result_json"])
         running = record.model_copy(update={"status": RunStatus.RUNNING})
+        payload = running.model_dump_json()
         transaction.execute(
-            "UPDATE run SET status = ?, result_json = ? WHERE run_id = ? AND status = 'queued'",
-            (RunStatus.RUNNING.value, running.model_dump_json(), run_id),
+            "UPDATE run SET status = ?, result_json = ? "
+            f"WHERE run_id = ? AND status = '{RunStatus.QUEUED.value}'",
+            (RunStatus.RUNNING.value, payload, run_id),
         )
-    return load_run(connection, run_id=run_id)
+    return _audit(connection, run_id, running, payload)
 
 
 def finish_run(
@@ -340,12 +379,12 @@ def finish_run(
             raise RunIdentityChangedError(record.run_id, "eligibleIds", eligible, holdings)
         _assert_curve_agrees(transaction, record)
         transaction.execute(
-            """
+            f"""
             UPDATE run SET
                 status = ?, finished_at = ?, duration_ms = ?, generations_used = ?,
                 selected_ids_json = ?, cashflow_30y_json = ?, cashflow_hold_json = ?,
                 warnings_json = ?, error_code = ?, error_message = ?, result_json = ?
-            WHERE run_id = ? AND status IN ('queued', 'running')
+            WHERE run_id = ? AND {_IN_FLIGHT_SQL}
             """,
             (
                 record.status.value,
@@ -361,7 +400,7 @@ def finish_run(
                 record.run_id,
             ),
         )
-    return load_run(connection, run_id=record.run_id)
+    return _audit(connection, record.run_id, record, payload)
 
 
 def _assert_same_run(stored: sqlite3.Row, record: RunRecord) -> None:
@@ -397,24 +436,50 @@ def _brief(value: object) -> str:
     return str(value)
 
 
-def _row(connection: sqlite3.Connection, run_id: str) -> sqlite3.Row:
-    cursor = connection.execute("SELECT * FROM run WHERE run_id = ?", (run_id,))
+def _row(connection: sqlite3.Connection, value: str, *, column: str = "run_id") -> sqlite3.Row:
+    """The run row addressed by ``run_id`` or by ``run_ref``.
+
+    Parameterised rather than written twice: the not-found path and any future
+    change to what is selected then cannot reach one caller and miss the other.
+    ``column`` is never caller-supplied — the two call sites pass a literal.
+    """
+    cursor = connection.execute(f"SELECT * FROM run WHERE {column} = ?", (value,))
     row: sqlite3.Row | None = cursor.fetchone()
     if row is None:
-        raise RunNotFoundError(run_id)
+        raise RunNotFoundError(value)
     return row
 
 
-def _stored_run(connection: sqlite3.Connection, row: sqlite3.Row) -> StoredRun:
-    base_year = connection.execute(
+_AUDIT_COLUMNS: Final = (
+    "run_reference, created_by, finished_at, population_size, generations_planned, "
+    "generations_used, eligible_ids_json, warnings_json, assumption_snapshot_hash, "
+    "deterministic_reduction, error_code, error_message, schema_version, pipeline_hash"
+)
+"""Everything a ``StoredRun`` needs except the record itself.
+
+Named so the mutating calls can read them **without** ``result_json``: they
+already hold the record and its bytes, and re-selecting a payload that
+``api.md`` §8.2 sizes at ~400 KB only to parse it a second time is a round trip
+and a parse per run on the path that answers the user's search.
+"""
+
+
+def _compose(
+    connection: sqlite3.Connection, row: sqlite3.Row, record: RunRecord, payload: str
+) -> StoredRun:
+    """A ``StoredRun`` from a record already in hand and its audit columns."""
+    snapshot = connection.execute(
         "SELECT base_year FROM pipeline_snapshot WHERE pipeline_hash = ?", (row["pipeline_hash"],)
     ).fetchone()
-    warnings = tuple(
-        FeasibilityWarning.model_validate(item) for item in json.loads(row["warnings_json"])
-    )
+    if snapshot is None:
+        # Unreachable through this package -- the foreign key and the
+        # never-delete trigger both forbid it -- but `load_run` is also pointed
+        # at backup copies and at databases #9 did not create, and an opaque
+        # TypeError from a read path is not something §11's 500 can key on.
+        raise UnknownSnapshotError("pipeline", str(row["pipeline_hash"]))
     return StoredRun(
-        record=RunRecord.model_validate_json(row["result_json"]),
-        result_json=row["result_json"],
+        record=record,
+        result_json=payload,
         run_reference=row["run_reference"],
         created_by=row["created_by"],
         finished_at=None if row["finished_at"] is None else from_db_time(row["finished_at"]),
@@ -422,14 +487,35 @@ def _stored_run(connection: sqlite3.Connection, row: sqlite3.Row) -> StoredRun:
         generations_planned=row["generations_planned"],
         generations_used=row["generations_used"],
         eligible_ids=tuple(json.loads(row["eligible_ids_json"])),
-        warnings_raised=warnings,
-        base_year=int(base_year["base_year"]),
+        warnings_raised=tuple(
+            FeasibilityWarning.model_validate(item) for item in json.loads(row["warnings_json"])
+        ),
+        base_year=int(snapshot["base_year"]),
         assumption_snapshot_hash=row["assumption_snapshot_hash"],
         deterministic_reduction=bool(row["deterministic_reduction"]),
         error_code=row["error_code"],
         error_message=row["error_message"],
         schema_version=row["schema_version"],
     )
+
+
+def _audit(
+    connection: sqlite3.Connection, run_id: str, record: RunRecord, payload: str
+) -> StoredRun:
+    """The stored run, without re-reading or re-parsing the record we just wrote."""
+    cursor = connection.execute(
+        f"SELECT {_AUDIT_COLUMNS} FROM run WHERE run_id = ?",
+        (run_id,),
+    )
+    row: sqlite3.Row | None = cursor.fetchone()
+    if row is None:
+        raise RunNotFoundError(run_id)
+    return _compose(connection, row, record, payload)
+
+
+def _stored_run(connection: sqlite3.Connection, row: sqlite3.Row) -> StoredRun:
+    payload = str(row["result_json"])
+    return _compose(connection, row, RunRecord.model_validate_json(payload), payload)
 
 
 def load_run(connection: sqlite3.Connection, *, run_id: str) -> StoredRun:
@@ -439,10 +525,7 @@ def load_run(connection: sqlite3.Connection, *, run_id: str) -> StoredRun:
 
 def load_run_by_ref(connection: sqlite3.Connection, *, run_ref: str) -> StoredRun:
     """The same, addressed by the label the export carries (§7.6)."""
-    row = connection.execute("SELECT * FROM run WHERE run_ref = ?", (run_ref,)).fetchone()
-    if row is None:
-        raise RunNotFoundError(run_ref)
-    return _stored_run(connection, row)
+    return _stored_run(connection, _row(connection, run_ref, column="run_ref"))
 
 
 def load_result_json(connection: sqlite3.Connection, *, run_id: str) -> str:
@@ -473,7 +556,14 @@ def _summary(row: sqlite3.Row) -> RunSummary:
 def list_runs(
     connection: sqlite3.Connection, *, limit: int, before_reference: int | None = None
 ) -> tuple[RunSummary, ...]:
-    """Newest first, paginated on the reference rather than on a clock."""
+    """Newest first, paginated on the reference rather than on a clock.
+
+    A negative ``limit`` is refused rather than passed through: SQLite reads it
+    as *no* limit, so a caller computing a remaining page size and reaching -1
+    would receive every run ever stored, each carrying its own result payload.
+    """
+    if limit < 0:
+        raise StoreError(f"a page size cannot be negative; got {limit}")
     sql = "SELECT * FROM run"
     parameters: tuple[object, ...] = ()
     if before_reference is not None:

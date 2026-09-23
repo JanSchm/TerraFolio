@@ -121,6 +121,21 @@ def test_a_rejected_batch_writes_none_of_itself(tmp_path: Path) -> None:
         assert latest_generation(connection, run_id=RUN_ID) == 1
 
 
+def test_a_generation_repeated_inside_one_batch_names_itself(tmp_path: Path) -> None:
+    """Caught before the insert, while the offending generation is still known.
+
+    Afterwards the transaction has rolled back, so a lookup against the stored
+    log finds nothing and the error would have to fall back to the batch's
+    lowest generation — which is not the one that collided.
+    """
+    with closing(opened_store(tmp_path / "runs.db")) as connection:
+        open_run(connection, submission())
+        with pytest.raises(DuplicateGenerationError) as caught:
+            append_events(connection, run_id=RUN_ID, events=curve(5, 6, 6))
+        assert caught.value.generation == 6
+        assert latest_generation(connection, run_id=RUN_ID) == 0
+
+
 def test_an_event_for_an_unknown_run_is_refused(tmp_path: Path) -> None:
     with (
         closing(opened_store(tmp_path / "runs.db")) as connection,

@@ -42,6 +42,7 @@ from terrafolio.store.errors import (
     RunNotFinishedError,
     RunNotFoundError,
     SchemaUnsupportedError,
+    SnapshotConflictError,
     StoreError,
     UnknownSnapshotError,
 )
@@ -92,6 +93,7 @@ __all__ = [
     "RunSubmission",
     "RunSummary",
     "SchemaUnsupportedError",
+    "SnapshotConflictError",
     "StoreError",
     "StoredRun",
     "UnknownSnapshotError",

@@ -37,6 +37,7 @@ from typing import Final
 from terrafolio.domain.enums import RunStatus
 from terrafolio.domain.mandate import Mandate
 from terrafolio.domain.results import Holding
+from terrafolio.store.errors import RunNotFinishedError
 from terrafolio.store.records import StoredRun
 
 __all__ = [
@@ -89,15 +90,20 @@ TIMES_SIGN: Final = "×"  # noqa: RUF001 - §14's multiplication sign, not the l
 PERCENT_SCALE: Final = 100
 
 
-def _half_up(value: float, places: str) -> Decimal:
+def _half_up(value: float, places: str, *, scale: int = 1) -> Decimal:
     """Round for display, half away from zero at the stated precision.
 
     Neither language gives this by default — Python's ``round`` is half-even,
     JavaScript's ``toFixed`` rounds the binary value — so a figure sitting
     exactly on a half renders differently on the screen and in its own export
     unless both sides do it on purpose (``ui-contract.md`` §2).
+
+    ``scale`` is applied *inside* the decimal domain. Multiplying a fraction by
+    100 in binary float first would put the representation error straight back:
+    ``0.145 * 100`` is ``14.499999999999998``, which rounds half-up to 14 where
+    the value the user typed rounds to 15.
     """
-    return Decimal(str(value)).quantize(Decimal(places), rounding=ROUND_HALF_UP)
+    return (Decimal(str(value)) * scale).quantize(Decimal(places), rounding=ROUND_HALF_UP)
 
 
 def money_m(value: float) -> str:
@@ -113,12 +119,38 @@ def quantity(value: float, unit: str) -> str:
 def percent(value: float, *, places: int = 0) -> str:
     """§14 shares and returns. A fraction on the way in, never a percentage."""
     quantum = "1" if places == 0 else "0." + "0" * places
-    return f"{_half_up(value * PERCENT_SCALE, quantum)}%"
+    return f"{_half_up(value, quantum, scale=PERCENT_SCALE)}%"
 
 
 def multiple(value: float) -> str:
     """§14 DSCR, MOIC and exit multiples: two decimals and a times sign."""
     return f"{_half_up(value, '0.01')}{TIMES_SIGN}"
+
+
+_FORMULA_LEADERS: Final = ("=", "+", "-", "@", "\t", "\r")
+"""Characters that make Excel and LibreOffice read a cell as a formula.
+
+The tab and carriage return are in the list because both spreadsheets strip
+leading whitespace before deciding, so a cell beginning ``\t=`` is a formula too.
+"""
+
+
+def _text(value: str) -> str:
+    """A text cell that stays text when the file is opened in a spreadsheet.
+
+    Project names and country names come from analyst-authored pipeline files —
+    §2 of the epic has users adding a project by dropping a file in — and this
+    export exists to be opened in Excel, BOM and all. A name beginning ``=`` is
+    otherwise imported as a live formula rather than as the name of a wind farm.
+
+    Quoting does not help: the CSV writer already quotes the cell correctly, and
+    Excel strips that quoting before evaluating what is inside. A leading
+    apostrophe is what marks the cell as literal text.
+
+    Only text takes this path. Numbers are rendered by :func:`_cell`, so a
+    negative cash flow stays ``-28.93`` and still sums.
+    """
+    return f"'{value}" if value.startswith(_FORMULA_LEADERS) else value
 
 
 def _cell(value: object) -> str:
@@ -134,7 +166,20 @@ def _cell(value: object) -> str:
         return str(value).lower()
     if isinstance(value, float):
         return repr(value)
+    if isinstance(value, str):
+        return _text(value)
     return str(value)
+
+
+def _one_line(value: str) -> str:
+    """A value safe to interpolate into a comment line written without a writer.
+
+    The ``#`` header bypasses ``csv.writer`` — it is not a row — so nothing else
+    escapes it. A newline inside an interpolated value would otherwise add
+    physical lines ahead of the column header and change how many lines a reader
+    has to skip.
+    """
+    return value.replace("\r", " ").replace("\n", " ")
 
 
 def _timestamp(moment: datetime) -> str:
@@ -177,18 +222,24 @@ def _header(run: StoredRun) -> tuple[str, ...]:
     record = run.record
     provenance = record.provenance
     return (
-        f"# TerraFolio run {record.run_ref}{SEPARATOR}{_timestamp(record.created_at)}",
+        f"# TerraFolio run {_one_line(record.run_ref)}{SEPARATOR}{_timestamp(record.created_at)}",
         _mandate_line(record.mandate),
-        f"# Provenance: pipeline {provenance.pipeline_hash}{SEPARATOR}"
-        f"assumptions {provenance.assumption_set_id}{SEPARATOR}seed {provenance.seed}",
+        f"# Provenance: pipeline {_one_line(provenance.pipeline_hash)}{SEPARATOR}"
+        f"assumptions {_one_line(provenance.assumption_set_id)}{SEPARATOR}"
+        f"seed {provenance.seed}",
     )
 
 
 def _require_result(run: StoredRun) -> None:
+    """Only a finished run has a portfolio to export.
+
+    ``RunNotFinishedError`` rather than a bare ``ValueError``: #9 maps store
+    failures onto ``api.md`` §11's status codes and cannot tell one
+    ``ValueError`` from another without matching on the message.
+    """
     if run.record.status is not RunStatus.SUCCEEDED:
-        raise ValueError(
-            f"run {run.record.run_ref} is {run.record.status.value}; "
-            "only a finished run has a portfolio to export"
+        raise RunNotFinishedError(
+            run.record.run_id, f"it is {run.record.status.value}, so it has no portfolio"
         )
 
 

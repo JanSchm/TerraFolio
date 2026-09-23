@@ -12,6 +12,8 @@ an audit question, not a stack trace.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 __all__ = [
     "DuplicateGenerationError",
     "DuplicateRunError",
@@ -20,6 +22,7 @@ __all__ = [
     "RunNotFinishedError",
     "RunNotFoundError",
     "SchemaUnsupportedError",
+    "SnapshotConflictError",
     "StoreError",
     "UnknownSnapshotError",
 ]
@@ -86,6 +89,24 @@ class RunIdentityChangedError(StoreError):
         )
         self.run_id = run_id
         self.field = field
+
+
+class SnapshotConflictError(StoreError):
+    """Two different snapshots claim one hash.
+
+    ``pipeline_hash`` digests the project files, not the base year or the
+    validation verdict recorded beside them — so "already stored" and "already
+    stored with these values" are different questions, and only the second one
+    makes a stored run's year labels trustworthy.
+    """
+
+    def __init__(self, pipeline_hash: str, differences: Sequence[str]) -> None:
+        super().__init__(
+            f"pipeline snapshot {pipeline_hash!r} is already stored with different "
+            f"values ({'; '.join(differences)}); it cannot be re-recorded"
+        )
+        self.pipeline_hash = pipeline_hash
+        self.differences = tuple(differences)
 
 
 class UnknownSnapshotError(StoreError):

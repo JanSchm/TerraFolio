@@ -23,6 +23,7 @@ from test_store_runs import CREATED_AT, opened_store, pipeline_snapshot
 
 from terrafolio.config.loader import load_default
 from terrafolio.store import (
+    SnapshotConflictError,
     StoreError,
     ValidationStatus,
     assumption_payload,
@@ -232,6 +233,54 @@ def test_a_malformed_validation_report_is_refused(tmp_path: Path) -> None:
         record_pipeline_snapshot(
             connection,
             pipeline_snapshot(validation_status=ValidationStatus.VALID, validation_json="not json"),
+            recorded_at=CREATED_AT,
+        )
+
+
+def test_re_recording_an_unchanged_pipeline_snapshot_is_accepted(tmp_path: Path) -> None:
+    """The ordinary case: every reload of an unchanged pipeline hits the
+    conflict, and agreeing values are not a disagreement."""
+    with closing(opened_store(tmp_path / "runs.db")) as connection:
+        again = record_pipeline_snapshot(connection, pipeline_snapshot(), recorded_at=CREATED_AT)
+        assert again == pipeline_snapshot().pipeline_hash
+
+
+def test_a_snapshot_that_disagrees_under_one_hash_is_refused(tmp_path: Path) -> None:
+    """`pipeline_hash` digests the project *files*. The base year, the project
+    count and the validation verdict are not in it, so "already stored" and
+    "already stored with these values" are different questions.
+
+    Silently keeping the first would leave the caller believing its snapshot was
+    recorded, and a run citing that hash would take its year labels from a base
+    year nobody recorded for it — on an export carrying no other year.
+    """
+    with closing(opened_store(tmp_path / "runs.db")) as connection:
+        with pytest.raises(SnapshotConflictError, match="baseYear"):
+            record_pipeline_snapshot(
+                connection, pipeline_snapshot(base_year=2030), recorded_at=CREATED_AT
+            )
+        with pytest.raises(SnapshotConflictError, match="validationStatus"):
+            record_pipeline_snapshot(
+                connection,
+                pipeline_snapshot(
+                    validation_status=ValidationStatus.VALID, validation_json='{"checks": 412}'
+                ),
+                recorded_at=CREATED_AT,
+            )
+        # Nothing moved.
+        assert load_pipeline_snapshot(connection, pipeline_snapshot().pipeline_hash).base_year == (
+            pipeline_snapshot().base_year
+        )
+
+
+def test_reading_the_same_pipeline_from_another_directory_is_not_a_conflict(
+    tmp_path: Path,
+) -> None:
+    """`source_label` and `loaded_at` describe the reading, not the pipeline."""
+    with closing(opened_store(tmp_path / "runs.db")) as connection:
+        assert record_pipeline_snapshot(
+            connection,
+            pipeline_snapshot(source_label="/mnt/backup/pipeline"),
             recorded_at=CREATED_AT,
         )
 

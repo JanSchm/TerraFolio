@@ -1630,6 +1630,56 @@ compared `result_json` alone, but the failure reason and the warnings are stored
 *beside* it and are not in it — so one record with two different failure codes
 was waved through as a retry. All three are compared now.
 
+### 2B-12 — a pipeline hash does not digest what is stored beside it
+
+Found in review. `record_pipeline_snapshot` used `ON CONFLICT DO NOTHING`,
+copying the pattern from `record_assumption_set` — where it is safe, because
+there the key *is* a digest of everything the row holds.
+
+It is not safe here. `pipeline_hash` digests the project files; `base_year`,
+`project_count`, `validation_status` and `validation_json` are not in it. So a
+second snapshot under the same hash with a different base year was silently
+discarded while the caller was handed the hash back as though it had been
+stored — and a run citing it took its year labels from a base year nobody
+recorded for it, on a `cashflow.csv` that carries no other year information.
+
+**Decided.** A conflict whose stored row *agrees* is the ordinary case and
+passes: every reload of an unchanged pipeline hits it. A conflict that
+disagrees raises `SnapshotConflictError`, naming each field that differs.
+`source_label` and `loaded_at` are excluded from the comparison — the same
+pipeline read twice, or read from a copy of the directory, is the same
+snapshot.
+
+### 2B-13 — five smaller things the same review found
+
+**Percentages are scaled inside the decimal domain.** `percent` computed
+`value * 100` in binary float before converting to `Decimal`, which put back
+exactly the representation error `Decimal` was chosen to remove: `0.145 * 100`
+is `14.499999999999998`, so a 14.5% solar target exported as `14% solar`.
+These are the values `ui-contract.md` §2 says #12's parity tests compare.
+
+**A project name cannot become a formula.** Names come from files analysts drop
+into the pipeline directory, and this export exists to be opened in Excel. A
+name beginning `=`, `+`, `-`, `@` or a leading tab was imported as a live
+formula; CSV quoting does not help, because Excel strips it before evaluating
+what is inside. Text cells now carry a leading apostrophe when they start one
+of those. **Numbers do not take that path**, so a negative cash flow stays
+`-28.93` and the column still sums.
+
+**The comment header is kept to one line per line.** It bypasses `csv.writer` —
+it is not a row — so nothing else escapes it, and a newline in an interpolated
+hash would have added physical lines ahead of the column header.
+
+**The version guard guards.** `initialise` accepted any older file, re-ran DDL
+that `CREATE TABLE IF NOT EXISTS` cannot apply to an existing table, and then
+stamped it current. It now refuses anything that is neither 0 nor the current
+version, and only stamps a file it actually provisioned. As a side effect the
+schema no longer re-executes on every connection open.
+
+**A duplicate generation inside one batch names itself.** It is caught before
+the insert, while the offending generation is still known; afterwards the
+transaction has rolled back and the stored log holds no trace of it.
+
 ### 2B-7 — `pipeline_snapshot` records 2A's verdict without knowing its shape
 
 #7 requires the "validation status of the loaded set", and #6 owns the loader
@@ -1746,3 +1796,5 @@ storing the floor as text.
 | 2026-09-22 | #7 | 2B-9 — ULIDs on the standard library, no new dependency, and no `# structural:` escape spent. |
 | 2026-09-23 | #7 | 2B-10 — the submission names its assumption snapshot; inferring it from `(id, hash)` attached runs to the wrong payload, since two snapshots share both by design. |
 | 2026-09-23 | #7 | 2B-11 — the whole provenance is compared at finish, the curve is reconciled by value, the event log closes when the run does, and a redelivery must repeat the failure and warnings too. |
+| 2026-09-23 | #7 | 2B-12 — a pipeline hash digests the files, not the base year or verdict stored beside them, so a disagreeing re-record raises instead of being silently dropped. |
+| 2026-09-23 | #7 | 2B-13 — percentages scale inside `Decimal`; a project name cannot become an Excel formula; the CSV comment header is newline-safe; the schema version guard refuses un-migratable files. |

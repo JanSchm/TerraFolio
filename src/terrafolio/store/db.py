@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from importlib import resources
 from pathlib import Path
@@ -109,21 +109,49 @@ def connect(path: Path) -> sqlite3.Connection:
 
 
 def initialise(connection: sqlite3.Connection) -> None:
-    """Apply the schema, idempotently, and pin the file's version.
+    """Bring a database file up to this release's schema, or refuse it.
+
+    Three cases, and the middle one is the reason this is not simply
+    "executescript every time":
+
+    * **0** — a fresh or pre-versioning file. Apply the schema and stamp it.
+    * **``SCHEMA_VERSION``** — already current. Nothing to do; the DDL is all
+      ``IF NOT EXISTS`` and re-running it on every connection is ~290 lines of
+      no-op parsing per open, on a package whose own rule is that every caller
+      owns its connection.
+    * **anything else** — refused. A *newer* file is one this release does not
+      understand. An *older* one cannot be brought forward by re-running the
+      DDL: ``CREATE TABLE IF NOT EXISTS`` will not alter an existing table and
+      ``CREATE TRIGGER IF NOT EXISTS`` will not install a trigger a later
+      release added, so stamping it current would mark a file as migrated that
+      nobody migrated. §12 keeps runs indefinitely, so these files outlive the
+      code that wrote them and the first real migration has to be written
+      deliberately.
 
     ``executescript`` must run outside a transaction, which autocommit gives.
     """
     version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-    if version > SCHEMA_VERSION:
+    if version == SCHEMA_VERSION:
+        _assert_wal(connection)
+        return
+    if version != 0:
         raise SchemaUnsupportedError(
-            f"database was written by schema version {version}; this release understands "
-            f"{SCHEMA_VERSION}"
+            f"database is at schema version {version}; this release understands "
+            f"{SCHEMA_VERSION} and has no migration between them"
         )
     connection.executescript(read_schema_sql())
-    # Re-asserted on every open: a VACUUM INTO copy comes back in `delete`
-    # journal mode, so a restored backup would otherwise lose WAL.
-    connection.execute("PRAGMA journal_mode = WAL")
+    _assert_wal(connection)
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+
+def _assert_wal(connection: sqlite3.Connection) -> None:
+    """Re-asserted on every open, not only at creation.
+
+    A ``VACUUM INTO`` copy comes back in ``delete`` journal mode, so a backup
+    restored into service would otherwise quietly run without WAL — one writer
+    blocking every reader, which is the opposite of what the stream needs.
+    """
+    connection.execute("PRAGMA journal_mode = WAL")
 
 
 def open_store(path: Path) -> sqlite3.Connection:
@@ -150,9 +178,22 @@ def writing(connection: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
     try:
         yield connection
     except BaseException:
-        connection.execute("ROLLBACK")
+        # Suppressed deliberately: if the rollback itself fails -- a dropped
+        # connection, most likely -- re-raising *its* error would replace the
+        # one that explains what actually went wrong, and the caller would log
+        # a database fault where the event was a rejected result.
+        with suppress(sqlite3.Error):
+            connection.execute("ROLLBACK")
         raise
-    connection.execute("COMMIT")
+    try:
+        connection.execute("COMMIT")
+    except BaseException:
+        # A failed commit leaves the transaction open on a connection the
+        # caller goes on using, and the next BEGIN IMMEDIATE would fail with a
+        # confusing "cannot start a transaction within a transaction".
+        with suppress(sqlite3.Error):
+            connection.execute("ROLLBACK")
+        raise
 
 
 def to_db_time(moment: datetime) -> str:

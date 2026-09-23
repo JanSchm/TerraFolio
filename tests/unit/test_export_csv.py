@@ -53,7 +53,7 @@ from terrafolio.export.csv import (
     percent,
     quantity,
 )
-from terrafolio.store import StoredRun, finish_run, open_run
+from terrafolio.store import RunNotFinishedError, StoredRun, finish_run, open_run
 
 HOLD_YEARS: Final = int(VALID_MANDATE["holdYears"])
 GOLDEN_HOLDINGS: Final = Path(__file__).with_name("test_export_csv_holdings.csv")
@@ -232,10 +232,52 @@ def test_the_cells_carry_raw_numbers_not_formatted_strings() -> None:
     assert float(row[HOLDINGS_COLUMNS.index("gearing")]) == 0.72
 
 
+def test_a_project_name_cannot_become_a_formula_in_excel() -> None:
+    """Names come from files analysts drop into the pipeline directory, and this
+    file exists to be opened in Excel. A name beginning `=` would otherwise be
+    imported as a live formula rather than as the name of a wind farm.
+
+    The CSV quoting does not help: Excel strips it before evaluating what is
+    inside. A leading apostrophe is what marks the cell as literal text.
+    """
+    hostile = Holding.model_validate(holding("P001", name='=HYPERLINK("http://evil","click")'))
+    run = golden_run()
+    record = run.record.model_copy(update={"holdings": (hostile,), "selected_ids": ("P001",)})
+    exported = rows(
+        holdings_csv(dataclasses.replace(run, record=record, result_json=record.model_dump_json()))
+    )[1]
+    assert exported[HOLDINGS_COLUMNS.index("name")].startswith("'=")
+
+
+def test_a_negative_cash_flow_is_still_a_number() -> None:
+    """The formula guard applies to text only. A leading `-` on a number is a
+    sign, and quoting it would stop the column summing — which is the whole
+    reason the cells carry raw numbers."""
+    body = rows(cashflow_csv(golden_run()))[1:]
+    assert body[0][1] == "-28.93"
+    assert float(body[0][1]) == -28.93
+
+
+def test_the_comment_header_stays_on_three_lines() -> None:
+    """The header bypasses `csv.writer` — it is not a row — so nothing else
+    escapes it, and a newline in an interpolated value would add physical lines
+    ahead of the column header."""
+    run = golden_run()
+    provenance = run.record.provenance.model_copy(
+        update={"pipeline_hash": "sha256:9f2c\r\n# injected"}
+    )
+    record = run.record.model_copy(update={"provenance": provenance})
+    exported = holdings_csv(
+        dataclasses.replace(run, record=record, result_json=record.model_dump_json())
+    )
+    assert len(comments(exported)) == 3
+    assert "# injected" not in exported.decode("utf-8-sig").split("\r\n")[3]
+
+
 def test_a_run_with_no_result_has_nothing_to_export() -> None:
     """A queued run has a valid record and an empty portfolio. Exporting it
     would produce a file that looks like a portfolio of nothing."""
-    with pytest.raises(ValueError, match="only a finished run"):
+    with pytest.raises(RunNotFinishedError, match="queued"):
         holdings_csv(_with_status(golden_run(), RunStatus.QUEUED))
 
 
@@ -272,7 +314,7 @@ def test_cashflow_csv_excludes_the_terminal_value() -> None:
 
 
 def test_a_run_still_searching_has_no_schedule_to_export() -> None:
-    with pytest.raises(ValueError, match="only a finished run"):
+    with pytest.raises(RunNotFinishedError, match="running"):
         cashflow_csv(_with_status(golden_run(), RunStatus.RUNNING))
 
 
@@ -297,6 +339,19 @@ def test_a_return_carries_one_decimal_and_a_share_carries_none() -> None:
 
 def test_a_multiple_carries_two_decimals_and_a_times_sign() -> None:
     assert multiple(1.38) == "1.38×"  # noqa: RUF001 - the multiplication sign
+
+
+def test_a_share_on_an_exact_half_rounds_up() -> None:
+    """The scaling to a percentage has to happen inside the decimal domain.
+
+    In binary float `0.145 * 100` is `14.499999999999998`, so scaling before
+    converting puts back exactly the representation error `Decimal` was chosen
+    to remove — and a 14.5% solar target would export as `14% solar`. These are
+    the values `ui-contract.md` §2 says #12's parity tests compare.
+    """
+    assert percent(0.145) == "15%"
+    assert percent(0.565) == "57%"
+    assert percent(0.8845, places=1) == "88.5%"
 
 
 def test_rounding_is_half_up_not_python_s_half_even() -> None:

@@ -48,6 +48,13 @@ def append_events(
     """
     if not events:
         return 0
+    repeated = _repeated_within(events)
+    if repeated is not None:
+        # Caught before the insert. Afterwards the transaction has rolled back,
+        # so a lookup against the stored log would find nothing and the error
+        # would have to guess -- and it would guess the batch's lowest
+        # generation, which is not the one that collided.
+        raise DuplicateGenerationError(run_id, repeated)
     rows = [
         (run_id, event.generation, event.best_fitness, event.mean_fitness, event.summary_json)
         for event in events
@@ -74,6 +81,16 @@ def append_events(
     return len(rows)
 
 
+def _repeated_within(events: Sequence[RunEvent]) -> int | None:
+    """The first generation this batch offers twice, if it offers one twice."""
+    seen: set[int] = set()
+    for event in events:
+        if event.generation in seen:
+            return event.generation
+        seen.add(event.generation)
+    return None
+
+
 def _status_of(connection: sqlite3.Connection, run_id: str) -> str:
     """The run's status, for an error that has to say why the log is closed."""
     row = connection.execute("SELECT status FROM run WHERE run_id = ?", (run_id,)).fetchone()
@@ -81,11 +98,13 @@ def _status_of(connection: sqlite3.Connection, run_id: str) -> str:
 
 
 def _clashing(connection: sqlite3.Connection, run_id: str, events: Sequence[RunEvent]) -> int:
-    """The generation this batch collided on, rather than the first one in it.
+    """The stored generation this batch collided with.
 
     Worth the extra query: the batch is rejected whole, so "generation 7 is
     already logged" and "this batch started at generation 5" are different
-    facts, and only the first says what to look at.
+    facts, and only the first says what to look at. A repeat *inside* the batch
+    never reaches here — :func:`_repeated_within` catches that before the
+    insert, while the offending generation is still known.
     """
     offered = sorted(event.generation for event in events)
     placeholders = ",".join("?" for _ in offered)

@@ -33,7 +33,7 @@ from typing import Any, Final
 from terrafolio.config.assumptions import AssumptionSet
 from terrafolio.config.hashing import canonical_json, content_hash
 from terrafolio.store.db import from_db_time, to_db_time
-from terrafolio.store.errors import StoreError
+from terrafolio.store.errors import SnapshotConflictError, StoreError
 from terrafolio.store.records import AssumptionSnapshot, PipelineSnapshot, ValidationStatus
 
 __all__ = [
@@ -161,7 +161,20 @@ def load_assumption_snapshot(
 def record_pipeline_snapshot(
     connection: sqlite3.Connection, snapshot: PipelineSnapshot, *, recorded_at: datetime
 ) -> str:
-    """Store the pipeline snapshot if it is new; return its hash either way."""
+    """Store the pipeline snapshot if it is new; return its hash either way.
+
+    Unlike :func:`record_assumption_set`, the key here is **not** a digest of
+    what the row holds. ``pipeline_hash`` digests the project files; the base
+    year, the project count and the validation verdict are not in it. So
+    "already present" does not mean "already present with these values", and
+    ``ON CONFLICT DO NOTHING`` alone would accept a second, different snapshot,
+    return its hash as though it had been stored, and keep serving the first —
+    a run would then take its year labels from a base year nobody recorded for
+    it, on an export that carries no other year information.
+
+    A conflict whose stored row **agrees** is the ordinary case: every reload of
+    an unchanged pipeline hits it. A conflict that disagrees raises.
+    """
     if (
         snapshot.validation_json is None
         and snapshot.validation_status is not ValidationStatus.UNKNOWN
@@ -169,7 +182,8 @@ def record_pipeline_snapshot(
         raise StoreError(
             f"a {snapshot.validation_status.value!r} snapshot must carry the report that says so"
         )
-    connection.execute(
+    file_hashes = canonical_json(dict(snapshot.file_hashes))
+    cursor = connection.execute(
         """
         INSERT INTO pipeline_snapshot (
             pipeline_hash, base_year, project_count, source_label, loaded_at,
@@ -183,13 +197,41 @@ def record_pipeline_snapshot(
             snapshot.project_count,
             snapshot.source_label,
             to_db_time(snapshot.loaded_at),
-            canonical_json(dict(snapshot.file_hashes)),
+            file_hashes,
             snapshot.validation_status.value,
             snapshot.validation_json,
             to_db_time(recorded_at),
         ),
     )
+    if cursor.rowcount == 0:
+        _assert_snapshot_agrees(connection, snapshot, file_hashes)
     return snapshot.pipeline_hash
+
+
+def _assert_snapshot_agrees(
+    connection: sqlite3.Connection, offered: PipelineSnapshot, file_hashes: str
+) -> None:
+    """What is already stored under this hash must be what is being offered.
+
+    ``source_label`` and ``loaded_at`` are excluded: the same pipeline read
+    twice, or read from a copy of the directory, is the same snapshot. The rest
+    describes what a run would cite, so a difference there is two snapshots
+    claiming one identity.
+    """
+    stored = load_pipeline_snapshot(connection, offered.pipeline_hash)
+    differences = [
+        f"{name}: stored {was!r}, offered {now!r}"
+        for name, was, now in (
+            ("baseYear", stored.base_year, offered.base_year),
+            ("projectCount", stored.project_count, offered.project_count),
+            ("fileHashes", canonical_json(dict(stored.file_hashes)), file_hashes),
+            ("validationStatus", stored.validation_status.value, offered.validation_status.value),
+            ("validationReport", stored.validation_json, offered.validation_json),
+        )
+        if was != now
+    ]
+    if differences:
+        raise SnapshotConflictError(offered.pipeline_hash, differences)
 
 
 def load_pipeline_snapshot(connection: sqlite3.Connection, pipeline_hash: str) -> PipelineSnapshot:

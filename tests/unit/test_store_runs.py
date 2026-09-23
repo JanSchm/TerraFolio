@@ -49,6 +49,7 @@ from terrafolio.store import (
     RunNotFoundError,
     RunSubmission,
     StoredRun,
+    StoreError,
     UnknownSnapshotError,
     ValidationStatus,
     finish_run,
@@ -64,6 +65,8 @@ from terrafolio.store import (
     snapshot_hash_of,
     start_run,
 )
+from terrafolio.store.db import read_schema_sql
+from terrafolio.store.runs import IN_FLIGHT_STATUSES, TERMINAL_STATUSES
 
 HOLD_YEARS: Final = int(VALID_MANDATE["holdYears"])
 BASE_YEAR: Final = 2027
@@ -660,6 +663,41 @@ def test_warnings_are_stored_by_name_never_by_ordinal(tmp_path: Path) -> None:
         ).fetchone()
         assert "CAPACITY_BELOW_TARGET" in row["warnings_json"]
         assert str(int(WarningCode.CAPACITY_BELOW_TARGET)) not in row["warnings_json"]
+
+
+def test_a_negative_page_size_is_refused(tmp_path: Path) -> None:
+    """SQLite reads a negative LIMIT as *no* limit, so a caller computing a
+    remaining page size and reaching -1 would be handed every run ever stored,
+    each carrying its own result payload."""
+    with (
+        closing(opened_store(tmp_path / "runs.db")) as connection,
+        pytest.raises(StoreError, match="cannot be negative"),
+    ):
+        list_runs(connection, limit=-1)
+
+
+def test_an_unknown_reference_is_not_found(tmp_path: Path) -> None:
+    with (
+        closing(opened_store(tmp_path / "runs.db")) as connection,
+        pytest.raises(RunNotFoundError),
+    ):
+        load_run_by_ref(connection, run_ref="A-999")
+
+
+def test_the_two_status_sets_partition_the_enum() -> None:
+    """A status added later must land in exactly one of them, or one check would
+    treat it as in flight while another treated it as terminal."""
+    assert set(RunStatus) == IN_FLIGHT_STATUSES | TERMINAL_STATUSES
+    assert not IN_FLIGHT_STATUSES & TERMINAL_STATUSES
+
+
+def test_the_schema_states_the_same_statuses_as_the_enum() -> None:
+    """SQL gives no way to derive a CHECK from a Python enum, so the two are
+    compared instead."""
+    check = read_schema_sql().split("CHECK (status IN (", maxsplit=1)[1].split("))", maxsplit=1)[0]
+    assert sorted(value.strip().strip("'") for value in check.split(",")) == sorted(
+        status.value for status in RunStatus
+    )
 
 
 def test_runs_list_newest_first_and_in_flight_finds_the_unfinished(
