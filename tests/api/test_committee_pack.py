@@ -42,11 +42,15 @@ VENDOR = REPO_ROOT / "web" / "vendor"
 
 @pytest.fixture
 async def packed(client: httpx.AsyncClient) -> bytes:
-    """A pack for a real run over the golden pipeline."""
+    """A pack for a real run over the golden pipeline.
+
+    Built over the **tracked** stylesheet rather than Tailwind's output, so
+    every assertion below runs in CI. The real artefact is checked by
+    :func:`test_the_built_stylesheet_inlines_cleanly`.
+    """
     accepted = await start_run(client)
     response = await client.get(f"/optimisations/{accepted['runId']}/pack")
-    if response.status_code != 200:
-        pytest.skip(f"pack unavailable: {response.json()['error']['message']}")
+    assert response.status_code == 200, response.text
     assert response.headers["content-type"].startswith("text/html")
     return response.content
 
@@ -214,12 +218,48 @@ def test_a_missing_atlas_degrades_to_a_notice(tmp_path: Path) -> None:
             fonts_dir=settings.fonts_dir,
             atlas=tmp_path / "no-atlas.json",
         ).decode("utf-8")
-    except CommitteePackUnavailableError as missing:
-        pytest.skip(f"pack unavailable: {missing}")
     finally:
         service.shutdown()
     assert "Map data unavailable." in document
     assert document.count('class="tile tile--') == 12, "the rest of the page is unaffected"
+
+
+BUILT_STYLESHEET = REPO_ROOT / "web" / "dist" / "app.css"
+
+
+@pytest.mark.skipif(
+    not BUILT_STYLESHEET.is_file(),
+    reason="run `npm --prefix web run build` to check the real stylesheet",
+)
+def test_the_built_stylesheet_inlines_cleanly(tmp_path: Path) -> None:
+    """The one test that needs Tailwind's actual output.
+
+    Everything else runs against a tracked stylesheet so the suite means
+    something in CI. This is what proves the real artefact — with its ten
+    relative font urls and whatever else Tailwind emits — still inlines to
+    something with no outward reference left in it.
+    """
+    settings = settings_for(tmp_path)
+    service = build_service(settings)
+    try:
+        stored = _any_stored_run(service, settings)
+        document = committee_pack(
+            stored,
+            stylesheet=BUILT_STYLESHEET,
+            fonts_dir=settings.fonts_dir,
+            atlas=settings.atlas_path,
+        ).decode("utf-8")
+    finally:
+        service.shutdown()
+    targets = set(re.findall(r"url\(\s*['\"]?([^)'\"]+)", _stripped(document)))
+    assert targets, "Tailwind's output carries url()s; none reached the pack"
+    assert all(target.startswith("data:") for target in targets), sorted(
+        target[:40] for target in targets if not target.startswith("data:")
+    )
+    assert "http" not in _addressable(document)
+    assert document.count("data:font/woff2;base64,") == len(
+        list((REPO_ROOT / "web" / "fonts").glob("*.woff2"))
+    )
 
 
 def _any_stored_run(service: Any, settings: Any) -> Any:

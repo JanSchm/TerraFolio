@@ -33,6 +33,17 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 GOLDEN_PIPELINE = REPO_ROOT / "tests" / "golden" / "fixtures" / "pipeline"
 SHIPPED_PIPELINE = REPO_ROOT / "pipeline"
 
+TRACKED_STYLESHEET = REPO_ROOT / "web" / "src" / "fonts.css"
+"""The stylesheet the pack tests inline, in place of Tailwind's build output.
+
+``web/dist/app.css`` is a build artefact that ``web/.gitignore`` ignores, so it
+is absent in CI and in any clean checkout — and a suite that skipped its most
+important assertions there would be asserting nothing where it matters most.
+``web/src/fonts.css`` is tracked, is the source of the ten ``@font-face`` rules
+the real output carries, and exercises the font inlining in full.
+``test_committee_pack.py`` checks the real artefact separately, when it exists.
+"""
+
 ALL_COUNTRIES = (
     "ES", "PT", "IT", "GR", "FR", "DE", "PL", "RO", "NL", "DK", "IE", "SE", "FI", "GB",
 )  # fmt: skip
@@ -74,6 +85,7 @@ def settings_for(tmp_path: Path, *, pipeline: Path | None = None, **overrides: A
         # synchronously, which is what makes an API assertion deterministic.
         "runner_mode": RunnerMode.INLINE,
         "warm_workers": False,
+        "stylesheet": TRACKED_STYLESHEET,
     }
     return Settings(**{**defaults, **overrides})
 

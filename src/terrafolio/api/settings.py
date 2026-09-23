@@ -78,15 +78,25 @@ class Settings(BaseSettings):
     """Comment-frame interval, for proxies that close an idle connection during
     an Exhaustive run (``docs/api.md`` §7)."""
 
+    stylesheet: Path | None = None
+    """The stylesheet the committee pack inlines. ``None`` takes Tailwind's output.
+
+    Overridable because that output is a **build artefact**: ``web/.gitignore``
+    ignores ``dist/``, so it is absent in a clean checkout and in CI until
+    ``npm --prefix web run build`` has run. The pack's correctness should not
+    depend on whether someone ran npm, so the tests point this at a tracked
+    stylesheet and one of them checks the real artefact when it is there.
+    """
+
     @property
     def stylesheet_path(self) -> Path:
-        """Tailwind's build output, which the committee pack inlines.
+        """Tailwind's build output, unless :attr:`stylesheet` names another.
 
-        A build artefact — ``web/.gitignore`` ignores ``dist/`` — so it is absent
-        in a clean checkout until ``npm --prefix web run build`` has run. The pack
-        says so by name rather than serving an unstyled document.
+        The pack names this file when it is missing rather than serving an
+        unstyled document, because an error that says which command to run is a
+        better answer than a page that looks broken for no stated reason.
         """
-        return self.web_dir / "dist" / "app.css"
+        return self.stylesheet or self.web_dir / "dist" / "app.css"
 
     @property
     def fonts_dir(self) -> Path:
