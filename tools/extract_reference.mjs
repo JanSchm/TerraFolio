@@ -614,7 +614,10 @@ const CONTRACTS = {
   },
 };
 
-const DEFAULT_CONTRACT = 'pipeline-schema-1.0';
+// Settled by the epic on #1 ("CONTRACT — the project-file enum is settled: `reconciled`"):
+// 1B's enum spelling with 1A's five assumptions fields. Flipped by issue 2A (#6), which the
+// epic named as the one action left and the gate on group 2 starting; issue 1C was closed.
+const DEFAULT_CONTRACT = 'reconciled';
 
 // The contract that templates/project-template.json describes. The closed-shape
 // check is 1B's oracle, so it governs that contract and no other.
