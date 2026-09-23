@@ -1,0 +1,6 @@
+﻿# TerraFolio run A-4 · 2026-09-21T09:22:11Z
+# Mandate: €1,200m available · 1,500 MW target · 45% solar · 11.0% target IRR · 10-year hold · leverage at least 60% · DSCR at least 1.25× · merchant at most 35% · country at most 35% · project at most 15% · COD 2027-2032 · balanced risk · 3 countries · 3 stages
+# Provenance: pipeline sha256:9f2c · assumptions 111c20146e3e30fc · seed 42
+id,name,country,technology,stage,capacityMw,codYear,totalCapex_m,equity_m,gearing,netCapacityFactor,annualGenerationGwh,lcoe,ppaShare,equityIrr,minDscr,developmentRiskScore
+P001,Almonte Solar,Spain,solar,ready_to_build,180.0,2028,103.322563,28.930317,0.72,0.230324,363.17,31.0,0.55,0.1417,1.65,2.7
+P003,Puglia Sole,Spain,solar,ready_to_build,180.0,2028,103.322563,28.930317,0.72,0.230324,363.17,31.0,0.55,,,2.7
