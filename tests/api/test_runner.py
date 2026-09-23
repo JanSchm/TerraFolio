@@ -8,6 +8,7 @@ happens **before** numpy is imported and §12's bit-exact guarantee is real.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import json
 import shutil
 from contextlib import closing
@@ -17,9 +18,11 @@ import httpx
 import pytest
 from conftest import GOLDEN_PIPELINE, mandate, settings_for
 from pydantic import ValidationError
+from test_sse import queued_run
 
 from terrafolio.api.app import create_app
-from terrafolio.api.service import build_service
+from terrafolio.api.records import PendingRun, failed_record
+from terrafolio.api.service import Service, build_service
 from terrafolio.api.wire import OptimisationRequest
 from terrafolio.domain.enums import Effort, RunStatus
 from terrafolio.domain.mandate import Mandate
@@ -31,7 +34,7 @@ from terrafolio.runner.threads import (
     threads_are_pinned,
 )
 from terrafolio.runner.worker import PipelineMovedError, RunPayload, execute
-from terrafolio.store.runs import load_run
+from terrafolio.store.runs import finish_run, load_run
 
 TERMINAL = {RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED}
 POLL_LIMIT = 400
@@ -235,3 +238,68 @@ def test_the_optimisation_request_refuses_a_seed_the_store_cannot_hold() -> None
     """
     with pytest.raises(ValidationError):
         OptimisationRequest.model_validate({"mandate": mandate(), "seed": 2**64})
+
+
+async def test_a_cancelled_run_reads_back_as_a_terminal_run(tmp_path: Path) -> None:
+    """The third terminal state, which nothing in this issue's endpoints produces.
+
+    There is no cancel endpoint: #9's table has none and neither does
+    ``docs/api.md``. The state is still reachable — 2B's ``finish_run`` takes a
+    record whose status is ``cancelled`` — so the question this answers is what
+    ``GET /optimisations/{id}`` does when it meets one, which is 200 with the
+    status and no aggregates, exactly as a failure does. A run that stopped is
+    audit trail either way.
+    """
+    settings = settings_for(tmp_path)
+    service = build_service(settings)
+    try:
+        run_id = queued_run(service)
+        pending = _pending_for(service, run_id)
+        with closing(service.connect()) as connection:
+            finish_run(
+                connection,
+                record=failed_record(
+                    pending,
+                    duration_ms=1,
+                    convergence=(),
+                    status=RunStatus.CANCELLED,
+                ),
+                finished_at=dt.datetime.now(tz=dt.UTC),
+            )
+
+        app = create_app(settings, service=service)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
+            response = await client.get(f"/optimisations/{run_id}")
+            stream = await client.get(f"/optimisations/{run_id}/stream")
+    finally:
+        service.shutdown()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "cancelled"
+    assert body["aggregates"] is None
+    assert body["provenance"]["seed"] == 1, "a cancelled run keeps what explains it"
+    # The stream ends rather than hanging: a terminal status closes the log.
+    assert stream.text.count("event: failed") == 1
+    assert "event: generation" not in stream.text
+
+
+def _pending_for(service: Service, run_id: str) -> PendingRun:
+    """The submission-time record for a run this test opened by hand."""
+    with closing(service.connect()) as connection:
+        stored = load_run(connection, run_id=run_id)
+    record = stored.record
+    return PendingRun(
+        run_id=record.run_id,
+        run_ref=record.run_ref,
+        created_at=record.created_at,
+        mandate=record.mandate,
+        effort=record.effort,
+        locked_ids=record.locked_ids,
+        excluded_ids=record.excluded_ids,
+        provenance=record.provenance,
+        candidates=service.source.candidates,
+        returns=service.source.returns(record.mandate.hold_years),
+        total_generations=stored.generations_planned,
+    )
