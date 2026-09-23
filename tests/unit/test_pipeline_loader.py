@@ -193,6 +193,17 @@ def test_unparseable_json_is_reported_not_raised(tmp_path: Path) -> None:
     assert any("unreadable" in row.message for row in result.rejected)
 
 
+def test_a_file_that_is_not_utf_8_is_reported_not_fatal(tmp_path: Path) -> None:
+    """``json.loads`` on bytes decodes first, and ``UnicodeDecodeError`` is neither
+    ``OSError`` nor ``JSONDecodeError`` — so one stray byte used to abort the whole
+    load instead of excluding one file."""
+    directory = _copy_pipeline(tmp_path / "pipeline")
+    (directory / "P03-ebro-valley-pv.json").write_bytes(b"\xff\xfe{}")
+    result = load_pipeline(directory, ASSUMPTIONS)
+    assert result.loaded_count == 47
+    assert any("unreadable" in row.message for row in result.rejected)
+
+
 def test_a_schema_violation_is_reported_against_the_file(tmp_path: Path) -> None:
     directory = _copy_pipeline(tmp_path / "pipeline")
     _edit(

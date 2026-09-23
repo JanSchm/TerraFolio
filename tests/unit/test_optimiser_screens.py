@@ -205,6 +205,28 @@ def test_no_candidates_blocks_the_run_and_names_the_screens() -> None:
     assert "riskScore" in preview.screens_to_widen
 
 
+def test_an_empty_pool_raises_no_advisory_warnings() -> None:
+    """An empty pool has zero capacity, zero equity and a zero solar share.
+
+    Every advisory test would fire on figures that describe nothing, so the preview
+    would read as five problems when there is one. ``web/js/feasibility.js`` guards
+    the same four checks on a non-empty pool, and 4B proves the two agree — a preview
+    that disagrees with its mirror is worse than one that says less.
+    """
+    preview = preview_feasibility(ARRAYS, mandate(risk_appetite=RiskAppetite.LOW), ASSUMPTIONS)
+    assert preview.eligible_count == 0
+    assert [signal.code for signal in preview.signals] == [WarningCode.NO_CANDIDATES]
+
+
+def test_an_empty_pool_still_reports_locks_and_exclusions() -> None:
+    """``LOCKS_PRESENT`` is about the user's own edits, not about the pool."""
+    preview = preview_feasibility(
+        ARRAYS, mandate(risk_appetite=RiskAppetite.LOW), ASSUMPTIONS, excluded_ids=["P01"]
+    )
+    codes = [signal.code for signal in preview.signals]
+    assert codes == [WarningCode.NO_CANDIDATES, WarningCode.LOCKS_PRESENT]
+
+
 def test_locks_exceeding_capital_block_the_run() -> None:
     """§13 and C-9: the second of exactly two blocking conditions."""
     preview = preview_feasibility(

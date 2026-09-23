@@ -19,7 +19,7 @@ from terrafolio.economics.returns import (
     contracted_revenue_share,
     hold_truncated_fcfe,
     moic,
-    payback_year,
+    payback_period,
     project_returns,
     thirty_year_fcfe,
 )
@@ -170,12 +170,24 @@ def test_moic_counts_every_outflow_not_only_the_first() -> None:
 
 def test_payback_is_the_first_period_the_cumulative_turns_non_negative() -> None:
     series = np.array([[-100.0, 40.0, 40.0, 40.0]])
-    assert float(payback_year(series)[0]) == 4.0
+    assert float(payback_period(series)[0]) == 4.0
+
+
+def test_payback_is_a_period_not_a_calendar_year() -> None:
+    """The distinction that cost a bug.
+
+    ``docs/api.md`` §2 gives ``paybackYear`` as a calendar year and
+    ``ProjectScalars`` bounds it to 2000-2100. This function knows nothing about a
+    base year, so it returns a small 1-based period and the result layer converts —
+    storing this number under the wire's name would fail validation on every holding.
+    """
+    series = np.array([[-100.0, 40.0, 40.0, 40.0]])
+    assert float(payback_period(series)[0]) < 2000.0
 
 
 def test_payback_is_undefined_when_it_never_happens() -> None:
     """Not "the hold length" — "not paid back by year ten" is a different answer."""
-    assert np.isnan(payback_year(np.array([[-100.0, 10.0, 10.0]]))[0])
+    assert np.isnan(payback_period(np.array([[-100.0, 10.0, 10.0]]))[0])
 
 
 # ---------------------------------------------------------------------------

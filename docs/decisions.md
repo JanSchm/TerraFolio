@@ -1698,6 +1698,44 @@ repair masking.
 5–15 s with a load average above 400 on this machine; the same code measures 268 ms with the machine
 idle. Any performance number in this project should carry the load average it was taken under.
 
+### 2A-19 · An empty eligible pool raises `NO_CANDIDATES` and nothing else
+
+A pool with no candidates has zero capacity, zero equity and a zero solar share, so
+every advisory test fires on figures that describe nothing: the preview reads as five
+problems where there is one, and the four extra warnings all point at controls that are
+not what is wrong.
+
+`web/js/feasibility.js` guards `CAPACITY_BELOW_TARGET`, `LEVERAGE_UNREACHABLE`,
+`SOLAR_MIX_UNREACHABLE` and `CAPITAL_UNDERUSED` on a non-empty pool; only
+`LEVERAGE_UNREACHABLE` was guarded here. Since 4B proves the two implementations agree
+and `api.md` §5 says the client is wrong if it diverges, a preview that disagrees with
+its own mirror is worse than one that says less — so all four are now guarded the same
+way. `LOCKS_EXCEED_CAPITAL` and `LOCKS_PRESENT` are deliberately **not** guarded: both
+are about the user's own edits, not about the pool.
+
+### 2A-20 · Locked projects still re-admit past the screens
+
+Raised in review as a defect: a lock re-admits a project that fails a hard pre-screen —
+a changed country, stage, COD window, DSCR floor or risk cap — and the optimiser may
+then select it.
+
+**Kept, because it is what the issue asks for.** #6's screens section says *"Locked
+projects re-admit regardless of screens, with the re-admitted IDs surfaced — the same
+principle as §13 already allowing locks to breach a concentration cap visibly."* §13
+sets that principle out in two adjacent rows: locks alone exceeding capital **block**
+the run, and locks alone breaching a concentration cap let the run **proceed with the
+breach surfaced**. A lock is a user instruction that outranks a soft screen, and the
+design answer to "this is dangerous" is to show it, not to drop it silently.
+
+The re-admitted ids are on `ScreenResult.readmitted` and drive `LOCKS_PRESENT`, so the
+override is visible rather than implicit. The one case where a lock does **not** win is
+an id that is both locked and excluded: the exclusion is the more specific instruction,
+and a stale lock should not resurrect a project the user has just struck out.
+
+Worth naming the alternative, since it is a reasonable position: screening locks would
+make the eligible set a pure function of the mandate, which is simpler to reason about
+and to serve. If that is wanted it should change #6 and §13 together, not just this
+module.
 ---
 
 ## Log
@@ -1774,3 +1812,6 @@ idle. Any performance number in this project should carry the load average it wa
 | 2026-09-21 | #6 | 2A-15/2A-16 — the core emits euros and plain dataclasses; tiles 1 and 3 carry deviations, not `ui-contract`'s bands. |
 | 2026-09-21 | #6 | 2A-17 — an undefined blend falls back to the hurdle, so the return term contributes zero rather than the rail. |
 | 2026-09-21 | #6 | 2A-18 — Standard at 500 candidates measures 107 ms against a 5 s budget; §7's 30 s Exhaustive-at-2,000 gap now measures 1.18 s. |
+| 2026-09-23 | #6 | 2A-19 — an empty eligible pool raises only `NO_CANDIDATES`; the four advisory checks are guarded as `feasibility.js` guards them. |
+| 2026-09-23 | #6 | 2A-20 — locks still re-admit past the screens, per #6 and §13; challenged in review and kept, with the alternative recorded. |
+| 2026-09-23 | #6 | Review fixes: `paybackYear` is a calendar year at the result boundary (it was a period, which `ProjectScalars` rejects); the CLI validates through the pydantic `Mandate` and refuses §13's two blocking conditions; a non-UTF-8 file is rejected per-file rather than aborting the load. |

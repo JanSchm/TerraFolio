@@ -35,7 +35,7 @@ __all__ = [
     "contracted_revenue_share",
     "hold_truncated_fcfe",
     "moic",
-    "payback_year",
+    "payback_period",
     "project_returns",
     "thirty_year_fcfe",
 ]
@@ -87,9 +87,14 @@ def moic(series: Matrix) -> Vector:
     )
 
 
-def payback_year(series: Matrix) -> Vector:
-    """``(n,)`` 1-based period in which cumulative equity cash flow first turns
+def payback_period(series: Matrix) -> Vector:
+    """``(n,)`` 1-based **period** in which cumulative equity cash flow first turns
     non-negative, or ``NaN`` if it never does inside the hold.
+
+    A period, not a calendar year. Period 1 is the pipeline's base year, and the caller
+    that knows the base year converts — ``docs/api.md`` §2 gives ``paybackYear`` as a
+    calendar year and ``ProjectScalars`` bounds it to 2000-2100, so a small integer
+    under that name was an invitation to store one. The name now says which it is.
 
     ``NaN`` rather than the hold length: "not paid back by year ten" and "paid back in
     year ten" are different answers, and only one of them is good news.
@@ -155,7 +160,7 @@ class ProjectReturns:
         self.terminal = terminal_value(arrays, assumptions, hold_years)
         self.equity_irr, self.defined = irr(self.series)
         self.moic = moic(self.series)
-        self.payback = payback_year(self.series)
+        self.payback = payback_period(self.series)
 
 
 def project_returns(

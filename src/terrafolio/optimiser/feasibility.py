@@ -117,8 +117,13 @@ def preview_feasibility(
     locked_equity = float(arrays.capital.equity[locked_rows].sum())
 
     signals: list[FeasibilitySignal] = []
+    # An empty pool has zero capacity, zero equity and a zero solar share, so every
+    # advisory test below would fire on figures that describe nothing. `NO_CANDIDATES`
+    # is the whole answer, and `feasibility.js` guards the same four the same way —
+    # a preview that disagrees with its mirror is worse than one that says less.
+    has_candidates = screens.eligible_count > 0
 
-    if screens.eligible_count == 0:
+    if not has_candidates:
         signals.append(
             FeasibilitySignal(
                 code=WarningCode.NO_CANDIDATES,
@@ -139,7 +144,7 @@ def preview_feasibility(
             )
         )
 
-    if capacity < mandate.capacity_target_mw:
+    if has_candidates and capacity < mandate.capacity_target_mw:
         signals.append(
             FeasibilitySignal(
                 code=WarningCode.CAPACITY_BELOW_TARGET,
@@ -153,7 +158,7 @@ def preview_feasibility(
 
     # The whole eligible pool is the most levered portfolio available: any subset
     # mixes in nothing more geared than what is already here.
-    if screens.eligible_count > 0 and mandate.min_leverage > gearing:
+    if has_candidates and mandate.min_leverage > gearing:
         signals.append(
             FeasibilitySignal(
                 code=WarningCode.LEVERAGE_UNREACHABLE,
@@ -162,7 +167,9 @@ def preview_feasibility(
         )
 
     # One-sided (A-22): only a pool with too *little* solar cannot reach the target.
-    if solar_share < mandate.solar_share - thresholds.solar_divergence_tolerance:
+    if has_candidates and solar_share < mandate.solar_share - (
+        thresholds.solar_divergence_tolerance
+    ):
         signals.append(
             FeasibilitySignal(
                 code=WarningCode.SOLAR_MIX_UNREACHABLE,
@@ -174,7 +181,7 @@ def preview_feasibility(
         )
 
     absorbed = equity / mandate.available_capital_eur
-    if absorbed < thresholds.capital_absorption_floor:
+    if has_candidates and absorbed < thresholds.capital_absorption_floor:
         signals.append(
             FeasibilitySignal(
                 code=WarningCode.CAPITAL_UNDERUSED,

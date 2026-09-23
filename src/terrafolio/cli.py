@@ -29,15 +29,23 @@ from pathlib import Path
 from typing import Final
 
 import numpy as np
+from pydantic import ValidationError
 
 from terrafolio.config.assumptions import AssumptionSet
 from terrafolio.config.loader import load_default
 from terrafolio.domain.conventions import EUR_PER_EUR_MILLION
-from terrafolio.domain.enums import Effort, RiskAppetite, Stage
+from terrafolio.domain.enums import Effort, RiskAppetite, Stage, WarningCode
+from terrafolio.domain.errors import render_validation_error
+from terrafolio.domain.mandate import Mandate
 from terrafolio.domain.mandate_bounds import ALL_BOUNDS
+from terrafolio.domain.reduce import mandate_to_scalars
 from terrafolio.domain.scalars import MandateScalars
 from terrafolio.economics.returns import contracted_revenue_share, project_returns
-from terrafolio.optimiser.feasibility import preview_feasibility
+from terrafolio.optimiser.feasibility import (
+    FeasibilityPreview,
+    FeasibilitySignal,
+    preview_feasibility,
+)
 from terrafolio.optimiser.features import build_features
 from terrafolio.optimiser.ga import SearchControls, run_search
 from terrafolio.optimiser.result import RunResult, SelectionOutcome, build_result
@@ -81,28 +89,51 @@ def multiple(value: float | None) -> str:
     return EM_DASH if value is None else f"{value:.2f}{TIMES}"
 
 
+class MandateError(ValueError):
+    """A mandate the specification's own control ranges do not permit."""
+
+
 def _mandate_from(args: argparse.Namespace) -> MandateScalars:
-    """Build a mandate from the command line, defaulting to §5's own defaults."""
-    return MandateScalars(
-        available_capital_eur=args.capital * EUR_PER_EUR_MILLION,
-        capacity_target_mw=args.target,
-        solar_share=args.solar_share,
-        target_irr=args.hurdle,
-        hold_years=args.hold,
-        countries=tuple(args.countries),
-        stages=tuple(Stage(stage) for stage in args.stages),
-        min_leverage=args.min_leverage,
-        min_dscr=args.min_dscr,
-        max_merchant_share=args.max_merchant,
-        max_country_share=args.max_country,
-        max_project_share=args.max_project,
-        cod_from=args.cod_from,
-        cod_to=args.cod_to,
-        risk_appetite=RiskAppetite(args.risk),
-        grid_secured_only=args.grid_only,
-        eur_revenue_only=args.eur_only,
-        om_contracted_only=args.om_only,
-    )
+    """Build a mandate from the command line, validated the way the wire validates it.
+
+    Deliberately routed through the **pydantic** :class:`Mandate` rather than straight
+    into :class:`MandateScalars`. The scalars record is the numeric core's input and
+    validates nothing — it is a reduction, not a contract — so constructing it directly
+    let ``--hold 31`` reach the economics layer and die in a traceback, and let an
+    inverted COD window or an out-of-range share through entirely. §5's ranges belong
+    to one model, and ``mandate_to_scalars`` is the only sanctioned way across.
+    """
+    # ``model_validate`` rather than the constructor: the model generates camelCase
+    # aliases, so its ``__init__`` takes those, and spelling twenty wire names here
+    # would be a second copy of the contract. ``validate_by_name`` accepts the field
+    # names, which are what this file already speaks.
+    try:
+        mandate = Mandate.model_validate(
+            {
+                "available_capital_m": args.capital,
+                "capacity_target_mw": args.target,
+                "solar_share": args.solar_share,
+                "target_irr": args.hurdle,
+                "hold_years": args.hold,
+                "countries": tuple(args.countries),
+                "stages": tuple(Stage(stage) for stage in args.stages),
+                "min_leverage": args.min_leverage,
+                "min_dscr": args.min_dscr,
+                "max_merchant_share": args.max_merchant,
+                "max_country_share": args.max_country,
+                "max_project_share": args.max_project,
+                "cod_from": args.cod_from,
+                "cod_to": args.cod_to,
+                "risk_appetite": RiskAppetite(args.risk),
+                "grid_secured_only": args.grid_only,
+                "eur_revenue_only": args.eur_only,
+                "om_contracted_only": args.om_only,
+            }
+        )
+    except ValidationError as error:
+        problems = "; ".join(render_validation_error(error))
+        raise MandateError(problems) from error
+    return mandate_to_scalars(mandate)
 
 
 def _load(args: argparse.Namespace, assumptions: AssumptionSet) -> LoadResult:
@@ -201,6 +232,22 @@ def _preview(args: argparse.Namespace, assumptions: AssumptionSet) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _blocked_run_message(blocking: list[FeasibilitySignal], preview: FeasibilityPreview) -> str:
+    """Say what blocks the run, and what would unblock it (§13)."""
+    lines = []
+    for signal in blocking:
+        if signal.code is WarningCode.NO_CANDIDATES:
+            widen = ", ".join(preview.screens_to_widen) or "the mandate"
+            lines.append(f"no candidate passes the screens; widen {widen}")
+        elif signal.code is WarningCode.LOCKS_EXCEED_CAPITAL:
+            lines.append(
+                f"locked projects alone need {millions(signal.detail['lockedEquity'])} of "
+                f"equity against {millions(signal.detail['availableCapital'])} available "
+                f"({millions(signal.detail['excess'])} over); release a lock to run"
+            )
+    return "; ".join(lines)
+
+
 def _search(
     loaded: LoadResult,
     mandate: MandateScalars,
@@ -215,11 +262,16 @@ def _search(
         arrays, mandate, assumptions, locked_ids=args.lock, excluded_ids=args.exclude
     )
     rows = np.flatnonzero(screens.eligible)
-    if rows.size == 0:
-        raise PipelineLoadError(
-            "no candidate passes the screens; widen "
-            f"{', '.join(screens.binding_screens) or 'the mandate'}"
-        )
+    # §13 has two conditions that block a run, and `POST /optimisations` answers 422
+    # on exactly these two. Checking only for an empty pool left the other one — locks
+    # whose equity alone exceeds the budget — to the repair operator, which drops the
+    # locked holdings that do not fit and returns a portfolio silently missing them.
+    preview = preview_feasibility(
+        arrays, mandate, assumptions, locked_ids=args.lock, excluded_ids=args.exclude
+    )
+    if not preview.runnable:
+        blocking = [signal for signal in preview.signals if signal.blocks_the_run]
+        raise MandateError(_blocked_run_message(blocking, preview))
 
     returns = project_returns(arrays, assumptions, mandate.hold_years)
     features = build_features(
@@ -510,7 +562,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     }
     try:
         return handlers[args.command](args, assumptions)
-    except PipelineLoadError as error:
+    except (PipelineLoadError, MandateError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
 

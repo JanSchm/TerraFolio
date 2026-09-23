@@ -207,6 +207,25 @@ def test_holdings_are_in_canonical_order() -> None:
     assert ids == sorted(ids)
 
 
+def test_payback_is_a_calendar_year_the_wire_model_would_accept() -> None:
+    """``economics`` returns a 1-based period; the conversion happens here.
+
+    ``ProjectScalars.payback_year`` is bounded to 2000-2100, so storing the period
+    straight through — a ``10`` — made every holding with a defined payback
+    unserialisable. The bound is asserted against the model's own field rather than
+    against two literals.
+    """
+    bounds = WireHolding.model_fields["payback_year"].metadata
+    lower = next(m.ge for m in bounds if hasattr(m, "ge"))
+    upper = next(m.le for m in bounds if hasattr(m, "le"))
+
+    paid_back = [h.payback_year for h in RESULT.holdings if h.payback_year is not None]  # type: ignore[attr-defined]
+    assert paid_back, "the fixture should have at least one project that pays back"
+    for year in paid_back:
+        assert lower <= year <= upper
+        assert year >= ARRAYS.base_year
+
+
 def test_an_undefined_per_project_figure_is_none_not_zero() -> None:
     """The NaN-to-None conversion happens here, where arrays stop and records begin."""
     for holding in RESULT.holdings:  # type: ignore[attr-defined]

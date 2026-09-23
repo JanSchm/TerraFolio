@@ -282,7 +282,11 @@ def _holdings(
             thirty_year_fcfe=float(thirty_year[index]),
             equity_irr=_optional(float(returns.equity_irr[index])),
             moic=_optional(float(returns.moic[index])),
-            payback_year=None if np.isnan(returns.payback[index]) else int(payback[index]),
+            # A period becomes a calendar year here: period 1 is the base year, and
+            # ``ProjectScalars.payback_year`` is bounded to 2000-2100.
+            payback_year=None
+            if np.isnan(payback[index])
+            else arrays.base_year + int(payback[index]) - 1,
         )
         for index in np.flatnonzero(context.eligible).tolist()
     )

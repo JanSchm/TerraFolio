@@ -165,7 +165,10 @@ def _parse(path: Path) -> tuple[ProjectFile | None, bytes, list[RejectedFile]]:
     try:
         raw = path.read_bytes()
         payload = json.loads(raw)
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        # UnicodeDecodeError is neither of the other two — `json.loads` on bytes
+        # decodes first — so leaving it out let one file with a stray byte abort the
+        # whole load instead of being reported like any other unreadable file.
         return None, b"", [_schema_rejection(path.name, f"unreadable: {error}")]
 
     try:
