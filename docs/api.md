@@ -172,9 +172,14 @@ says nothing moved. All four components are required.
 
 ---
 
-## 3. `GET /pipeline/status`
+## 3. `GET /pipeline/status` and `POST /pipeline/reload`
 
 Load and validation state. The mandate screen shows a banner from it; #12 asserts against it.
+
+`POST /pipeline/reload` revalidates the directory and recomputes the snapshot hash — users add and
+remove files while the server runs — and returns **this same body**, so there is one shape for
+"what is the state of the pipeline" rather than two. Stored runs keep their own snapshot; only a
+*new* run against a now-stale `pipelineHash` is [409](#63-responses) (§13).
 
 **200**
 
@@ -200,6 +205,9 @@ Load and validation state. The mandate screen shows a banner from it; #12 assert
   }
 }
 ```
+
+A reload that changes nothing returns the same `pipelineHash`, and the `ETag` of
+[`GET /pipeline`](#2-get-pipeline) therefore does not move either.
 
 `rejected` files did not load — a tie-out failed. `warnings` loaded normally: plausibility checks
 and the dispersion report **warn and never block**, because one stale file must not stop all work
@@ -352,9 +360,15 @@ Location: /optimisations/01JB2Q…
 ```
 
 ```json
-{ "runId": "01JB2Q…", "status": "queued",
-  "streamUrl": "/optimisations/01JB2Q…/stream", "totalGenerations": 60 }
+{ "runId": "01JB2Q…", "runRef": "A-4", "status": "queued",
+  "streamUrl": "/optimisations/01JB2Q…/stream",
+  "resultUrl": "/optimisations/01JB2Q…",
+  "totalGenerations": 60, "seed": 91827364 }
 ```
+
+`seed` is the **resolved** one, whether the caller supplied it or the server drew it. Epic §5 makes
+a run with no recorded seed not a run, and returning it here means a client never has to wait for
+the result to learn what it can replay. `runRef` is the short human label the export carries (§7.6).
 
 **409** `PIPELINE_MOVED` — the pipeline changed since `pipelineHash` was issued. `detail` carries
 `currentPipelineHash`. Stored runs keep their own snapshot; only a *new* run is blocked, and the UI
@@ -384,12 +398,33 @@ per-generation data from the engine and never a simulated animation (§6).
 These names keep the technical vocabulary deliberately: the stream is not user-facing, and §14's ban
 applies to copy, not to the protocol (A-11). The UI relabels for display.
 
+**The event log is the source of truth, not an in-memory fan-out.** A Standard run finishes in
+about 2.5 s, so a browser that POSTs and then opens the stream routinely misses the first
+generations or the whole run. The worker appends each generation to `run_event` and the stream
+tails that table from the beginning — so replay, late subscribers, several simultaneous
+subscribers and survival across a server restart all fall out of one decision rather than four
+mechanisms.
+
 ```
+id: 7
 event: generation
 data: {"generation":7,"totalGenerations":60,
        "bestFitness":6.2121,"meanFitness":2.0041,
        "best":{"projectCount":11,"capacityMw":1661,"equity_m":1154,"blendedIrr":0.121}}
 ```
+
+**`id:` is the generation number**, which makes `Last-Event-ID` a resume cursor: `Last-Event-ID: 20`
+replays from generation 21. Generations are 1-based, so `0` is only ever the "from the beginning"
+sentinel. `status`, `done` and `failed` carry **no** `id:` — an id on a terminal frame would collide
+with the generation sequence, and under the EventSource spec a frame without one leaves the
+client's cursor where it was, which is what a reconnect after `done` needs.
+
+```
+event: status
+data: {"status":"running","startedAt":"2026-09-21T09:22:11Z"}
+```
+
+Sent first, so a subscriber that joined a `queued` run knows that before any generation arrives.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -408,9 +443,16 @@ event: failed
 data: {"runId":"01JB2Q…","error":{"code":"ENGINE_ERROR","message":"…"}}
 ```
 
+A `:keepalive` comment frame goes out every 15 s, for proxies during an Exhaustive run. Conforming
+clients ignore comment frames.
+
 A client joining late receives the events already emitted, then continues live, so a reconnect does
-not lose the curve. **404** `RUN_NOT_FOUND`; **410** `RUN_EXPIRED` if the stream has closed and the
-result is available instead.
+not lose the curve — including a client that subscribes only **after** the run has finished, which
+replays every generation and then receives exactly one `done`.
+
+**404** `RUN_NOT_FOUND`. **410** `RUN_EXPIRED` is **reserved and not emitted in v1**: nothing prunes
+`run_event`, so no stream ever expires, and implementing it would mean an unreachable branch that
+contradicts the replay guarantee above.
 
 ---
 
@@ -518,8 +560,16 @@ Required by §12's reproducibility and audit trail. Every one of these is record
 Re-running with the same mandate, pipeline hash, assumption set and seed must reproduce the result
 exactly. #12 asserts this across releases.
 
-**404** `RUN_NOT_FOUND`. A run still in flight returns **200** with `status: "running"` and no
-`aggregates`.
+**404** `RUN_NOT_FOUND`.
+
+**A run still in flight returns 200**, with `status` (`queued` or `running`) and no `aggregates`,
+plus `generation` and `totalGenerations` so a non-streaming client can poll progress without
+parsing the stream. Not 202: the run *is* the resource, and 202 would say the request to read it
+had been accepted rather than that the run has not finished. `holdings`, the two cash-flow series
+and `convergence` are present but may be empty until it does.
+
+A `failed` or `cancelled` run also returns **200**, carrying its `status` and, for a failure, the
+`error` block. A run that failed is still audit trail (§12), not a 404 and not a 500.
 
 ---
 
@@ -579,7 +629,7 @@ clamp, tolerance and band the engine uses appears here and nowhere else in code 
 | `400` | Malformed request, or a mandate field out of range. | `INVALID_MANDATE` |
 | `404` | No such run or project. | `RUN_NOT_FOUND`, `PROJECT_NOT_FOUND` |
 | `409` | `pipelineHash` no longer matches. | `PIPELINE_MOVED` |
-| `410` | The stream has closed; read the result instead. | `RUN_EXPIRED` |
+| `410` | Reserved; not emitted in v1 — see [§7](#7-get-optimisationsidstream). | `RUN_EXPIRED` |
 | `422` | Well-formed but unrunnable: locks exceed capital, or nothing passes the screens. | `LOCKS_EXCEED_CAPITAL`, `NO_CANDIDATES` |
 | `500` | Engine or store failure. | `ENGINE_ERROR`, `STORE_ERROR` |
 
