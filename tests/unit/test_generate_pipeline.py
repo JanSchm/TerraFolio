@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from pathlib import Path
 from typing import Any, Final
 
 import numpy as np
@@ -21,7 +22,14 @@ from terrafolio.config.assumptions import AssumptionSet
 from terrafolio.config.loader import load_default
 from terrafolio.domain.conventions import EUR_PER_EUR_MILLION, MWH_PER_GWH, YEARS, canonical_order
 from terrafolio.domain.project_file import ProjectFile
-from terrafolio.generate.pipeline import BuiltProject, as_file, build_project, generate_pipeline
+from terrafolio.generate.pipeline import (
+    BuiltProject,
+    PipelineCollisionError,
+    as_file,
+    build_project,
+    generate_pipeline,
+    write_pipeline,
+)
 from terrafolio.generate.sites import build_pool
 
 COUNT: Final = 300
@@ -369,3 +377,128 @@ def test_the_pipeline_scales_to_the_two_thousand_candidate_target(
 def test_a_count_of_zero_is_refused(assumptions: AssumptionSet) -> None:
     with pytest.raises(ValueError, match="count"):
         generate_pipeline(0, SEED, assumptions)
+
+
+# --------------------------------------------------------------------------
+# Writing a pipeline replaces the previous one, and only the previous one
+# --------------------------------------------------------------------------
+
+
+def generated_ids(directory: Path) -> list[str]:
+    return sorted(
+        json.loads(path.read_text(encoding="utf-8"))["id"] for path in directory.glob("*.json")
+    )
+
+
+def test_a_smaller_regeneration_removes_the_projects_it_no_longer_produces(
+    assumptions: AssumptionSet, tmp_path: Path
+) -> None:
+    """Writing only the new filenames left the old ones behind.
+
+    Dropping --count from 30 to 10 used to leave 20 stale projects in the
+    directory, which a consumer then loads as though they were part of the run.
+    """
+    write_pipeline(generate_pipeline(30, SEED, assumptions), tmp_path, assumptions)
+    assert len(generated_ids(tmp_path)) == 30
+
+    outcome = write_pipeline(generate_pipeline(10, SEED, assumptions), tmp_path, assumptions)
+    assert len(generated_ids(tmp_path)) == 10
+    assert len(outcome.written) == 10
+    assert len(outcome.replaced) == 20
+
+
+def test_changing_the_seed_does_not_leave_two_files_per_id(
+    assumptions: AssumptionSet, tmp_path: Path
+) -> None:
+    """The sharper version of the same bug, and the one that breaks a load.
+
+    A new seed renames every site, so every *filename* changes while every *id*
+    stays the same. Overwriting by filename therefore produced two files for
+    each id -- and §7.9 aborts the entire load on a duplicate id, so the whole
+    pipeline became unusable rather than merely stale.
+    """
+    write_pipeline(generate_pipeline(12, 1, assumptions), tmp_path, assumptions)
+    before = generated_ids(tmp_path)
+    write_pipeline(generate_pipeline(12, 2, assumptions), tmp_path, assumptions)
+    after = generated_ids(tmp_path)
+
+    assert after == before
+    assert len(after) == len(set(after)) == 12
+
+
+def test_a_file_this_generator_did_not_write_is_left_alone(
+    assumptions: AssumptionSet, tmp_path: Path
+) -> None:
+    """§1: a user adds a project by dropping a file in. It is not ours to delete."""
+    write_pipeline(generate_pipeline(8, SEED, assumptions), tmp_path, assumptions)
+    hand_written = tmp_path / "ANALYST1-hand-written.json"
+    theirs = json.loads((tmp_path / sorted(p.name for p in tmp_path.glob("*.json"))[0]).read_text())
+    theirs["id"] = "ANALYST1"
+    theirs["provenance"]["preparedBy"] = "someone@example.com"
+    hand_written.write_text(json.dumps(theirs), encoding="utf-8")
+
+    outcome = write_pipeline(generate_pipeline(8, 2, assumptions), tmp_path, assumptions)
+    assert hand_written.exists()
+    assert outcome.kept == (hand_written,)
+    assert json.loads(hand_written.read_text(encoding="utf-8"))["id"] == "ANALYST1"
+
+
+def test_an_id_collision_with_somebody_else_s_file_refuses_to_write(
+    assumptions: AssumptionSet, tmp_path: Path
+) -> None:
+    """Better to refuse than to silently overwrite an analyst's project."""
+    built = generate_pipeline(8, SEED, assumptions)
+    write_pipeline(built, tmp_path, assumptions)
+    theirs = as_file(built[0], assumptions)
+    theirs["provenance"]["preparedBy"] = "someone@example.com"
+    (tmp_path / "P1-someone-elses.json").write_text(json.dumps(theirs), encoding="utf-8")
+
+    with pytest.raises(PipelineCollisionError, match="not written by this generator"):
+        write_pipeline(built, tmp_path, assumptions)
+
+
+def test_nothing_is_written_when_the_collision_check_fails(
+    assumptions: AssumptionSet, tmp_path: Path
+) -> None:
+    """A refusal must leave the previous pipeline exactly as it was."""
+    built = generate_pipeline(6, SEED, assumptions)
+    write_pipeline(built, tmp_path, assumptions)
+    before = {path.name: path.read_text(encoding="utf-8") for path in tmp_path.glob("*.json")}
+
+    theirs = as_file(built[0], assumptions)
+    theirs["provenance"]["preparedBy"] = "someone@example.com"
+    intruder = tmp_path / "zz-someone-elses.json"
+    intruder.write_text(json.dumps(theirs), encoding="utf-8")
+
+    with pytest.raises(PipelineCollisionError):
+        write_pipeline(generate_pipeline(6, 2, assumptions), tmp_path, assumptions)
+
+    after = {
+        path.name: path.read_text(encoding="utf-8")
+        for path in tmp_path.glob("*.json")
+        if path != intruder
+    }
+    assert after == before
+
+
+def test_writing_leaves_no_staging_directory_behind(
+    assumptions: AssumptionSet, tmp_path: Path
+) -> None:
+    target = tmp_path / "pipeline"
+    write_pipeline(generate_pipeline(4, SEED, assumptions), target, assumptions)
+    assert sorted(entry.name for entry in tmp_path.iterdir()) == ["pipeline"]
+
+
+def test_the_committed_pipeline_is_what_the_generator_produces(
+    assumptions: AssumptionSet, tmp_path: Path
+) -> None:
+    """The 300 files in `pipeline/` are reproducible from the command that made them."""
+    repo_pipeline = Path(__file__).resolve().parents[2] / "pipeline"
+    committed = {
+        path.name: path.read_text(encoding="utf-8") for path in sorted(repo_pipeline.glob("*.json"))
+    }
+    write_pipeline(generate_pipeline(COUNT, SEED, assumptions), tmp_path, assumptions)
+    regenerated = {
+        path.name: path.read_text(encoding="utf-8") for path in sorted(tmp_path.glob("*.json"))
+    }
+    assert regenerated == committed

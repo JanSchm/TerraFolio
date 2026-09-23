@@ -701,6 +701,13 @@ live control and §7.4's red-below-floor able to fire.
 Parity mode does not resample. The reference's 48 are already inside the band, so the two modes
 cannot disagree about the corpus.
 
+**What the caller decided** (added after review). `build_project` reports `within_band`, and
+`pipeline generate` refuses to write **anything** if any project is outside it, naming each one. An
+earlier version counted every multi-attempt project as "redrawn to bring min DSCR inside its
+plausibility band" and exited zero, which was simply false when the band could not be met — a
+recalibration could have shipped a knowingly out-of-band pipeline that reported success. "Zero
+plausibility warnings" is a property of what ships or it is nothing.
+
 ### A-30 — a workbook is written at full double precision, which Excel itself does not keep
 
 *Raised by issue #8. Affects: #9.*
@@ -737,6 +744,84 @@ The cost is visible and bounded: 35 of 1,440 oracle cells in
 `derived_expectations.json` differ in their last bit, which is why the interpretation sweep compares
 the hold-truncated series, IRR and MOIC at 1e-12 rather than exactly. LCOE and the 30-year IRR have
 no second derivation and are compared exactly, 48/48.
+
+
+### A-32 — a regenerated pipeline replaces what it generated, and nothing else
+
+*Raised by issue #8, in adversarial review. Affects: #6, #9.*
+
+`write_pipeline` wrote its files and left everything else in place. Two ways that goes wrong, and
+both were reachable from ordinary flags:
+
+- Dropping `--count` from 300 to 100 left **200 stale projects** behind, which a loader then reads
+  as part of the run.
+- Changing `--seed` renames every site, so every *filename* changes while every *id* stays the same.
+  Overwriting by filename produced **two files per id** — and §7.9 aborts the whole load on a
+  duplicate id, so the pipeline became unusable rather than merely stale. Measured: 12 projects
+  regenerated under a new seed gave 24 files and 12 duplicated ids.
+
+**Decided.** Three rules, in this order.
+
+1. **The previously generated set is removed, not overwritten.** Ownership is read from
+   `provenance.preparedBy`, which the generator stamps on everything it writes.
+2. **Everything else is left untouched.** [§1](pipeline-schema.md#1-what-a-file-is) has a user
+   adding a project by dropping a file in, so the directory is not the generator's to empty. A file
+   it cannot parse counts as somebody's, not as rubbish.
+3. **A foreign file carrying an id this run would produce raises before anything is written.** That
+   is a genuine conflict with somebody's work, and silently winning it is worse than refusing.
+
+Everything is written to a staging directory and moved in afterwards, so an interrupted run leaves
+the previous pipeline intact rather than a directory half from each generation.
+
+### A-33 — a tie-out failure blocks ingestion; a house-model variance does not
+
+*Raised by issue #8, in adversarial review. Affects: #6, #9.*
+
+`pipeline ingest` validated a workbook through `ProjectFile` and wrote it. That checks shape, domain
+and the reject-derived rule — it does **not** check that the statements agree with each other, and
+`read_workbook` does not evaluate the workbook's own `TieOuts` sheet. A workbook of entirely
+plausible positive numbers whose EBITDA identity was out by €5m was therefore accepted and written
+as canonical pipeline data, against §7's plain statement that such a file *does not load*.
+
+**Decided.** The §7 identities are checked before anything is written, and a failure refuses the
+file with the check, the year and the residual — which is what §7 asks a loader to report.
+
+**The distinction is the point, and it is not the same test.**
+
+| | means | verdict |
+|---|---|---|
+| tie-out failure | the file **disagrees with itself** | blocking |
+| house-model variance | *this model* would have computed something else | advisory (A-7, Q-4) |
+
+There is no coherent reading of a file whose EBITDA is not revenue less opex, so nobody can
+overrule it. There are many good reasons an analyst's model differs from this one — a curtailment
+regime, a tax-loss carryforward, a merchant floor — and gating on those would make the house model
+authoritative again, which is exactly what the input design set out to change. A file whose
+*inputs* were altered still ingests, with the variance reported.
+
+The checks live in `model/tieouts.py` rather than in `pipeline/`, which is #6's row, because the
+generator and the spreadsheet path both have to apply them before writing. `pipeline` ranks below
+`model` in `LAYERS`, so #6 cannot import them as things stand; re-ranking is the one-line change
+that guard's docstring sanctions, and is better than a second copy of the identities.
+
+### A-34 — a project's own text is written to a workbook as text, never as a formula
+
+*Raised by issue #8, in adversarial review. Affects: #9.*
+
+openpyxl infers a cell's type from its value, and a string beginning with `=` becomes a **formula**.
+A project file's `name` is 1–120 characters of free text, and `provenance.preparedBy`,
+`modelVersion` and every `note` likewise; nothing in the schema forbids a leading `=`, and nothing
+should. Exporting such a project wrote a live formula into the workbook, which Excel evaluates when
+an analyst opens it — `HYPERLINK` and the `WEBSERVICE` family reach the network — and the cell
+stopped round-tripping as the text it was.
+
+This is reachable without an attacker: `pipeline ingest` accepts an analyst-authored workbook, and
+`pipeline export` writes any project back out. A name beginning with `=` is enough.
+
+**Decided.** Every text value is written as an explicit string cell. Formulas appear in exactly one
+place, the `TieOuts` sheet, which builds its own from the layout and never from project text.
+Asserted in the stored XML rather than only through openpyxl's reader: `<f>` appears in one of the
+five sheets, and it is that one.
 
 
 ## Open questions
@@ -1690,3 +1775,7 @@ emit one that balances to 4.8e-13 — so the cost looks close to zero, and the
 | 2026-09-22 | #8 | A-31 — the exit bridge reads `debtSchedule.closing` instead of re-amortising. |
 | 2026-09-22 | #8 | The `reconciled` file contract is applied: fixtures regenerated, template and §4.6 updated. |
 | 2026-09-22 | #8 | `assumption_set_id` moves to 9e5bfe51aeb2f40a as the generator and IRR bracket land. |
+| 2026-09-23 | #8 | A-32 — a regenerated pipeline replaces what it generated; a seed change used to duplicate every id. |
+| 2026-09-23 | #8 | A-33 — tie-out failures block ingestion; a house-model variance stays advisory. |
+| 2026-09-23 | #8 | A-34 — project text is written as an explicit string cell, never as an Excel formula. |
+| 2026-09-23 | #8 | A-29 extended — `pipeline generate` refuses to write when any project is outside the band. |

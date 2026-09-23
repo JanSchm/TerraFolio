@@ -13,10 +13,9 @@ with their bracketing preserved, because the same code has to reproduce the
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final
 
 from terrafolio.config.assumptions import AssumptionSet, Range
-from terrafolio.domain.conventions import EUR_PER_EUR_MILLION
+from terrafolio.domain.conventions import EUR_PER_EUR_MILLION, KW_PER_MW
 from terrafolio.domain.enums import Stage, Technology
 from terrafolio.generate.draws import DrawSource
 from terrafolio.generate.sites import Site, market_key
@@ -186,9 +185,6 @@ def draw_project(site: Site, draw: DrawSource, assumptions: AssumptionSet) -> Dr
     )
 
 
-_KW_PER_MW: Final = 1_000  # structural: unit definition, not a calibration value
-
-
 def _probe(site: Site, assumptions: AssumptionSet, **drawn: float | int) -> ProjectInputs:
     """The model's inputs for a project whose capital structure is not yet known.
 
@@ -234,7 +230,7 @@ def _price(
     capex_per_kw, clamp = entry_capex_per_kw(
         stabilised, site.capacity_mw, entry_yield, band.low, band.high
     )
-    total_capex = site.capacity_mw * _KW_PER_MW * capex_per_kw / EUR_PER_EUR_MILLION
+    total_capex = site.capacity_mw * KW_PER_MW * capex_per_kw / EUR_PER_EUR_MILLION
     max_gearing = validation.stage_gearing_ceiling[site.stage]
     terms = DebtTerms(
         target_dscr=generator.target_dscr,

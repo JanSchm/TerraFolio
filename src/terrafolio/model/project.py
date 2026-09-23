@@ -45,7 +45,7 @@ from typing import Final, NamedTuple
 import numpy as np
 import numpy.typing as npt
 
-from terrafolio.domain.conventions import EUR_PER_EUR_MILLION, MWH_PER_GWH, YEARS
+from terrafolio.domain.conventions import EUR_PER_EUR_MILLION, KW_PER_MW, MWH_PER_GWH, YEARS
 from terrafolio.model.annuity import Schedule, annuity_payment_factor, schedule
 
 __all__ = [
@@ -59,7 +59,6 @@ __all__ = [
     "stabilised_ebitda",
 ]
 
-_KW_PER_MW: Final = 1_000  # structural: unit definition, not a calibration value
 _F64: Final = np.float64
 
 
@@ -202,7 +201,7 @@ def stabilised_ebitda(inputs: ProjectInputs) -> float:
     revenue = generation * MWH_PER_GWH * price / EUR_PER_EUR_MILLION
     opex = (
         inputs.capacity_mw
-        * _KW_PER_MW
+        * KW_PER_MW
         * inputs.opex_per_kw_year
         * (1 + inputs.opex_escalation)
         / EUR_PER_EUR_MILLION
@@ -225,7 +224,7 @@ def entry_capex_per_kw(
     ``"floor"``, ``"cap"`` or ``"none"``. The caller recomputes total capex from
     the **clamped** figure, which is the whole point of clamping.
     """
-    unclamped = stabilised / entry_yield / capacity_mw / _KW_PER_MW * EUR_PER_EUR_MILLION
+    unclamped = stabilised / entry_yield / capacity_mw / KW_PER_MW * EUR_PER_EUR_MILLION
     if unclamped < low:
         return low, "floor"
     if unclamped > high:
@@ -379,7 +378,7 @@ def project_statements(inputs: ProjectInputs) -> ProjectStatements:
         )
         opex[index] = (
             inputs.capacity_mw
-            * _KW_PER_MW
+            * KW_PER_MW
             * inputs.opex_per_kw_year
             * (1 + inputs.opex_escalation) ** age
             / EUR_PER_EUR_MILLION

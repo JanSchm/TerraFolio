@@ -11,6 +11,7 @@ from typing import Final
 
 __all__ = [
     "EUR_PER_EUR_MILLION",
+    "KW_PER_MW",
     "MWH_PER_GWH",
     "YEARS",
     "canonical_order",
@@ -37,6 +38,13 @@ out — name the same number instead of each spelling ``1e6``.
 
 MWH_PER_GWH: Final = 1_000
 """Definitional. Used where €/MWh prices meet GWh volumes."""
+
+KW_PER_MW: Final = 1_000
+"""Definitional, and the same number as :data:`MWH_PER_GWH` for a different reason.
+
+Used where a €/kW opex or capex meets a capacity in MW. Named apart because reading
+``MWH_PER_GWH`` in a cost line is how a unit error survives review.
+"""
 
 
 def canonical_order(ids: Iterable[str]) -> tuple[str, ...]:

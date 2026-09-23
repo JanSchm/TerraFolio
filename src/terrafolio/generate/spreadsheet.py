@@ -171,6 +171,9 @@ type the analyst never typed.
 # the offsets and the sheets cannot drift apart. `Statements` carries a path and
 # a unit before the first year; `TieOuts` carries a check, a breach and a status,
 # which is why it is shifted one column right of `Statements` for the same year.
+_TEXT_CELL: Final = "s"
+"""openpyxl's data type for a string cell, as opposed to ``"f"`` for a formula."""
+
 _HEADER_ROWS: Final = 1
 _FIRST_FIELD_ROW: Final = _HEADER_ROWS + 1
 
@@ -249,6 +252,28 @@ def _plant(file: dict[str, Any], path: str, value: Any) -> None:
 # --------------------------------------------------------------------------
 
 
+def _append(sheet: Worksheet, values: list[Any]) -> None:
+    """Append a row, writing every text value as an **explicit string cell**.
+
+    openpyxl infers a cell's type from its value, and a string beginning with
+    ``=`` becomes a *formula*. Several fields a project file may legitimately
+    carry are free text an analyst controls -- ``name``, ``provenance.preparedBy``,
+    ``modelVersion`` and every ``note`` -- and the schema has no reason to forbid
+    a leading ``=``. Left inferred, exporting such a project writes a live
+    formula into the workbook, which Excel evaluates when an analyst opens it:
+    ``=HYPERLINK("http://...")`` and the ``WEBSERVICE`` family reach the network,
+    and the cell no longer round-trips as the text it was.
+
+    So text is written as text. Formulas appear in exactly one place -- the
+    ``TieOuts`` sheet, which builds its own and does not come through here.
+    """
+    sheet.append(values)
+    row = sheet.max_row
+    for column, value in enumerate(values, start=1):
+        if isinstance(value, str):
+            sheet.cell(row=row, column=column).data_type = _TEXT_CELL
+
+
 def _write_pairs(
     sheet: Worksheet,
     fields: tuple[tuple[str, str], ...],
@@ -256,37 +281,37 @@ def _write_pairs(
     footnote: str | None = None,
 ) -> None:
     """A path/value/unit sheet, optionally closed by a blank row and a footnote."""
-    sheet.append(list(_PAIR_HEADER))
+    _append(sheet, list(_PAIR_HEADER))
     for path, unit in fields:
-        sheet.append([path, _dig(file, path), unit or None])
+        _append(sheet, [path, _dig(file, path), unit or None])
     if footnote:
         sheet.append([])
-        sheet.append([footnote])
+        _append(sheet, [footnote])
 
 
 def _write_provenance(sheet: Worksheet, file: dict[str, Any]) -> None:
-    sheet.append(list(_PROVENANCE_HEADER))
+    _append(sheet, list(_PROVENANCE_HEADER))
     for path in PROVENANCE_SCALARS:
-        sheet.append([path, _dig(file, path)])
-    sheet.append(["per field group"])
+        _append(sheet, [path, _dig(file, path)])
+    _append(sheet, ["per field group"])
     groups = file["provenance"]["fields"]
     for name in PROVENANCE_GROUPS:
         entry = groups[name]
-        sheet.append([name, entry["estimateBasis"], entry["confidence"], entry.get("note")])
+        _append(sheet, [name, entry["estimateBasis"], entry["confidence"], entry.get("note")])
     sheet.append([])
-    sheet.append([_PROVENANCE_FOOTNOTE])
+    _append(sheet, [_PROVENANCE_FOOTNOTE])
 
 
 def _write_statements(sheet: Worksheet, file: dict[str, Any]) -> None:
     statements = file["statements"]
-    sheet.append([*_SERIES_HEADER, *statements["years"]])
+    _append(sheet, [*_SERIES_HEADER, *statements["years"]])
     for block, lines in STATEMENT_BLOCKS:
-        sheet.append([block])
+        _append(sheet, [block])
         for line, unit in lines:
             values = statements[block][line]
-            sheet.append([f"{block}.{line}", unit, *values])
+            _append(sheet, [f"{block}.{line}", unit, *values])
     sheet.append([])
-    sheet.append([_STATEMENTS_FOOTNOTE])
+    _append(sheet, [_STATEMENTS_FOOTNOTE])
 
 
 def _cell(row: int, offset: int) -> str:
@@ -520,7 +545,7 @@ def _write_tieouts(sheet: Worksheet, file: dict[str, Any]) -> None:
     rows = statement_rows()
     last_year_column = get_column_letter(_TIEOUT_YEAR_COLUMN + YEARS - 1)
     first_year_column = get_column_letter(_TIEOUT_YEAR_COLUMN)
-    sheet.append([*_TIEOUT_HEADER, *file["statements"]["years"]])
+    _append(sheet, [*_TIEOUT_HEADER, *file["statements"]["years"]])
 
     row = _FIRST_FIELD_ROW
     for label, formulas in _per_year_checks(rows):
@@ -537,7 +562,7 @@ def _write_tieouts(sheet: Worksheet, file: dict[str, Any]) -> None:
         sheet.append([label, formula, f'=IF(B{row}=0,"PASS","FAIL")'])
         row += 1
     sheet.append([])
-    sheet.append([_TIEOUTS_FOOTNOTE])
+    _append(sheet, [_TIEOUTS_FOOTNOTE])
 
 
 @contextmanager

@@ -26,7 +26,8 @@ checked against it on every file this module writes.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
@@ -43,6 +44,8 @@ from terrafolio.model.project import ProjectInputs, ProjectStatements, min_dscr,
 
 __all__ = [
     "BuiltProject",
+    "PipelineCollisionError",
+    "WriteOutcome",
     "build_project",
     "generate_pipeline",
     "reference_pipeline",
@@ -65,9 +68,19 @@ class BuiltProject:
     """A drawn project, its statements, and the figures a caller wants to check."""
 
     drawn: DrawnProject
+    inputs: ProjectInputs
     statements: ProjectStatements
     min_dscr: float
     attempts: int
+    within_band: bool
+    """Whether min DSCR landed inside §10's plausibility band.
+
+    Stated rather than inferred from ``attempts``: a project that exhausted its
+    redraws and one that needed none both have a defensible attempt count, and
+    only this says whether the redrawing actually worked. A-29 leaves it to the
+    caller to decide whether an unplaceable site is a warning or a failure, and
+    a caller cannot decide what it is not told.
+    """
 
     @property
     def site(self) -> Site:
@@ -114,9 +127,11 @@ def build_project(
     that is still a pure function of the project's own identity.
 
     A project that cannot be brought inside the band is returned anyway, with
-    its attempt count, rather than raising: the caller decides whether an
+    ``within_band`` false, rather than raising: the caller decides whether an
     unplaceable site is a warning or a failure, and silently dropping one would
-    make ``--count`` a suggestion.
+    make ``--count`` a suggestion. The CLI's decision is to refuse to write the
+    pipeline at all, which is what keeps "zero plausibility warnings" a property
+    of what ships rather than of a happy path.
     """
     band = assumptions.validation.min_dscr_band
     attempts = assumptions.generator.dscr_resample_attempts if index is None else 1
@@ -129,14 +144,21 @@ def build_project(
             else project_stream(site.id, assumptions.assumption_set_id, attempt)
         )
         drawn = draw_project(site, stream, assumptions)
-        statements = project_statements(_inputs(drawn, assumptions))
+        inputs = _inputs(drawn, assumptions)
+        statements = project_statements(inputs)
         cover = min_dscr(
             statements.dscr, ramp_index(site.cod_year, assumptions.generator.base_year)
         )
+        placed = bool(not np.isfinite(cover) or band.low <= cover <= band.high)
         built = BuiltProject(
-            drawn=drawn, statements=statements, min_dscr=cover, attempts=attempt + 1
+            drawn=drawn,
+            inputs=inputs,
+            statements=statements,
+            min_dscr=cover,
+            attempts=attempt + 1,
+            within_band=placed,
         )
-        if not np.isfinite(cover) or band.low <= cover <= band.high:
+        if placed:
             return built
     assert built is not None
     return built
@@ -341,17 +363,127 @@ def _slug(name: str) -> str:
     return "".join(keep).strip("-").replace("--", "-")
 
 
+class PipelineCollisionError(RuntimeError):
+    """A generated project would overwrite a file this generator did not write."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WriteOutcome:
+    """What ``write_pipeline`` did, so the caller can say so."""
+
+    written: tuple[Path, ...]
+    replaced: tuple[Path, ...]
+    """Previously generated files removed, because this run no longer produces them."""
+    kept: tuple[Path, ...]
+    """Files this generator did not write, left exactly as they were."""
+
+
+def _previously_generated(directory: Path) -> tuple[dict[Path, str], tuple[Path, ...]]:
+    """Split a pipeline directory into what this generator wrote and what it did not.
+
+    A pipeline is "a directory of project files, one per park" that a user adds
+    to by dropping a file in (§1), so the directory is not the generator's to
+    empty. Ownership is read from ``provenance.preparedBy``, which the generator
+    stamps on everything it writes -- a file it cannot parse, or one prepared by
+    anybody else, is somebody's work and is left alone.
+    """
+    ours: dict[Path, str] = {}
+    theirs: list[Path] = []
+    for path in sorted(directory.glob("*.json")):
+        try:
+            file = json.loads(path.read_text(encoding="utf-8"))
+            prepared_by = file["provenance"]["preparedBy"]
+            identifier = file["id"]
+        except (OSError, ValueError, KeyError, TypeError):
+            theirs.append(path)
+            continue
+        if prepared_by == PREPARED_BY and isinstance(identifier, str):
+            ours[path] = identifier
+        else:
+            theirs.append(path)
+    return ours, tuple(theirs)
+
+
+def _project_ids(paths: tuple[Path, ...]) -> dict[str, Path]:
+    found: dict[str, Path] = {}
+    for path in paths:
+        try:
+            found[json.loads(path.read_text(encoding="utf-8"))["id"]] = path
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return found
+
+
 def write_pipeline(
     projects: list[BuiltProject], directory: Path, assumptions: AssumptionSet
-) -> Iterator[Path]:
-    """Write one file per project, named ``<id>-<slug>.json``.
+) -> WriteOutcome:
+    """Replace the generated pipeline in ``directory``, atomically and in place.
 
-    The name is for a human reading a directory listing; ``id`` is what
-    identifies a project, and the loader does not look at file names (§1).
+    Three things this has to get right, and the naive version gets none of them:
+
+    **A regenerated pipeline replaces the previous one.** Writing only the new
+    filenames leaves the old ones behind. Dropping ``--count`` from 300 to 100
+    left 200 stale projects; changing ``--seed`` changed every site's name and so
+    every *filename* while leaving the *ids* the same, which produced two files
+    per id -- and §7.9 aborts the whole load on a duplicate id. So the previously
+    generated set is removed, not merely overwritten.
+
+    **The directory is not the generator's to empty.** §1 has a user adding a
+    project by dropping a file in, so anything this generator did not write is
+    left untouched, identified by the ``provenance.preparedBy`` it stamps. If one
+    of those carries an id this run also produces, that is a genuine conflict
+    with somebody's work and it raises before anything is written.
+
+    **A failed run leaves the previous pipeline intact.** Every file is written
+    to a staging directory first and moved in afterwards, so the long, fallible
+    part -- building and serialising every project -- cannot touch the target at
+    all. The swap itself is a sequence of unlinks and renames rather than one
+    atomic operation, so an interruption *inside* it can still leave a partial
+    directory; the staging directory is left in place when that happens, which
+    is what distinguishes it from a clean run.
     """
+    payloads = {
+        f"{built.site.id}-{_slug(built.site.name)}.json": json.dumps(
+            as_file(built, assumptions), indent=_JSON_INDENT, ensure_ascii=False
+        )
+        + "\n"
+        for built in projects
+    }
+    if len(payloads) != len(projects):
+        raise PipelineCollisionError("two generated projects share a file name")
+
     directory.mkdir(parents=True, exist_ok=True)
-    for built in projects:
-        path = directory / f"{built.site.id}-{_slug(built.site.name)}.json"
-        payload = json.dumps(as_file(built, assumptions), indent=_JSON_INDENT, ensure_ascii=False)
-        path.write_text(payload + "\n", encoding="utf-8")
-        yield path
+    ours, theirs = _previously_generated(directory)
+    incoming = {built.site.id for built in projects}
+    conflicts = sorted(
+        f"{path.name} (id {identifier})"
+        for identifier, path in _project_ids(theirs).items()
+        if identifier in incoming
+    )
+    if conflicts:
+        raise PipelineCollisionError(
+            "refusing to write: these files were not written by this generator and "
+            "carry an id it would produce, so one of the two would be lost:\n  "
+            + "\n  ".join(conflicts)
+        )
+
+    # Unique per process: a fixed name would have two concurrent generates
+    # writing into the same staging directory and each deleting the other's work.
+    staging = directory.parent / f".{directory.name}.staging-{os.getpid()}"
+    if staging.exists():
+        shutil.rmtree(staging)
+    staging.mkdir(parents=True)
+    try:
+        for name, payload in payloads.items():
+            (staging / name).write_text(payload, encoding="utf-8")
+        superseded = tuple(path for path in ours if path.name not in payloads)
+        for path in ours:
+            path.unlink()
+        written = []
+        for name in payloads:
+            target = directory / name
+            (staging / name).replace(target)
+            written.append(target)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    return WriteOutcome(written=tuple(written), replaced=superseded, kept=theirs)
