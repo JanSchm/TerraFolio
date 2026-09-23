@@ -258,9 +258,14 @@ field for a fixed set of mandates. If they diverge, the client is wrong.
   "lockedEquity_m": 0,
   "warnings": [ { "code": "CAPACITY_BELOW_TARGET", "severity": "alert",
                   "message": "Eligible pipeline is 1,180 MW — below the 1,500 MW target." } ],
+  "screensToWiden": ["riskScore", "minDscr"],
   "runnable": true
 }
 ```
+
+`screensToWiden` names the screens rejecting candidates, worst offender first, which is §13's
+"naming the screens to widen". It is advisory on a runnable mandate and the actionable half of the
+answer on one that is not.
 
 and, when the locks alone cannot be funded:
 
@@ -268,27 +273,37 @@ and, when the locks alone cannot be funded:
 {
   "eligibleCount": 214, "totalCount": 300,
   "lockedEquity_m": 1420,
-  "warnings": [ { "code": "LOCKS_EXCEED_CAPITAL", "severity": "blocking",
-                  "message": "Locked projects need €1,420m of equity against €1,200m available. Release a lock to run.",
-                  "detail": { "availableCapital_m": 1200, "excess_m": 220,
-                              "lockedIds": ["P01","P17","P44"] } } ],
+  "warnings": [ { "code": "LOCKS_EXCEED_CAPITAL", "severity": "alert",
+                  "message": "Locked projects need €1,420m of equity against €1,200m available. Release a lock to run." } ],
+  "screensToWiden": [],
   "runnable": false
 }
 ```
 
 `warnings` are ordered by the §5.4 severity, which is **not** the order the design mockup emits them
-in (A-5). `severity` is `blocking`, `alert` or `info`. Strings are pinned in
-[`ui-contract.md` §3.5](ui-contract.md#35-warning-strings).
+in (A-5). Strings are pinned in [`ui-contract.md` §3.5](ui-contract.md#35-warning-strings).
 
-| Code | Severity | |
-|---|---|---|
-| `NO_CANDIDATES` | blocking | Nothing passes the screens. |
-| `LOCKS_EXCEED_CAPITAL` | blocking | The locked projects alone need more equity than is available. `detail` carries `lockedEquity_m`, `availableCapital_m`, `excess_m` and `lockedIds`. |
-| `CAPACITY_BELOW_TARGET` | alert | |
-| `LEVERAGE_UNREACHABLE` | alert | |
-| `SOLAR_MIX_UNREACHABLE` | info | |
-| `CAPITAL_UNDERUSED` | info | |
-| `LOCKS_PRESENT` | info | |
+**`severity` is `alert` or `info`. It is never `blocking`.** An earlier draft of this document wrote
+`"severity": "blocking"` on the two blocking codes; 1A's `WarningSeverity` admits two values and
+validates that a warning's severity is the one its *code* carries, and that model is both the
+executable definition of the schema and what the store persists. Whether a warning stops the run is
+a property of the code — `WarningCode.disables_run`, true for exactly `NO_CANDIDATES` and
+`LOCKS_EXCEED_CAPITAL` — and it reaches a client as **`runnable`**. So severity says how loudly to
+render it and `runnable` says whether the button works, and the two cannot contradict each other.
+
+The numbers a client needs to act on a block are in the sentence, and in the **422** body's `detail`
+when the run is actually attempted — see [§6.3](#63-responses). The preview does not repeat them
+per warning.
+
+| Code | Severity | Blocks | |
+|---|---|---|---|
+| `NO_CANDIDATES` | alert | **yes** | Nothing passes the screens. |
+| `LOCKS_EXCEED_CAPITAL` | alert | **yes** | The locked projects alone need more equity than is available. The **422** carries `lockedEquity_m`, `availableCapital_m`, `excess_m` and `lockedIds` in `detail`. |
+| `CAPACITY_BELOW_TARGET` | alert | no | |
+| `LEVERAGE_UNREACHABLE` | alert | no | |
+| `SOLAR_MIX_UNREACHABLE` | info | no | |
+| `CAPITAL_UNDERUSED` | info | no | |
+| `LOCKS_PRESENT` | info | no | |
 
 **`runnable` is `false` if and only if some warning is `blocking`**, and those are exactly the two
 conditions `POST /optimisations` answers with `422`. Preview and run must agree: a preview that

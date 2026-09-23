@@ -127,16 +127,16 @@ def _tokens(colour: Mapping[str, Any]) -> str:
     """
     divider = f"color-mix(in srgb, {colour['text']} {_pct(colour['dividerAlpha'])}, transparent)"
     muted = f"color-mix(in srgb, {colour['text']} {_pct(colour['mutedAlpha'])}, transparent)"
+    # The key is the property name, verbatim. Kebab-casing it turned
+    # `neutral200` into `--pack-neutral-2-0-0` while the SVG still asked for
+    # `var(--pack-neutral200)`, so every numbered token silently fell back to
+    # its initial value — which is black for `fill`, and is why the map came out
+    # a solid block. `test_every_colour_token_the_pack_uses_is_declared` is the
+    # guard that would have caught it.
     named = "\n".join(
-        f"  --pack-{_kebab(name)}: {value};"
-        for name, value in colour.items()
-        if isinstance(value, str)
+        f"  --pack-{name}: {value};" for name, value in colour.items() if isinstance(value, str)
     )
     return f":root {{\n{named}\n  --pack-divider: {divider};\n  --pack-muted: {muted};\n}}"
-
-
-def _kebab(name: str) -> str:
-    return re.sub(r"(?<!^)(?=[A-Z0-9])", "-", name).lower()
 
 
 def _pct(fraction: float) -> str:

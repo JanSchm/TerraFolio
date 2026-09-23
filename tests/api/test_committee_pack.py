@@ -374,3 +374,28 @@ def test_the_projection_agrees_with_d3_geo(tmp_path: Path) -> None:
         got_x, got_y = project(lon, lat)
         assert got_x == pytest.approx(x, abs=1e-9)
         assert got_y == pytest.approx(y, abs=1e-9)
+
+
+def test_every_colour_token_the_pack_uses_is_declared(packed: bytes) -> None:
+    """A ``var()`` naming a property nothing declares falls back silently.
+
+    That is not a cosmetic failure: an undeclared ``fill`` resolves to its
+    initial value, which is **black**, so the whole map renders as a solid
+    block and every assertion about paths and markers still passes. This test
+    exists because that happened.
+    """
+    document = packed.decode("utf-8")
+    used = set(re.findall(r"var\(\s*(--pack-[a-zA-Z0-9-]+)", document))
+    declared = set(re.findall(r"(--pack-[a-zA-Z0-9-]+)\s*:", document))
+    assert used, "the pack stopped using its own tokens"
+    assert used <= declared, f"undeclared: {sorted(used - declared)}"
+
+
+def test_the_map_is_not_one_flat_colour(packed: bytes) -> None:
+    """Held countries and the rest are different fills (ui-contract §5.3)."""
+    document = packed.decode("utf-8")
+    fills = set(re.findall(r'<path d="[^"]+" fill="([^"]+)"', document))
+    assert fills == {"var(--pack-accent200)", "var(--pack-neutral200)"}, fills
+    markers = set(re.findall(r'<circle [^>]*fill="(var\([^)]+\))"', document))
+    assert markers <= {"var(--pack-accent700)", "var(--pack-accent400)"}
+    assert markers, "no site markers"

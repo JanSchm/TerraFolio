@@ -2355,6 +2355,182 @@ storing the floor as text.
 
 ---
 
+---
+
+## 3A — the API, the stream, the runner and the committee pack
+
+Issue [#9](https://github.com/JanSchm/TerraFolio/issues/9). Epic §8 makes 3A the wire contract's
+owner of record once it implements it, so the reconciliations below are decisions, announced on
+[#1](https://github.com/JanSchm/TerraFolio/issues/1#issuecomment-5803582910) rather than negotiated.
+
+### 3A-1 · A run in flight returns 200, not 202
+
+Issue #9's endpoint table says "**202** with `{status, generation}` while in flight";
+`docs/api.md` §8 says a run still in flight returns **200** with `status: "running"` and no
+`aggregates`. §8 wins, because #9 itself says to match `api.md` exactly and #11 is being built
+against it.
+
+It is also the better answer on its own terms. The run *is* the resource; 202 would say the request
+to **read** it had been accepted, which is not what is being reported. #9's intent — that a
+non-streaming client can poll progress — is preserved additively: the in-flight body now carries
+`generation` and `totalGenerations` alongside `status`. A `failed` or `cancelled` run is likewise
+200, carrying its `error` block: a failed run is audit trail (§12), not a 404.
+
+### 3A-2 · `id:` is the generation number, and terminal frames carry none
+
+The stream needs a resume cursor, and SSE already has one. Every `generation` frame carries
+`id: <generation>`, so `Last-Event-ID: 20` resumes at 21 with no bookkeeping on either side — a
+browser's `EventSource` sends the header itself on reconnect.
+
+`status`, `done` and `failed` deliberately carry **no** `id:`. An id on a terminal frame would
+collide with the generation sequence, and under the EventSource specification a frame without one
+leaves the client's cursor where it was — which is exactly what a reconnect after `done` needs.
+
+The terminal failure frame is `event: failed` with `{"runId", "error": {"code", "message"}}`, as
+`api.md` §7 has it, not the `event: error` in #9's sketch. Same reason as 3A-1.
+
+### 3A-3 · `410 RUN_EXPIRED` is reserved and never emitted
+
+§7 offered it for "the stream has closed and the result is available instead". Because the event log
+is durable and is the stream's source of truth, a completed run's stream still replays every
+generation and then sends `done` — which is what #9's acceptance criteria require. Nothing prunes
+`run_event`, so no stream can expire. Implementing 410 would mean an unreachable branch that
+contradicts the replay guarantee, so the code stays in §11's table as reserved.
+
+### 3A-4 · An empty `countries` or `stages` is 400, not 422
+
+`api.md` §6.1 said an empty list was accepted and answered `NO_CANDIDATES`. 1A's
+`domain/mandate.py` requires at least one of each, and epic §8 makes that model the executable
+definition of the schema — so 3A conforms and the document records the model's rule.
+
+It is also the more useful distinction. "You have selected no countries" is a fault in the mandate,
+which is what 400 with `detail.field` says. `NO_CANDIDATES` keeps its own meaning: the mandate is
+coherent and the pipeline has nothing that fits it — a COD window the corpus does not reach, a DSCR
+floor nothing clears. Collapsing the two would have told a user to widen screens that were never
+narrow.
+
+### 3A-5 · `severity` is `alert` or `info`; `runnable` carries the block
+
+`api.md` §5 wrote `"severity": "blocking"` on the two blocking codes. 1A's `WarningSeverity` admits
+`alert` and `info` only, and `FeasibilityWarning` validates that a warning's severity is the one its
+**code** carries — so the model could not emit "blocking" even if the document asked for it, and 2B
+stores that model.
+
+Whether a warning stops the run is a property of the code (`WarningCode.disables_run`, true for
+exactly `NO_CANDIDATES` and `LOCKS_EXCEED_CAPITAL`) and reaches a client as `runnable`. Severity
+says how loudly to render a warning; `runnable` says whether the button works. `web/js/feasibility.js`
+still emits `severity: 'blocking'` client-side — **#10 or #11 should reconcile it**, since the server
+and the store agree with each other and not with the page.
+
+### 3A-6 · The API draws the seed, because the store cannot hold numpy's
+
+`resolve_seed(None)` draws from `numpy.random.SeedSequence`, whose entropy is **128 bits**;
+`run.seed` is a SQLite `INTEGER`, which is signed 64-bit. So every unseeded run — the default path,
+since `seed` is optional on the wire — searched correctly and then failed to store with
+`OverflowError`. Found by the first test that omitted a seed.
+
+Fixed at the API boundary rather than by changing either owner's code: the handler draws
+`secrets.randbits(63)` and passes it to `resolve_seed` explicitly. `secrets` for the same reason
+`resolve_seed` uses the operating system — a seed out of a seeded stream would make two "unseeded"
+runs identical. `OptimisationRequest.seed` is bounded to the same range, so an oversized
+client-supplied seed is a 400 on the wire rather than a 500 at the insert.
+
+### 3A-7 · `blasThreads` records what the run had, not what was asked for
+
+Every threading library reads its environment variable once, when its shared object loads — which
+happens on the first `import numpy` in a process. A pin applied afterwards changes the environment
+and nothing else. So `pin_threads` records **whether it was in time**, and `observed_threads` reports
+the inherited count when it was not.
+
+A pool worker pins before numpy loads and honestly reports 1; an in-process run on a live server
+honestly reports the eight threads it had. A provenance block claiming a determinism the run did not
+have would invite a reproduction attempt that cannot succeed and give no clue why.
+`deterministic_reduction` on the run row is `blas_threads == 1`, and
+`api/records.py` refuses a record whose worker reported a different count from the one submission
+recorded.
+
+### 3A-8 · The worker verifies the hash it was given
+
+409 at the front door catches a client holding a stale `pipelineHash`. It cannot catch a directory
+edited between acceptance and execution. The worker loads the pipeline itself — cached per process
+by `(directory, hash)`, so only the first run in each worker pays the ~250 ms load — and refuses to
+run if what it read does not hash to what the run was accepted against. A run whose provenance names
+one snapshot while its numbers came from another is not auditable, and this is the only place that
+can prove it did not happen.
+
+### 3A-9 · The committee pack renders itself, server-side, with no JavaScript
+
+#9 suggests inlining "the portfolio page's JS modules". Those modules — `portfolio.js`, `charts.js`,
+`map.js`, `table.js` — are #11's and do not exist yet, so the pack renders its own markup instead.
+That is not a workaround forced by sequencing; it is the better artefact:
+
+* A pack opens from `file://`, where a module script and `fetch` are both CORS-blocked (A-15).
+* §7.7's output is a **print**, and a page whose content appears only after a script has run prints
+  differently depending on when the dialog opened.
+* It is a third of the size: ~375 KB rendered, against ~850 KB with Alpine, d3 and the atlas inlined.
+
+The map's projection is therefore reimplemented in Python — `d3.geoMercator`, centre `[12, 55]`,
+scale `width × 1.15`, as `ui-contract.md` §5.3 pins it — rather than shipping 36 KB of `d3-geo`,
+17 KB of `d3-array` and a 108 KB atlas in every pack. "Reimplemented" is only defensible if it is
+pinned, so `tests/api/test_committee_pack.py` drives the vendored library under node and compares:
+the two agree to **3.4e-13 px**. The raw formula is spelled as d3 spells it, `log(tan((π/2 + φ)/2))`,
+so they agree in the last bits rather than to within a rounding.
+
+Countries are matched to the atlas by **name**, which works because `generate/countries.json` and
+the Natural Earth corpus agree on all fourteen markets. An unmatched country is simply not
+highlighted; the markers, which carry the actual portfolio, are plotted from the run's own
+coordinates regardless (§13).
+
+### 3A-10 · The pack's display constants live in a data file
+
+`pack-layout.json` holds every colour, band and geometry the pack draws with, quoting
+`ui-contract.md` §1.1, §5.1, §5.2, §5.3 and §6. The same argument as
+`src/terrafolio/generate/countries.json`: these are a quotation of a document rather than
+calibration the engine reads, and a display constant written into a source file is one nobody can
+audit against the document it came from. `tests/api/test_committee_pack.py` parses `ui-contract.md`
+and asserts they still match.
+
+The pack declares §1.1's palette as its own custom properties because the compiled Tailwind
+stylesheet resolves its tokens into utility classes and emits none. That is a real hazard, and it
+bit: kebab-casing the token names turned `neutral200` into `--pack-neutral-2-0-0` while the SVG
+still asked for `var(--pack-neutral200)`, so every numbered token fell back to its initial value —
+**black** for `fill` — and the map rendered as one solid block while every structural assertion
+still passed. Two tests now guard it: one asserts every `var(--pack-*)` used is declared, the other
+that the map carries two distinct country fills.
+
+### 3A-11 · The §5.4 sentences live in Python, pinned to the document
+
+`optimiser/feasibility.py` deliberately emits a code and its numbers in euros and never prose, but
+`api.md` §5 puts `message` on the wire for non-browser clients and for #12's parity tests. So
+`api/messages.py` holds §3.5's and §3.6's sentences **verbatim**, with their own placeholders, and
+`tests/api/test_messages.py` parses those sections out of the markdown and asserts each template
+still matches. Copy that drifts is then a failing test rather than a discrepancy found by an
+investor reading a warning that no longer matches the screen.
+
+Figures go through `export/csv.py`'s formatters — the same ones the CSV header uses — so one
+rounding rule serves every server-rendered number, with the unit stripped where the sentence
+supplies it rather than rounded a second time.
+
+### 3A-12 · The snapshot's report is stamped with the load's time
+
+`record_pipeline_snapshot` is content-addressed and compares the stored validation report against
+the one offered. Building that report with `datetime.now()` at record time therefore made the second
+record of an **unchanged** pipeline look like a conflicting one, and 409'd every run after the
+first. The report is stamped with the load's own `loaded_at`, which is the value it describes.
+
+### 3A-13 · Two small ones
+
+`GET /pipeline?assumptionSetId=` is accepted only when it names the set the server is running;
+anything else is 400. v1 loads one set at startup and records every run against it, so serving the
+active set under another id would attach the wrong calibration to whatever the client did next.
+
+A plausibility warning's project id is recovered from the leading `"{id}: "` of its message and
+**checked against the loaded ids**, because `pipeline/validator.py`'s `PlausibilityWarning` carries
+only `check` and `message` while `api.md` §3 puts an `id` on the wire. A warning that does not match
+the convention reports `null` rather than a guess. Worth folding into 2A's own record if that module
+is revisited.
+
+
 ## Log
 
 | Date | Issue | Entry |
@@ -2461,3 +2637,16 @@ storing the floor as text.
 | 2026-09-23 | #8 | A-29 extended — `pipeline generate` refuses to write when any project is outside the band. |
 | 2026-09-23 | #8 | A-35 — 2C converges onto 2A's `economics/` and `pipeline/validator.py`; the LCOE basis is spelled 2A's way and the duplicate IRR bracket is gone. |
 | 2026-09-23 | #8 | A-29 extended again — a site the model cannot place inside §10's band is skipped and the pool drawn deeper, rather than shipped with a warning. |
+| 2026-09-24 | #9 | 3A-1 — a run in flight is 200 with `status`, not 202. |
+| 2026-09-24 | #9 | 3A-2 — `id:` is the generation number; terminal frames carry none; the failure frame is `failed`. |
+| 2026-09-24 | #9 | 3A-3 — `410 RUN_EXPIRED` reserved and never emitted; the durable log means no stream expires. |
+| 2026-09-24 | #9 | 3A-4 — an empty `countries` or `stages` is 400 `INVALID_MANDATE`, conforming to 1A's model. |
+| 2026-09-24 | #9 | 3A-5 — `severity` is `alert` or `info`; `runnable` carries the block. `feasibility.js` still says `blocking`. |
+| 2026-09-24 | #9 | 3A-6 — the API draws a 63-bit seed; numpy's 128-bit entropy does not fit `run.seed`. |
+| 2026-09-24 | #9 | 3A-7 — `blasThreads` records the count the run actually had, not the one requested. |
+| 2026-09-24 | #9 | 3A-8 — the worker re-verifies the pipeline hash it was given. |
+| 2026-09-24 | #9 | 3A-9 — the committee pack is server-rendered with no JavaScript; the projection is pinned to d3-geo at 3.4e-13 px. |
+| 2026-09-24 | #9 | 3A-10 — the pack's display constants live in `pack-layout.json`, checked against `ui-contract.md`. |
+| 2026-09-24 | #9 | 3A-11 — §5.4's sentences live in `api/messages.py`, pinned to `ui-contract.md` §3.5 and §3.6. |
+| 2026-09-24 | #9 | 3A-12 — the snapshot's validation report is stamped with the load's own time. |
+| 2026-09-24 | #9 | 3A-13 — `assumptionSetId` must name the loaded set; a warning's id is recovered and checked, never guessed. |
