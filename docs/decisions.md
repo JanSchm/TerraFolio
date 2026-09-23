@@ -1577,6 +1577,59 @@ record that merely looks whole.
 exists, int-ness is a typed fact, and `generations: 110.0` in an audit payload
 would be both wrong-looking and lossy.
 
+### 2B-10 — the submission names its assumption snapshot; nothing is inferred
+
+Found in review. `open_run` looked the snapshot up by
+`(assumption_set_id, assumption_set_hash)`, taking the most recently recorded
+match. Both halves of that are wrong:
+
+- Two snapshots that differ only in `[meta]` or in file name share **both**
+  values by design ([2B-6](#2b-6)), so no query over them can tell the payloads
+  apart.
+- Re-recording an already-stored variant does not move its `recorded_at`, so
+  after a newer variant is inserted, a run using the older one is attached to
+  the newer payload — an audit record citing a calibration the run never read.
+
+**Decided.** `RunSubmission` carries `assumption_snapshot_hash`, the value
+`record_assumption_set` returns. The caller already holds the right answer, so
+the store does not guess at it. `open_run` additionally checks that the named
+snapshot's id and hash match the provenance, so a run cannot cite one
+calibration while serving another; the foreign key proves the snapshot exists,
+this proves it is the right one.
+
+### 2B-11 — what "the same run" and "the same outcome" mean, exactly
+
+Three more from the same review, all of the same kind: a check that was narrower
+than the thing it claimed to guarantee.
+
+**The whole provenance is compared, not three fields of it.** `_assert_same_run`
+checked the seed, the pipeline hash and the assumption-set id — the three that
+have columns. A worker returning a different `fileHashes`, `numpyVersion`,
+`blasThreads`, `pythonVersion`, `platform` or `engineVersion` was stored
+happily, and the run then claimed to be reproducible from inputs it never saw.
+The comparison is now against the record the run was *opened* with, parsed back
+out of the row, so it covers every field rather than every indexed field.
+
+**The curve is reconciled by value.** `finish_run` compared the number of
+persisted events with `len(convergence)`, which passes a worker that logged the
+right number of wrong points — and the result would then show one shape live
+and another on reload. Every generation and both its fitness values are
+compared now. An **empty** log stays legal: that is a run executed without a
+subscriber, the CLI path among others, and an absent log is not a disagreeing
+one. A *partial* log is what the check catches.
+
+**The generation log closes when the run does.** An event delivered after
+`finish_run` committed still inserted, because the foreign key only asks whether
+the run exists. That grew the curve of a run whose result had already been
+served — a mutation of something §11 calls immutable. A `BEFORE INSERT` trigger
+refuses it, at the database layer rather than in the caller, because the check
+and the insert have to be one statement to be free of a race with the finish.
+
+**A redelivery repeats the whole outcome.** The idempotent second `finish_run`
+compared `result_json` alone, but the failure reason and the warnings are stored
+*beside* it and are not in it — so one record with two different failure codes
+was waved through as a retry. All three are compared now.
+
 ### 2B-7 — `pipeline_snapshot` records 2A's verdict without knowing its shape
 
 #7 requires the "validation status of the loaded set", and #6 owns the loader
@@ -1691,3 +1744,5 @@ storing the floor as text.
 | 2026-09-22 | #7 | 2B-7 — `ValidationStatus` is the store's own four-value vocabulary; #6's report is stored opaquely beside it. |
 | 2026-09-22 | #7 | 2B-8 — `base_year` lives on `pipeline_snapshot`; the run result carries none, which also blocks #11's chart labels. Raised on #1. |
 | 2026-09-22 | #7 | 2B-9 — ULIDs on the standard library, no new dependency, and no `# structural:` escape spent. |
+| 2026-09-23 | #7 | 2B-10 — the submission names its assumption snapshot; inferring it from `(id, hash)` attached runs to the wrong payload, since two snapshots share both by design. |
+| 2026-09-23 | #7 | 2B-11 — the whole provenance is compared at finish, the curve is reconciled by value, the event log closes when the run does, and a redelivery must repeat the failure and warnings too. |

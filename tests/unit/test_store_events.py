@@ -16,8 +16,10 @@ from pathlib import Path
 import pytest
 from test_store_runs import CREATED_AT, RUN_ID, completed, opened_store, submission
 
+from terrafolio.domain.results import ConvergencePoint
 from terrafolio.store import (
     DuplicateGenerationError,
+    RunAlreadyFinishedError,
     RunEvent,
     RunIdentityChangedError,
     RunNotFoundError,
@@ -40,6 +42,15 @@ def curve(*generations: int) -> tuple[RunEvent, ...]:
         )
         for generation in generations
     )
+
+
+def matching_curve() -> tuple[RunEvent, ...]:
+    """The log a worker would have written for ``completed()``'s convergence.
+
+    The two have to agree now: `finish_run` reconciles the persisted curve
+    against the served one point by point.
+    """
+    return (RunEvent(generation=1, best_fitness=-12.4, mean_fitness=-31.2, summary_json="{}"),)
 
 
 def test_events_are_read_back_in_generation_order(tmp_path: Path) -> None:
@@ -157,7 +168,7 @@ def test_the_log_is_append_only_and_kept_with_its_run(tmp_path: Path) -> None:
             connection.execute("DELETE FROM run_event")
 
 
-def test_a_curve_that_disagrees_with_the_result_is_refused(tmp_path: Path) -> None:
+def test_a_partial_curve_is_refused(tmp_path: Path) -> None:
     """The log and the stored ``convergence`` are two records of one thing. If
     they diverge, the run is not what either of them says it is."""
     with closing(opened_store(tmp_path / "runs.db")) as connection:
@@ -166,3 +177,77 @@ def test_a_curve_that_disagrees_with_the_result_is_refused(tmp_path: Path) -> No
         with pytest.raises(RunIdentityChangedError, match="convergence"):
             # `completed` carries a single convergence point.
             finish_run(connection, record=completed(stored.record), finished_at=CREATED_AT)
+
+
+def test_a_curve_of_the_right_length_but_the_wrong_values_is_refused(
+    tmp_path: Path,
+) -> None:
+    """A length check passes a worker that logged the right number of wrong
+    points, and the result would then show one shape live and another on
+    reload."""
+    with closing(opened_store(tmp_path / "runs.db")) as connection:
+        stored = open_run(connection, submission())
+        append_events(connection, run_id=RUN_ID, events=curve(1))
+        record = completed(
+            stored.record,
+            convergence=(ConvergencePoint(generation=1, best_fitness=99.0, mean_fitness=99.0),),
+        )
+        with pytest.raises(RunIdentityChangedError, match="convergence"):
+            finish_run(connection, record=record, finished_at=CREATED_AT)
+
+
+def test_a_curve_logged_under_different_generation_numbers_is_refused(
+    tmp_path: Path,
+) -> None:
+    with closing(opened_store(tmp_path / "runs.db")) as connection:
+        stored = open_run(connection, submission())
+        append_events(connection, run_id=RUN_ID, events=curve(2))
+        with pytest.raises(RunIdentityChangedError, match="convergence"):
+            finish_run(connection, record=completed(stored.record), finished_at=CREATED_AT)
+
+
+def test_a_curve_that_matches_the_result_is_accepted(tmp_path: Path) -> None:
+    with closing(opened_store(tmp_path / "runs.db")) as connection:
+        stored = open_run(connection, submission())
+        logged = curve(1, 2)
+        append_events(connection, run_id=RUN_ID, events=logged)
+        record = completed(
+            stored.record,
+            convergence=tuple(
+                ConvergencePoint(
+                    generation=event.generation,
+                    best_fitness=event.best_fitness,
+                    mean_fitness=event.mean_fitness,
+                )
+                for event in logged
+            ),
+        )
+        assert finish_run(
+            connection, record=record, finished_at=CREATED_AT
+        ).generations_used == len(logged)
+
+
+def test_a_run_with_no_subscriber_logs_nothing_and_still_finishes(
+    tmp_path: Path,
+) -> None:
+    """An empty log is an absent one, not a disagreeing one: a run executed
+    without anybody watching the stream — the CLI path — writes no events, and
+    its curve reopens from the stored result."""
+    with closing(opened_store(tmp_path / "runs.db")) as connection:
+        stored = open_run(connection, submission())
+        assert latest_generation(connection, run_id=RUN_ID) == 0
+        done = finish_run(connection, record=completed(stored.record), finished_at=CREATED_AT)
+        assert done.record.convergence
+
+
+def test_the_log_closes_when_the_run_finishes(tmp_path: Path) -> None:
+    """An event delivered after the result was served would grow the curve of a
+    run whose result has already been read. The foreign key only asks whether
+    the run exists, so the check is its own trigger."""
+    with closing(opened_store(tmp_path / "runs.db")) as connection:
+        stored = open_run(connection, submission())
+        append_events(connection, run_id=RUN_ID, events=matching_curve())
+        finish_run(connection, record=completed(stored.record), finished_at=CREATED_AT)
+        with pytest.raises(RunAlreadyFinishedError, match="succeeded"):
+            append_events(connection, run_id=RUN_ID, events=curve(2))
+        assert latest_generation(connection, run_id=RUN_ID) == 1

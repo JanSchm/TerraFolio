@@ -255,6 +255,16 @@ WHEN NOT (
 )
 BEGIN SELECT RAISE(ABORT, 'store: illegal run status transition'); END;
 
+-- The log closes when the run does. Without this an event delivered after
+-- `finish_run` commits would still insert -- the foreign key only asks whether
+-- the run exists -- and a finished run's curve would grow after the result it
+-- is supposed to match was served. Enforced here rather than in the caller
+-- because the check and the insert have to be one statement to be race-free.
+CREATE TRIGGER IF NOT EXISTS run_event_only_while_in_flight
+BEFORE INSERT ON run_event
+WHEN (SELECT status FROM run WHERE run_id = new.run_id) NOT IN ('queued', 'running')
+BEGIN SELECT RAISE(ABORT, 'store: the generation log closes when the run finishes'); END;
+
 CREATE TRIGGER IF NOT EXISTS run_event_is_append_only
 BEFORE UPDATE ON run_event
 BEGIN SELECT RAISE(ABORT, 'store: the generation log is append-only'); END;

@@ -16,7 +16,11 @@ import sqlite3
 from collections.abc import Sequence
 
 from terrafolio.store.db import writing
-from terrafolio.store.errors import DuplicateGenerationError, RunNotFoundError
+from terrafolio.store.errors import (
+    DuplicateGenerationError,
+    RunAlreadyFinishedError,
+    RunNotFoundError,
+)
 from terrafolio.store.records import RunEvent
 
 __all__ = ["append_events", "latest_generation", "read_events"]
@@ -37,6 +41,10 @@ def append_events(
     persisted curve disagree with ``RunRecord.convergence`` — which is what §6's
     chart and every cross-release regression test read, so the disagreement
     would stay invisible until someone compared the two.
+
+    Appending to a run that has already finished raises for the same reason:
+    its curve has been served, and a log that grows afterwards makes the stored
+    result and the replay two different accounts of one search.
     """
     if not events:
         return 0
@@ -55,6 +63,8 @@ def append_events(
         message = str(error)
         if "FOREIGN KEY" in message:
             raise RunNotFoundError(run_id) from error
+        if "generation log closes" in message:
+            raise RunAlreadyFinishedError(run_id, _status_of(connection, run_id)) from error
         if "UNIQUE constraint failed" in message:
             raise DuplicateGenerationError(run_id, _clashing(connection, run_id, events)) from error
         # A CHECK or NOT NULL violation -- a non-finite fitness, most likely.
@@ -62,6 +72,12 @@ def append_events(
         # bug, so it goes up as what it is.
         raise
     return len(rows)
+
+
+def _status_of(connection: sqlite3.Connection, run_id: str) -> str:
+    """The run's status, for an error that has to say why the log is closed."""
+    row = connection.execute("SELECT status FROM run WHERE run_id = ?", (run_id,)).fetchone()
+    return "unknown" if row is None else str(row["status"])
 
 
 def _clashing(connection: sqlite3.Connection, run_id: str, events: Sequence[RunEvent]) -> int:

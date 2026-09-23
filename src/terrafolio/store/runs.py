@@ -24,11 +24,13 @@ import json
 import sqlite3
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, Final
+from typing import Final
+
+from pydantic import BaseModel
 
 from terrafolio.config.hashing import canonical_json
 from terrafolio.domain.enums import Effort, RunStatus
-from terrafolio.domain.results import FeasibilityWarning, RunProvenance, RunRecord
+from terrafolio.domain.results import FeasibilityWarning, RunRecord
 from terrafolio.store.db import SCHEMA_VERSION, from_db_time, to_db_time, writing
 from terrafolio.store.errors import (
     DuplicateRunError,
@@ -38,7 +40,7 @@ from terrafolio.store.errors import (
     RunNotFoundError,
     UnknownSnapshotError,
 )
-from terrafolio.store.events import latest_generation
+from terrafolio.store.events import read_events
 from terrafolio.store.ids import RUN_REF_SERIES, format_run_ref, new_ulid
 from terrafolio.store.records import RunFailure, RunSubmission, RunSummary, StoredRun
 
@@ -106,6 +108,7 @@ def open_run(
     identifier = new_ulid() if submission.run_id is None else submission.run_id
     try:
         with writing(connection) as transaction:
+            _verify_snapshot_matches_provenance(transaction, submission)
             reference = _next_reference(transaction, series)
             record = RunRecord(
                 run_id=identifier,
@@ -160,7 +163,7 @@ def open_run(
                     _ids_json(sorted(set(submission.eligible_ids))),
                     provenance.seed,
                     provenance.pipeline_hash,
-                    _assumption_snapshot_hash(transaction, provenance),
+                    submission.assumption_snapshot_hash,
                     provenance.assumption_set_id,
                     provenance.engine_version,
                     provenance.numpy_version,
@@ -190,23 +193,82 @@ def open_run(
     return load_run(connection, run_id=identifier)
 
 
-def _assumption_snapshot_hash(connection: sqlite3.Connection, provenance: RunProvenance) -> str:
-    """The snapshot row this run's calibration was stored as.
+def _failure_columns(failure: RunFailure | None) -> tuple[str | None, str | None]:
+    """The error pair as the row stores it."""
+    return (None, None) if failure is None else (failure.code, failure.message)
 
-    A set may have been snapshotted more than once under one
-    ``assumption_set_id`` — the loader's id excludes ``[meta]`` by design — so
-    the most recent snapshot carrying both the id and the hash is the one this
-    run saw.
+
+def _assert_curve_agrees(connection: sqlite3.Connection, record: RunRecord) -> None:
+    """The persisted curve and the one in the result must be the same curve.
+
+    They are two records of one search: `run_event` is what a subscriber
+    replayed while it ran, `convergence` is what `GET /optimisations/{id}`
+    serves afterwards. §6 requires the curve to reopen with the run, so a
+    difference between them is a run that shows one shape live and another on
+    reload — and nothing would notice until somebody compared the two.
+
+    Compared generation by generation, including the fitness values: a length
+    check passes a worker that logged the right number of wrong points.
+
+    An **empty** log is allowed. It means the run was executed without a
+    subscriber — the CLI path, and any run whose stream nobody opened — which
+    is an absent log rather than a disagreeing one. A partial log is not
+    allowed, and is what the comparison catches.
+    """
+    logged = read_events(connection, run_id=record.run_id)
+    if not logged:
+        return
+    persisted = tuple(
+        (event.generation, event.best_fitness, event.mean_fitness) for event in logged
+    )
+    served = tuple(
+        (point.generation, point.best_fitness, point.mean_fitness) for point in record.convergence
+    )
+    if persisted != served:
+        raise RunIdentityChangedError(
+            record.run_id,
+            "convergence",
+            _describe_curve(persisted),
+            _describe_curve(served),
+        )
+
+
+def _describe_curve(curve: tuple[tuple[int, float, float], ...]) -> str:
+    """Enough of a curve to see what differs without printing 160 generations."""
+    if not curve:
+        return "no generations"
+    generations = [str(point[0]) for point in curve]
+    span = generations[0] if len(curve) == 1 else f"{generations[0]}-{generations[-1]}"
+    return f"{len(curve)} generations ({span}), best {curve[0][1]}...{curve[-1][1]}"
+
+
+def _verify_snapshot_matches_provenance(
+    connection: sqlite3.Connection, submission: RunSubmission
+) -> None:
+    """The named snapshot must be the calibration the provenance describes.
+
+    The foreign key proves the snapshot exists; this proves it is the right
+    one. Without it a caller could name snapshot A while the record it serves
+    claims the id and hash of snapshot B, and every column would still agree
+    with itself.
     """
     row = connection.execute(
-        "SELECT snapshot_hash FROM assumption_set "
-        "WHERE assumption_set_id = ? AND assumption_set_hash = ? "
-        "ORDER BY recorded_at DESC LIMIT 1",
-        (provenance.assumption_set_id, provenance.assumption_set_hash),
+        "SELECT assumption_set_id, assumption_set_hash FROM assumption_set WHERE snapshot_hash = ?",
+        (submission.assumption_snapshot_hash,),
     ).fetchone()
     if row is None:
-        raise UnknownSnapshotError("assumption-set", provenance.assumption_set_id)
-    return str(row["snapshot_hash"])
+        raise UnknownSnapshotError("assumption-set", submission.assumption_snapshot_hash)
+    provenance = submission.provenance
+    if (row["assumption_set_id"], row["assumption_set_hash"]) != (
+        provenance.assumption_set_id,
+        provenance.assumption_set_hash,
+    ):
+        raise UnknownSnapshotError(
+            "assumption-set",
+            f"{submission.assumption_snapshot_hash} carries "
+            f"{row['assumption_set_id']}/{row['assumption_set_hash']}, but the run claims "
+            f"{provenance.assumption_set_id}/{provenance.assumption_set_hash}",
+        )
 
 
 def start_run(connection: sqlite3.Connection, *, run_id: str) -> StoredRun:
@@ -263,18 +325,20 @@ def finish_run(
         stored = _row(transaction, record.run_id)
         _assert_same_run(stored, record)
         if RunStatus(stored["status"]) in TERMINAL_STATUSES:
-            if stored["result_json"] == payload:
+            # A redelivery repeats the whole outcome, not just the record: the
+            # failure reason and the warnings are stored beside `result_json`
+            # and are not in it, so two calls carrying one record and different
+            # reasons are two different outcomes.
+            was = (stored["result_json"], stored["error_code"], stored["error_message"])
+            now = (payload, *_failure_columns(failure))
+            if was == now and stored["warnings_json"] == _warnings_json(warnings_raised):
                 return load_run(connection, run_id=record.run_id)
             raise RunAlreadyFinishedError(record.run_id, str(stored["status"]))
         eligible = tuple(json.loads(stored["eligible_ids_json"]))
         holdings = tuple(holding.id for holding in record.holdings)
         if record.status is RunStatus.SUCCEEDED and holdings != eligible:
             raise RunIdentityChangedError(record.run_id, "eligibleIds", eligible, holdings)
-        logged = latest_generation(transaction, run_id=record.run_id)
-        if logged and logged != len(record.convergence):
-            raise RunIdentityChangedError(
-                record.run_id, "convergence", logged, len(record.convergence)
-            )
+        _assert_curve_agrees(transaction, record)
         transaction.execute(
             """
             UPDATE run SET
@@ -292,8 +356,7 @@ def finish_run(
                 canonical_json(list(record.cashflow_30y_m)),
                 canonical_json(list(record.cashflow_hold_m)),
                 _warnings_json(warnings_raised),
-                None if failure is None else failure.code,
-                None if failure is None else failure.message,
+                *_failure_columns(failure),
                 payload,
                 record.run_id,
             ),
@@ -302,32 +365,36 @@ def finish_run(
 
 
 def _assert_same_run(stored: sqlite3.Row, record: RunRecord) -> None:
-    """Every input fixed at submission must still say the same thing."""
-    offered: dict[str, Any] = {
-        "runRef": record.run_ref,
-        "createdAt": to_db_time(record.created_at),
-        "effort": record.effort.value,
-        "mandate": record.mandate.model_dump_json(),
-        "lockedIds": _ids_json(record.locked_ids),
-        "excludedIds": _ids_json(record.excluded_ids),
-        "seed": record.provenance.seed,
-        "pipelineHash": record.provenance.pipeline_hash,
-        "assumptionSetId": record.provenance.assumption_set_id,
-    }
-    columns = {
-        "runRef": "run_ref",
-        "createdAt": "created_at",
-        "effort": "effort",
-        "mandate": "mandate_json",
-        "lockedIds": "locked_ids_json",
-        "excludedIds": "excluded_ids_json",
-        "seed": "seed",
-        "pipelineHash": "pipeline_hash",
-        "assumptionSetId": "assumption_set_id",
-    }
-    for field, column in columns.items():
-        if stored[column] != offered[field]:
-            raise RunIdentityChangedError(record.run_id, field, stored[column], offered[field])
+    """Every input fixed at submission must still say the same thing.
+
+    Compared against the record the run was *opened* with — parsed back out of
+    the row rather than against the denormalised columns, because those cover
+    only three of the ten provenance fields. A worker returning a different
+    ``fileHashes``, ``numpyVersion`` or ``blasThreads`` would otherwise be
+    stored happily, and the run would claim to be reproducible from inputs it
+    never saw.
+    """
+    opened = RunRecord.model_validate_json(stored["result_json"])
+    checks: tuple[tuple[str, object, object], ...] = (
+        ("runId", opened.run_id, record.run_id),
+        ("runRef", opened.run_ref, record.run_ref),
+        ("createdAt", opened.created_at, record.created_at),
+        ("effort", opened.effort, record.effort),
+        ("mandate", opened.mandate, record.mandate),
+        ("lockedIds", opened.locked_ids, record.locked_ids),
+        ("excludedIds", opened.excluded_ids, record.excluded_ids),
+        ("provenance", opened.provenance, record.provenance),
+    )
+    for field, was, offered in checks:
+        if was != offered:
+            raise RunIdentityChangedError(record.run_id, field, _brief(was), _brief(offered))
+
+
+def _brief(value: object) -> str:
+    """A value short enough to read in an error message."""
+    if isinstance(value, BaseModel):
+        return value.model_dump_json()
+    return str(value)
 
 
 def _row(connection: sqlite3.Connection, run_id: str) -> sqlite3.Row:

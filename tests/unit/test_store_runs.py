@@ -13,6 +13,7 @@ pytest puts each test directory on ``sys.path``, which is the same route
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import sqlite3
 from contextlib import closing
@@ -60,6 +61,7 @@ from terrafolio.store import (
     open_store,
     record_assumption_set,
     record_pipeline_snapshot,
+    snapshot_hash_of,
     start_run,
 )
 
@@ -73,11 +75,14 @@ ELIGIBLE: Final = ("P001", "P002", "P003")
 def provenance(**overrides: Any) -> RunProvenance:
     """Provenance naming the shipped calibration, so the snapshot resolves."""
     assumptions = load_default()
-    payload = dict(
-        PROVENANCE,
-        assumptionSetId=assumptions.assumption_set_id,
-        assumptionSetHash=assumptions.content_hash,
-        **overrides,
+    # Overrides merge last, so a test can vary the two calibration fields too.
+    payload = (
+        dict(PROVENANCE)
+        | {
+            "assumptionSetId": assumptions.assumption_set_id,
+            "assumptionSetHash": assumptions.content_hash,
+        }
+        | overrides
     )
     return RunProvenance.model_validate(payload)
 
@@ -89,6 +94,7 @@ def submission(**overrides: Any) -> RunSubmission:
         "mandate": Mandate.model_validate(VALID_MANDATE),
         "effort": Effort.STANDARD,
         "provenance": provenance(),
+        "assumption_snapshot_hash": snapshot_hash_of(load_default()),
         "eligible_ids": ELIGIBLE,
         "population_size": 90,
         "generations_planned": 60,
@@ -394,6 +400,51 @@ def test_a_second_finish_with_identical_bytes_is_a_no_op(tmp_path: Path) -> None
         assert again.result_json == stored.result_json
 
 
+def test_a_retry_that_changes_the_failure_reason_is_not_a_redelivery(
+    tmp_path: Path,
+) -> None:
+    """The reason and the warnings are stored beside `result_json` and are not
+    in it, so one record and two different reasons are two different outcomes —
+    which is the case a bytes-only comparison would wave through."""
+    with closing(opened_store(tmp_path / "runs.db")) as connection:
+        stored = open_run(connection, submission())
+        record = stored.record.model_copy(update={"status": RunStatus.FAILED, "duration_ms": 12})
+        first = RunFailure(code="ENGINE_ERROR", message="the search did not converge")
+        finish_run(connection, record=record, finished_at=CREATED_AT, failure=first)
+
+        # Same record, same reason: a redelivery.
+        again = finish_run(connection, record=record, finished_at=CREATED_AT, failure=first)
+        assert again.error_message == first.message
+
+        with pytest.raises(RunAlreadyFinishedError):
+            finish_run(
+                connection,
+                record=record,
+                finished_at=CREATED_AT,
+                failure=RunFailure(code="STORE_ERROR", message="something else entirely"),
+            )
+        assert load_run(connection, run_id=RUN_ID).error_code == "ENGINE_ERROR"
+
+
+def test_a_retry_that_changes_the_warnings_is_not_a_redelivery(tmp_path: Path) -> None:
+    with closing(opened_store(tmp_path / "runs.db")) as connection:
+        stored = open_run(connection, submission())
+        record = completed(stored.record)
+        raised = (
+            FeasibilityWarning.model_validate(
+                {
+                    "code": "CAPACITY_BELOW_TARGET",
+                    "severity": "alert",
+                    "message": "Eligible pipeline is 900 MW - below the 1,500 MW target.",
+                }
+            ),
+        )
+        finish_run(connection, record=record, finished_at=CREATED_AT, warnings_raised=raised)
+        with pytest.raises(RunAlreadyFinishedError):
+            finish_run(connection, record=record, finished_at=CREATED_AT)
+        assert load_run(connection, run_id=RUN_ID).warnings_raised == raised
+
+
 def test_a_result_for_a_different_mandate_is_refused(tmp_path: Path) -> None:
     """The inputs are fixed at submission. A result that quietly re-points the
     run at another mandate would make the stored pair internally consistent and
@@ -404,6 +455,81 @@ def test_a_result_for_a_different_mandate_is_refused(tmp_path: Path) -> None:
         record = completed(stored.record).model_copy(update={"mandate": other})
         with pytest.raises(RunIdentityChangedError, match="mandate"):
             finish_run(connection, record=record, finished_at=CREATED_AT)
+
+
+def test_a_result_that_changes_any_part_of_the_provenance_is_refused(
+    tmp_path: Path,
+) -> None:
+    """Reproducibility rests on ten fields, not on the three the columns index.
+
+    A worker returning a different `fileHashes`, `numpyVersion` or
+    `blasThreads` would otherwise be stored happily, and the run would claim to
+    be reproducible from inputs it never saw.
+    """
+    changed = {
+        "fileHashes": {"P001": "sha256:different"},
+        "numpyVersion": "2.4.5",
+        "blasThreads": 1,
+        "pythonVersion": "3.13.0",
+        "platform": "linux-x86_64",
+        "engineVersion": "1.0.1",
+        "assumptionSetHash": "sha256:different",
+    }
+    for field, value in changed.items():
+        with closing(opened_store(tmp_path / f"{field}.db")) as connection:
+            stored = open_run(connection, submission())
+            record = completed(stored.record).model_copy(
+                update={"provenance": provenance(**{field: value})}
+            )
+            with pytest.raises(RunIdentityChangedError, match="provenance"):
+                finish_run(connection, record=record, finished_at=CREATED_AT)
+
+
+def test_a_run_is_attached_to_the_snapshot_it_names_not_the_newest_match(
+    tmp_path: Path,
+) -> None:
+    """Two calibrations that differ only in `[meta]` share an id *and* a hash by
+    design, so the snapshot cannot be inferred from provenance — it is passed in.
+
+    Here the older variant is recorded first, a newer one second, and the run
+    names the older. Re-recording does not move `recorded_at`, so any
+    most-recent-match rule would attach the run to the wrong payload.
+    """
+    original = load_default()
+    relabelled = dataclasses.replace(
+        original, meta=dataclasses.replace(original.meta, label="a later label")
+    )
+    assert relabelled.assumption_set_id == original.assumption_set_id
+    assert relabelled.content_hash == original.content_hash
+
+    with closing(opened_store(tmp_path / "runs.db")) as connection:
+        wanted = record_assumption_set(connection, original, recorded_at=CREATED_AT)
+        newer = record_assumption_set(connection, relabelled, recorded_at=CREATED_AT)
+        assert wanted != newer
+
+        stored = open_run(connection, submission(assumption_snapshot_hash=wanted, run_id=None))
+        assert stored.assumption_snapshot_hash == wanted
+
+
+def test_a_run_cannot_name_a_snapshot_that_is_not_its_calibration(
+    tmp_path: Path,
+) -> None:
+    """The foreign key proves the snapshot exists; this proves it is the right one.
+
+    Here the snapshot is real and the run names it, but the provenance it
+    serves claims a different calibration. Every column would still agree with
+    itself, and the run would cite an audit payload it never used.
+    """
+    with closing(opened_store(tmp_path / "runs.db")) as connection:
+        real = snapshot_hash_of(load_default())
+        with pytest.raises(UnknownSnapshotError, match="but the run claims"):
+            open_run(
+                connection,
+                submission(
+                    provenance=provenance(assumptionSetId="0000000000000000"),
+                    assumption_snapshot_hash=real,
+                ),
+            )
 
 
 def test_a_result_whose_holdings_are_not_the_eligible_set_is_refused(

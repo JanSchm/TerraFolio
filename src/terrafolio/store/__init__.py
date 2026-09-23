@@ -9,8 +9,11 @@ means every caller needs its own.
 The shape of a run's life::
 
     connection = open_store(path)
-    record_assumption_set(connection, assumptions, recorded_at=now)
+    snapshot_hash = record_assumption_set(connection, assumptions, recorded_at=now)
     record_pipeline_snapshot(connection, snapshot, recorded_at=now)
+    # `RunSubmission.assumption_snapshot_hash` is that returned hash: two
+    # calibrations differing only in `[meta]` share an id and a hash, so the
+    # snapshot cannot be inferred from provenance.
     stored = open_run(connection, submission)      # 202 answers from here
     start_run(connection, run_id=stored.record.run_id)
     append_events(connection, run_id=..., events=[...])   # from the worker

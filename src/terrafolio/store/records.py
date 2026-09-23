@@ -162,6 +162,18 @@ class RunSubmission:
     mandate: Mandate
     effort: Effort
     provenance: RunProvenance
+    assumption_snapshot_hash: str
+    """The exact snapshot row this run's calibration was stored as, as returned
+    by ``record_assumption_set``.
+
+    Passed in rather than looked up from ``provenance``. Two snapshots that
+    differ only in ``[meta]`` or in file name share an ``assumption_set_id``
+    *and* an ``assumption_set_hash`` by design ([C-10]), so no query over those
+    two can tell them apart — and re-recording an older variant does not move
+    its ``recorded_at``, so "the most recent match" would attach the run to
+    whichever payload happened to be inserted last. The caller holds the right
+    answer already.
+    """
     eligible_ids: tuple[str, ...]
     """The candidate set the search will index by position. Recorded because
     min DSCR is a *derived* screen, so this is not recoverable from the mandate."""
