@@ -216,7 +216,7 @@ class PipelineSource:
             loaded_at=self._loaded_at,
             file_hashes=dict(result.file_hashes),
             validation_status=_status(result),
-            validation_json=_validation_json(result),
+            validation_json=_validation_json(result, self._loaded_at),
         )
 
     def record(self, connection: sqlite3.Connection) -> str:
@@ -238,8 +238,15 @@ def _status(result: LoadResult) -> ValidationStatus:
     return ValidationStatus.WARNINGS if result.warnings else ValidationStatus.VALID
 
 
-def _validation_json(result: LoadResult) -> str:
-    return pipeline_status(result, loaded_at=_now()).model_dump_json(by_alias=True)
+def _validation_json(result: LoadResult, loaded_at: dt.datetime) -> str:
+    """The report exactly as ``GET /pipeline/status`` serves it.
+
+    Stamped with the load's **own** time rather than the moment it is recorded.
+    ``record_pipeline_snapshot`` is content-addressed and compares the stored
+    report against the one offered, so a fresh timestamp here would make the
+    second record of an unchanged pipeline look like a conflicting one.
+    """
+    return pipeline_status(result, loaded_at=loaded_at).model_dump_json(by_alias=True)
 
 
 def _trim[K, V](cache: OrderedDict[K, V]) -> None:

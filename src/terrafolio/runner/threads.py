@@ -24,6 +24,7 @@ whose figures cannot be explained is not audit trail.
 from __future__ import annotations
 
 import os
+import sys
 from typing import Final
 
 __all__ = ["THREAD_VARIABLES", "observed_threads", "pin_threads", "threads_are_pinned"]
@@ -43,31 +44,66 @@ THREAD_VARIABLES: Final[tuple[str, ...]] = (
 
 SINGLE_THREADED: Final = "1"
 
+_INHERITED: Final[dict[str, str | None]] = {name: os.environ.get(name) for name in THREAD_VARIABLES}
+"""What this process was started with, captured before anything can pin it.
+
+Needed because a pin applied *after* numpy is imported changes the environment
+and nothing else: the libraries have already sized their pools. Without the
+original values there is no way to say what the pools were actually sized to,
+and the run record would claim a single thread over a run that had eight.
+"""
+
+_STATE: Final[dict[str, bool]] = {"pinned_in_time": False}
+"""Whether :func:`pin_threads` ran before numpy was imported.
+
+A one-key mapping rather than a module variable so the function that sets it does
+not need ``global``, which reads as an afterthought where this is the whole point
+of the module.
+"""
+
 
 def pin_threads() -> None:
-    """Cap every numeric thread pool at one. Call before importing numpy."""
+    """Cap every numeric thread pool at one. **Call before importing numpy.**
+
+    Records whether it was in time. Setting the variables afterwards is not an
+    error and not a no-op — a library imported later still reads them — but it
+    does not resize a pool that already exists, and a caller that believes
+    otherwise would record a determinism the run does not have.
+    """
+    _STATE["pinned_in_time"] = "numpy" not in sys.modules
     for name in THREAD_VARIABLES:
         os.environ[name] = SINGLE_THREADED
 
 
 def threads_are_pinned() -> bool:
-    """Whether every variable this process can control reads as single-threaded."""
-    return all(os.environ.get(name) == SINGLE_THREADED for name in THREAD_VARIABLES)
+    """Whether this process genuinely runs numeric libraries single-threaded.
+
+    Both halves are required: the variables must read as single-threaded **and**
+    the pin must have been applied before numpy loaded. An in-process run on a
+    server that has been serving requests for an hour fails the second half, and
+    saying so is the point.
+    """
+    environment = all(os.environ.get(name) == SINGLE_THREADED for name in THREAD_VARIABLES)
+    return environment and _STATE["pinned_in_time"]
 
 
 def observed_threads() -> int:
     """The thread count to record on the run, read back from the environment.
 
-    Read rather than assumed. ``pin_threads`` may not have run — an in-process
-    run inherits whatever the server was started with, and numpy is long since
-    imported by then — and recording a 1 that was never set would make the run
-    record claim a determinism it does not have.
+    Read rather than assumed. ``pin_threads`` may not have run, or may have run
+    after numpy was already imported — an in-process run on a live server is
+    exactly that case — and recording a 1 that never took effect would make the
+    run record claim a determinism it does not have.
 
-    Where the variables disagree, the **largest** wins: the reduction order is
-    non-deterministic if *any* library threads, so the honest figure is the worst
-    case rather than the first one read.
+    Where the inherited variables disagree, the **largest** wins: reduction
+    order is non-deterministic if *any* library threads, so the honest figure is
+    the worst case rather than the first one read.
     """
-    counts = [_positive_int(os.environ.get(name)) for name in THREAD_VARIABLES]
+    if threads_are_pinned():
+        return 1
+    # The pin either did not happen or came too late, so what the libraries
+    # actually sized their pools from is what this process inherited.
+    counts = [_positive_int(_INHERITED[name]) for name in THREAD_VARIABLES]
     present = [count for count in counts if count is not None]
     if not present:
         # Nothing is capped, so the libraries size their own pools from the
