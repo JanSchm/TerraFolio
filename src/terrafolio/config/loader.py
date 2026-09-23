@@ -29,6 +29,7 @@ from terrafolio.config.assumptions import (
     Interpretation,
     Metadata,
     ObjectiveWeights,
+    Range,
     RiskCaps,
     ValidationParams,
 )
@@ -161,6 +162,20 @@ def _band(parent: Mapping[str, Any], key: str, where: str = "") -> Band:
     if band.low > band.high:
         raise AssumptionError(f"{path}: low ({band.low}) is above high ({band.high})")
     return band
+
+
+def _range(parent: Mapping[str, Any], key: str, where: str = "") -> Range:
+    """A draw range, stated as ``low`` and ``span``.
+
+    A negative span would invert the range and silently draw below ``low``,
+    which is the same class of mistake ``_band`` refuses for ``low > high``.
+    """
+    table = _table(parent, key, where)
+    location = f"{where}.{key}" if where else key
+    span = _float(table, "span", location)
+    if span < 0:
+        raise AssumptionError(f"{location}: span is negative ({span})")
+    return Range(low=_float(table, "low", location), span=span)
 
 
 def _market_keyed(table: Mapping[str, Any], where: str) -> Mapping[str, float]:
@@ -423,12 +438,36 @@ def _generator(raw: Mapping[str, Any]) -> GeneratorParams:
         price_escalation=_float(table, "price_escalation", "generator"),
         merchant_escalation=_float(table, "merchant_escalation", "generator"),
         opex_escalation=_float(table, "opex_escalation", "generator"),
-        entry_yield_jitter=_float(table, "entry_yield_jitter", "generator"),
-        capacity_factor_jitter_low=_float(table, "capacity_factor_jitter_low", "generator"),
-        capacity_factor_jitter_high=_float(table, "capacity_factor_jitter_high", "generator"),
-        contract_price_factor_low=_float(table, "contract_price_factor_low", "generator"),
-        contract_price_factor_high=_float(table, "contract_price_factor_high", "generator"),
+        entry_yield_jitter=_range(table, "entry_yield_jitter", "generator"),
+        contracted_share_floor=_float(table, "contracted_share_floor", "generator"),
+        capacity_factor_jitter=_range(table, "capacity_factor_jitter", "generator"),
+        contract_price_factor=_range(table, "contract_price_factor", "generator"),
         contract_tenor_choices=_int_tuple(table, "contract_tenor_choices", "generator"),
+        dscr_resample_attempts=_int(table, "dscr_resample_attempts", "generator"),
+        technology_mix=_keyed_by(
+            _table(table, "technology_mix", "generator"),
+            Technology,
+            _float,
+            "generator.technology_mix",
+        ),
+        stage_mix=_keyed_by(
+            _table(table, "stage_mix", "generator"),
+            Stage,
+            _float,
+            "generator.stage_mix",
+        ),
+        capacity_mw=_keyed_by(
+            _table(table, "capacity_mw", "generator"),
+            Technology,
+            _range,
+            "generator.capacity_mw",
+        ),
+        cod_offset=_keyed_by(
+            _table(table, "cod_offset", "generator"),
+            Stage,
+            _range,
+            "generator.cod_offset",
+        ),
         degradation=_keyed_by(
             _table(table, "degradation", "generator"),
             Technology,
@@ -456,14 +495,14 @@ def _generator(raw: Mapping[str, Any]) -> GeneratorParams:
         opex_per_kw_year=_keyed_by(
             _table(table, "opex_per_kw_year", "generator"),
             Technology,
-            _band,
+            _range,
             "generator.opex_per_kw_year",
         ),
-        offshore_capacity_factor=_band(table, "offshore_capacity_factor", "generator"),
+        offshore_capacity_factor=_range(table, "offshore_capacity_factor", "generator"),
         contracted_share=_keyed_by(
             _table(table, "contracted_share", "generator"),
             Stage,
-            _band,
+            _range,
             "generator.contracted_share",
         ),
         development_risk_base=_keyed_by(

@@ -565,24 +565,25 @@ const debtSizingBasisOf = (p) =>
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
-// The project-file contract is not settled.  1B's docs/pipeline-schema.md and
-// 1A's pydantic ProjectFile have landed incompatible, in two places:
+// The project-file contract is SETTLED: `reconciled` — 1B's technology enum
+// spelling with 1A's five `assumptions` fields.  1C recommended it in 1C-20 and
+// 1A adopted it in full, reversing its own C-1:
+//   https://github.com/JanSchm/TerraFolio/issues/1#issuecomment-5766800812
 //
-//   * the technology enum — `solar` (schema §4.2) vs `solar_pv` (1A's model);
-//   * five `assumptions` fields 1A requires that 1B's template does not carry.
-//     Since schema §3 makes unknown keys a validation error, no single file
-//     satisfies both.
+// That comment left one action outstanding — "`DEFAULT_CONTRACT = 'reconciled'`
+// in tools/extract_reference.mjs, then regenerate" — which #4 closed without
+// doing, leaving all 48 committed fixtures and 1B's own template failing 1A's
+// pydantic ProjectFile 48/48 on the five missing `assumptions` fields.  It
+// blocked 2A's first acceptance criterion and 2C's parity test alike, and both
+// applied it independently: 2A (#6) flipped DEFAULT_CONTRACT and regenerated,
+// and 2C (#8) did the same and also brought templates/project-template.json up
+// to the settled contract, which is what TEMPLATE_CONTRACT below now reflects.
+// The regenerated fixtures were byte-identical, which is the point of a
+// deterministic extractor.
 //
-// 1B's own templates/project-template.json fails 1A's model with exactly the
-// six errors 1C's files do, so this is a disagreement between those two and
-// not a defect in either's implementation of one contract.  Raised on #1:
-//   https://github.com/JanSchm/TerraFolio/issues/1#issuecomment-5766794430
-//
-// Rather than guess, the contract is a parameter.  `--contract=<name>` selects
-// one; the committed fixtures are emitted under the default.  When the epic
-// settles it, the change is the DEFAULT_CONTRACT constant and nothing else —
-// and if the resolution is the recommended one (1B's spelling, 1A's fields),
-// it is a new three-line entry here.
+// The parameterisation stays.  `--contract=<name>` still selects one, so the
+// superseded shapes remain reproducible and the next contract change is again
+// one constant rather than a rewrite.
 // ---------------------------------------------------------------------------
 
 const STAGE = { Greenfield: 'greenfield', 'Ready-to-build': 'ready_to_build', Construction: 'construction' };
@@ -614,14 +615,13 @@ const CONTRACTS = {
   },
 };
 
-// Settled by the epic on #1 ("CONTRACT — the project-file enum is settled: `reconciled`"):
-// 1B's enum spelling with 1A's five assumptions fields. Flipped by issue 2A (#6), which the
-// epic named as the one action left and the gate on group 2 starting; issue 1C was closed.
 const DEFAULT_CONTRACT = 'reconciled';
 
 // The contract that templates/project-template.json describes. The closed-shape
-// check is 1B's oracle, so it governs that contract and no other.
-const TEMPLATE_CONTRACT = 'pipeline-schema-1.0';
+// check is 1B's oracle, so it governs that contract and no other. #8 added the
+// five settled `assumptions` fields to that template, so it now describes
+// `reconciled` and the check runs against the default again.
+const TEMPLATE_CONTRACT = 'reconciled';
 
 let CONTRACT = CONTRACTS[DEFAULT_CONTRACT];
 

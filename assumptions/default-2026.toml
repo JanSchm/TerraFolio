@@ -174,10 +174,23 @@ construction = 0.75
 # against the reference and pin the one that matches.
 
 [interpretation]
-# Does the exit year's own FCFE count alongside the terminal value?
+# Both pinned by the sweep in tests/golden/test_interpretations.py against 1C's
+# derived_expectations.json, not by argument. See docs/decisions.md A-23, A-24.
+
+# Does the exit year's own FCFE count alongside the terminal value, or does the
+# terminal value replace it? Counting it reproduces all 144 oracle cases to
+# within an ulp; replacing it reproduces none of them.
 exit_year_fcfe_included = true
-# Real opex discounted from COD, or nominal opex from the base year?
-lcoe_opex_basis = "real_from_cod"
+
+# What §9.4's "PV of opex" is discounted from, and whether it escalates.
+# Unescalated opex discounted from the model base year reproduces all 48
+# reference LCOEs exactly. Issue #8 offered two readings and neither is this
+# one: discounting from COD matches 10 of 48 and misses by up to 16 EUR/MWh,
+# and escalating the opex matches none. Capex enters undiscounted at t0 under
+# every reading. The value is spelled as economics/lcoe.py's REAL_FROM_BASE,
+# which owns the vocabulary; 2A and 2C reached this answer independently
+# (2A-4 and A-24).
+lcoe_opex_basis = "real_from_base"
 
 # --- The seed-pipeline generator (§9.1-9.4) -----------------------------------
 #
@@ -205,14 +218,90 @@ target_dscr = 1.40
 price_escalation = 0.005
 merchant_escalation = 0.021
 opex_escalation = 0.021
-# Entry yield is jittered +/- this, in fractions of one (§9.1).
-entry_yield_jitter = 0.007
-# Capacity factor is jittered by this multiplicative band.
-capacity_factor_jitter_low = 0.94
-capacity_factor_jitter_high = 1.06
-contract_price_factor_low = 0.86
-contract_price_factor_high = 1.00
+# Below this contracted share a project is treated as fully merchant and draws
+# no tenor (§4.3: a zero tenor requires a zero share). The shipped mix never
+# reaches it, and it is here so that a re-calibrated mix cannot emit a file
+# with a contracted share and no term to run it over.
+contracted_share_floor = 0.05
 contract_tenor_choices = [10, 12, 15, 15, 20]
+# A generated project whose min DSCR falls outside the §10 plausibility band is
+# redrawn from its own stream rather than shipped with a warning, so
+# `pipeline generate` produces a pipeline that loads clean. Bounded: a site the
+# band cannot accommodate at all is a data problem to report, not to retry
+# forever. Unused by the reference-parity mode, whose 48 projects already land
+# inside the band.
+dscr_resample_attempts = 24
+
+# --- What the shipped pipeline is made of -------------------------------------
+#
+# The reference corpus is a fixed 48-site table. A 300- or 2,000-project pipeline
+# is drawn to these shares instead, across the 14 markets in baseload_price.
+# Site names, coordinates and the markets themselves are geography rather than
+# calibration, and live in src/terrafolio/generate/countries.json.
+
+[generator.technology_mix]
+solar = 0.45
+onshore_wind = 0.44
+offshore_wind = 0.11
+
+[generator.stage_mix]
+greenfield = 0.36
+ready_to_build = 0.41
+construction = 0.23
+
+[generator.capacity_mw.solar]
+low = 55.0
+span = 265.0
+
+[generator.capacity_mw.onshore_wind]
+low = 45.0
+span = 175.0
+
+[generator.capacity_mw.offshore_wind]
+low = 280.0
+span = 220.0
+
+# Years past cod_first_year, by stage: a project under construction commissions
+# almost immediately, a greenfield one is years out. This is what spreads COD
+# across the §5.2 window instead of bunching it.
+
+[generator.cod_offset.greenfield]
+low = 3.0
+span = 4.0
+
+[generator.cod_offset.ready_to_build]
+low = 1.0
+span = 3.0
+
+[generator.cod_offset.construction]
+low = 0.0
+span = 2.0
+
+# --- Ranges the generator draws from ------------------------------------------
+#
+# Stated as `low` and `span`, and drawn as `low + u x span`, because that is what
+# the arithmetic does. Stating a `high` instead and subtracting would be exact
+# for some of these and not others -- 1.06 - 0.94 is 0.1200000000000001, not
+# 0.12 -- and the difference lands in `netCapacityFactor`, which is emitted at
+# full precision and multiplies every year of generation. A `band` elsewhere in
+# this file is a bound something is tested against; a `range` is one a value is
+# drawn from, and only the second needs its width to be exact.
+
+# Entry yield is jittered around the stage figure (§9.1): +/- 0.7 points, so a
+# range 0.014 wide starting 0.007 below.
+[generator.entry_yield_jitter]
+low = -0.007
+span = 0.014
+
+# Multiplicative jitter on a market's P50 capacity factor.
+[generator.capacity_factor_jitter]
+low = 0.94
+span = 0.12
+
+# Contracted price as a fraction of the capture price.
+[generator.contract_price_factor]
+low = 0.86
+span = 0.14
 
 [generator.degradation]
 solar = 0.005
@@ -233,31 +322,31 @@ offshore_override = 0.090
 
 [generator.opex_per_kw_year.solar]
 low = 12.0
-high = 16.0
+span = 4.0
 
 [generator.opex_per_kw_year.onshore_wind]
 low = 42.0
-high = 54.0
+span = 12.0
 
 [generator.opex_per_kw_year.offshore_wind]
 low = 78.0
-high = 98.0
+span = 20.0
 
 [generator.offshore_capacity_factor]
 low = 0.49
-high = 0.55
+span = 0.06
 
 [generator.contracted_share.greenfield]
 low = 0.15
-high = 0.65
+span = 0.5
 
 [generator.contracted_share.ready_to_build]
 low = 0.45
-high = 0.85
+span = 0.4
 
 [generator.contracted_share.construction]
 low = 0.65
-high = 0.95
+span = 0.3
 
 [generator.development_risk_base]
 greenfield = 3.4

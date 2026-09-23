@@ -27,6 +27,7 @@ __all__ = [
     "Interpretation",
     "Metadata",
     "ObjectiveWeights",
+    "Range",
     "RiskCaps",
     "ValidationParams",
 ]
@@ -34,10 +35,35 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Band:
-    """An inclusive low/high pair, for plausibility checks and generator draws."""
+    """An inclusive low/high pair, for a bound something is **tested** against."""
 
     low: float
     high: float
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Range:
+    """A range a value is **drawn** from, as ``low + u x span``.
+
+    Distinct from :class:`Band`, and the difference is not stylistic. A draw
+    range needs its width to be exactly the number the model multiplies by, and
+    subtracting two endpoints does not always give it: ``1.06 - 0.94`` is
+    ``0.1200000000000001``, not ``0.12``. That gap lands in
+    ``netCapacityFactor``, which is emitted at full precision and multiplies
+    every year of generation, so it is the difference between reproducing the
+    reference corpus and merely agreeing with it.
+
+    So a range states what it is drawn with and derives the endpoint, rather
+    than the other way round.
+    """
+
+    low: float
+    span: float
+
+    @property
+    def high(self) -> float:
+        """The top of the range. Derived, because the span is what is drawn with."""
+        return self.low + self.span
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -145,7 +171,9 @@ class Interpretation:
     """
 
     exit_year_fcfe_included: bool
+    """Whether the exit year's own FCFE counts alongside the terminal value."""
     lcoe_opex_basis: str
+    """One of :data:`terrafolio.model.returns.LCOE_BASES`."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -165,26 +193,32 @@ class GeneratorParams:
     price_escalation: float
     merchant_escalation: float
     opex_escalation: float
-    entry_yield_jitter: float
-    capacity_factor_jitter_low: float
-    capacity_factor_jitter_high: float
-    contract_price_factor_low: float
-    contract_price_factor_high: float
+    entry_yield_jitter: Range
+    contracted_share_floor: float
+    capacity_factor_jitter: Range
+    contract_price_factor: Range
     contract_tenor_choices: tuple[int, ...]
 
     degradation: Mapping[Technology, float]
     capture_factor: Mapping[Technology, float]
     entry_yield: Mapping[Stage, float]
     entry_yield_offshore_override: float
-    opex_per_kw_year: Mapping[Technology, Band]
-    offshore_capacity_factor: Band
-    contracted_share: Mapping[Stage, Band]
+    opex_per_kw_year: Mapping[Technology, Range]
+    offshore_capacity_factor: Range
+    contracted_share: Mapping[Stage, Range]
     development_risk_base: Mapping[Stage, float]
     development_risk_offshore_premium: float
     development_risk_jitter: float
     development_risk: Band
     grid_secured_greenfield_probability: float
     om_contracted_probability: float
+
+    dscr_resample_attempts: int
+
+    technology_mix: Mapping[Technology, float]
+    stage_mix: Mapping[Stage, float]
+    capacity_mw: Mapping[Technology, Range]
+    cod_offset: Mapping[Stage, Range]
 
     baseload_price: Mapping[str, float]
     capacity_factor: Mapping[Technology, Mapping[str, float]]

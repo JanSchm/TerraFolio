@@ -553,6 +553,329 @@ far less cannot reach it at all.
 
 Raise it on #3 if the symmetric reading was intended; the change is one comparison.
 
+### A-23 — the exit year's own FCFE counts alongside the terminal value
+
+*Raised by issue #8. Affects: #6, #7, #9, #11.*
+
+§9.4 puts the IRR "over the equity cash flow truncated at the hold year, with a terminal value of
+the exit multiple x exit-year EBITDA less outstanding debt". That does not say whether the exit
+year's *own* free cash flow is still in the series or whether the terminal value replaces it, and
+the two give materially different returns.
+
+**Decided.** It counts. The terminal value is **added to** the exit year's FCFE, at the same index.
+
+Measured against [`derived_expectations.json`](../tests/golden/fixtures/derived_expectations.json)
+over 48 projects at three exit-multiple bases: including it reproduces **144 of 144** IRRs and
+MOICs to within an ulp; excluding it reproduces **none**. Kept as
+`interpretation.exit_year_fcfe_included` so that a fund taking the other reading is a configuration
+change, and pinned by `tests/golden/test_interpretations.py`, which also asserts the alternative
+fails.
+
+The debt netted off is the balance **after** the exit year's repayment, so the exit-year cash flow
+and the exit bridge do not both take credit for it.
+
+### A-24 — LCOE discounts unescalated opex from the base year, which is neither reading issue #8 names
+
+*Raised by issue #8. Affects: #6, #9, #11.*
+
+§9.4 gives LCOE as "(capex + PV of opex) / PV of generation, 6% real" without saying what the opex
+is discounted *from*, or whether it escalates. Issue #8 offers two readings: real opex from COD, or
+nominal opex from the base year. Measured, **neither is right**.
+
+**Decided.** `real_from_base`: **unescalated** opex, discounted from the model's base year, with
+capex entering undiscounted at t0. Spelled as `economics/lcoe.py`'s `REAL_FROM_BASE`, which owns the
+vocabulary — 2A reached the same answer independently and recorded it as 2A-4, and the two were
+reconciled on the merge.
+
+| basis | reproduces the 48 reference LCOEs |
+|---|---|
+| `real_from_base` | **48 / 48, exactly** |
+| `real_from_cod` | 10 / 48, missing by up to 16 EUR/MWh |
+| `nominal_from_base_year` | 0 / 48 |
+
+Discounting from the base year rather than from COD means a late-COD asset is discounted for years
+before it exists, which is arguably wrong as economics and is unarguably what the reference
+computes and what every published figure in this project was calibrated against. It is pinned
+because it reproduces the corpus, and named for what it is rather than filed under one of issue
+#8's two labels, because calling it something it is not is how the next reader gets it wrong. `docs/spec.md` §15 is the place to revisit the economics; changing it here is one flag.
+
+### A-25 — debt is sized by dividing by the annuity payment factor
+
+*Raised by issue #8, from its own arithmetic. Affects: #6.*
+
+Issue #8 writes the sizing as `min(maxGearing x capex, stabilised_ebitda / 1.40 /
+annuity_pv_factor(0.055, 18))` and, in the same list, pins
+`annuity_pv_factor(0.055, 18) = 11.246074465287`. Those contradict: the PV factor is the present
+value of one unit a year, so **dividing** by it gives a project financing of EUR 0.70m where the
+template project's senior debt is EUR 74.39m.
+
+**Decided.** `debt = min(max_gearing x capex, stabilised / target_dscr / annuity_payment_factor)`,
+where the payment factor is `r / (1 - (1+r)^-n)` -- the reciprocal, and what the reference divides
+by. `annuity_pv_factor` is implemented and tested at the pinned value, because that is a real and
+useful quantity and the criterion names it.
+
+Written as a division rather than as `x annuity_pv_factor`, which is the same quantity the other
+way up: `(x x d) / r` and `x x (d / r)` round differently, and the multiplied form sits 5.7e-14 from
+the corpus on the DSCR-sculpted projects. Inert against the EUR 0.01m tolerance, fatal to a
+field-for-field match.
+
+### A-26 — a range the generator draws from states its span; a band it tests against states a high
+
+*Raised by issue #8, in measurement. Affects: #2, #6.*
+
+The generator's jitter was landed as `low`/`high` pairs and drawn as `low + u x (high - low)`. The
+reference writes the width directly -- `0.94 + rnd() * 0.12` -- and the two are not the same number:
+`1.06 - 0.94` is `0.1200000000000001`. Four of the ten generator ranges are like that.
+
+**Decided.** Two types. `Band` is an inclusive pair something is **tested** against, as §10's
+plausibility checks use it. `Range` is one a value is **drawn** from, stated as `low` and `span` and
+drawn as `low + u x span`, with `high` derived.
+
+The gap is about 1e-17 relative and would be unreachable anywhere else in this system. It matters
+here because it lands in `netCapacityFactor`, which is emitted at full precision and multiplies
+every year of generation -- so it is the difference between reproducing the reference corpus and
+merely agreeing with it.
+
+### A-27 — the generator has two seeding modes, and only one of them ships
+
+*Raised by issue #8. Affects: #6, #7, #9.*
+
+Issue #8 requires two things that one seeding scheme cannot do. "Seeded to match the reference, the
+generator reproduces 1C's 48 projects field for field" needs the reference's **index**-keyed
+`xorshift32`, seeded `i * 97 + 13`. "Inserting a project at the head of the pipeline changes no
+other project's capex" needs a key that does not move when the directory does.
+
+**Decided.** The draw plan and every formula are shared; only the stream source differs.
+
+- **Parity mode** seeds `Xorshift32(index * 97 + 13)`. Used to reproduce the corpus, and by nothing
+  that ships.
+- **The shipped generator** keys on `(project id, assumption set id)` through
+  `SeedSequence([salt, sha256(id), attempt])`, never Python's `hash`, which is salted per process
+  and would make a pipeline irreproducible between runs of the same build.
+
+Because the salt is the assumption-set id, re-calibrating reprices the whole pipeline -- which is
+correct, and is what makes a stored run explain its own numbers.
+
+The **site pool** is drawn from numpy rather than the ported PRNG. Seven draws per site means every
+technology choice reads a stride-7 subsequence of one xorshift32 stream, and that subsequence is not
+uniform: the measured mix came out 49.7 / 38.7 / 11.7 against a target of 45 / 44 / 11, a five-point
+bias more samples did not wash out. The port exists for parity; the reference has no opinion about a
+300-project pipeline's composition.
+
+### A-28 — issue #8's provenance names are mapped onto §8.1's closed vocabulary
+
+*Raised by issue #8. Affects: #6, #9.*
+
+Issue #8 asks generated files to carry greenfield `analyst_estimate` / low, ready-to-build
+`budget_quote` / medium and construction `signed_contract` / high. None of those three values is in
+[`pipeline-schema.md` §8.1](pipeline-schema.md#81-estimatebasis), which is a closed vocabulary.
+
+**Decided.** They are mapped to the values that mean the same thing: `internal_model`,
+`binding_offer` and `contracted` respectively. The confidences are used as given.
+
+Grid and O&M carry what the project actually has rather than what its stage suggests -- a greenfield
+project with a firm connection agreement has a contract, and saying otherwise would make the
+provenance block disagree with the field it describes.
+
+This is also why the 48 parity files differ from 1C's in their `provenance` and nowhere else: 1C's
+files were produced by its extractor and say so, and these are produced by the house model. Copying
+1C's notes across to make the comparison total would put false provenance in every generated file.
+
+### A-29 — a generated project outside the min-DSCR band is redrawn, not shipped with a warning
+
+*Raised by issue #8. Affects: #6.*
+
+Issue #8 wants 300 files that pass with **zero** plausibility warnings, and separately wants a
+realistic share of them below the 1.25 default mandate floor. §10's band is 1.20-2.50, so the
+target window is narrow on one side.
+
+**Decided.** A project whose min DSCR falls outside the band is redrawn from its own stream --
+`SeedSequence([salt, sha256(id), attempt])` -- up to `generator.dscr_resample_attempts`. Each
+attempt stays a pure function of the project's own identity, so a redraw disturbs nothing else in
+the directory. A project that cannot be placed is emitted anyway with its attempt count, rather than
+dropped: silently dropping one would make `--count` a suggestion.
+
+Measured on the shipped pipeline: 283 of 300 land first time, min DSCR spans 1.2013-2.1210, none
+falls outside the band, and 17 (5.7%) sit below 1.25 -- which is what keeps §5.2's DSCR slider a
+live control and §7.4's red-below-floor able to fire.
+
+Parity mode does not resample. The reference's 48 are already inside the band, so the two modes
+cannot disagree about the corpus.
+
+**What the caller decided** (added after review). `build_project` reports `within_band`, and
+`pipeline generate` refuses to write **anything** if any project is outside it, naming each one. An
+earlier version counted every multi-attempt project as "redrawn to bring min DSCR inside its
+plausibility band" and exited zero, which was simply false when the band could not be met — a
+recalibration could have shipped a knowingly out-of-band pipeline that reported success. "Zero
+plausibility warnings" is a property of what ships or it is nothing.
+
+**And a site that cannot be placed at all is skipped** (added on the 2A merge, which moved
+`assumption_set_id` and so every jitter stream). Redrawing fixes an unlucky jitter; it cannot fix a
+market. A solar park in Finland draws a 0.098 capacity factor and clamps to the 560 €/kW floor, so
+its cover ratio is whatever the resource allows — 0.97 after twenty-four redraws. §9.1 puts that
+asset in the pipeline deliberately, "so the screens have something to reject"; §10 then calls it
+implausible, and issue #8 asks for zero plausibility warnings. Both cannot hold for one shipped
+file, so the generator draws the pool deeper than asked and takes the first `count` placeable sites.
+
+Ids come from a site's position in the pool, so skipping one leaves a gap and changes nothing about
+any other project — the same property that keying the jitter on the id buys (A-27). Ids are unique
+and uniformly padded, which is all §4 and C-5 ask; they were never promised to be contiguous.
+
+### A-30 — a workbook is written at full double precision, which Excel itself does not keep
+
+*Raised by issue #8. Affects: #9.*
+
+`openpyxl` formats every number with `%.16g`, and a binary64 needs **seventeen** significant digits
+to survive a round trip. Measured over 40 generated files, 8,578 of 32,400 values came back changed
+in their last digit -- about 1e-16 relative, far inside the EUR 0.01m tie-out tolerance, and not
+lossless.
+
+**Decided.** The writer installs `repr` -- the shortest string that reads back as the identical
+double -- for the duration of one save, and asserts the attribute it replaces still exists so an
+`openpyxl` restructure fails loudly. A JSON -> xlsx -> JSON round trip is then exact: 32,400 leaves,
+zero differences.
+
+**This does not make Excel exact.** Excel carries fifteen significant digits, so a workbook a human
+opens and saves loses the last two, by about 1e-15 relative -- three orders inside the file's own
+tie-out tolerance, and a property of the format rather than of this code. Recorded rather than
+hidden, because "lossless" is otherwise a promise the spreadsheet path cannot keep.
+
+### A-31 — the exit bridge reads `debtSchedule.closing` rather than re-amortising the facility
+
+*Raised by issue #8. Affects: #6.*
+
+The JavaScript reference computes the debt outstanding at exit in a **third** independent
+amortisation loop, separate from both the one that builds the schedule and the one that finds min
+DSCR. Its answer sits an ulp from the `debtSchedule.closing` in the same file.
+
+**Decided.** Read the schedule. §7.4 ties `closing` out year by year, and
+[§9](pipeline-schema.md#9-the-reject-derived-fields-rule) exists precisely to stop a second source
+for one number -- "the one that drifts is always the stored one" applies just as well to a fourth
+derivation in code.
+
+The cost is visible and bounded: 35 of 1,440 oracle cells in
+`derived_expectations.json` differ in their last bit, which is why the interpretation sweep compares
+the hold-truncated series, IRR and MOIC at 1e-12 rather than exactly. LCOE and the 30-year IRR have
+no second derivation and are compared exactly, 48/48.
+
+
+### A-32 — a regenerated pipeline replaces what it generated, and nothing else
+
+*Raised by issue #8, in adversarial review. Affects: #6, #9.*
+
+`write_pipeline` wrote its files and left everything else in place. Two ways that goes wrong, and
+both were reachable from ordinary flags:
+
+- Dropping `--count` from 300 to 100 left **200 stale projects** behind, which a loader then reads
+  as part of the run.
+- Changing `--seed` renames every site, so every *filename* changes while every *id* stays the same.
+  Overwriting by filename produced **two files per id** — and §7.9 aborts the whole load on a
+  duplicate id, so the pipeline became unusable rather than merely stale. Measured: 12 projects
+  regenerated under a new seed gave 24 files and 12 duplicated ids.
+
+**Decided.** Three rules, in this order.
+
+1. **The previously generated set is removed, not overwritten.** Ownership is read from
+   `provenance.preparedBy`, which the generator stamps on everything it writes.
+2. **Everything else is left untouched.** [§1](pipeline-schema.md#1-what-a-file-is) has a user
+   adding a project by dropping a file in, so the directory is not the generator's to empty. A file
+   it cannot parse counts as somebody's, not as rubbish.
+3. **A foreign file carrying an id this run would produce raises before anything is written.** That
+   is a genuine conflict with somebody's work, and silently winning it is worse than refusing.
+
+Everything is written to a staging directory and moved in afterwards, so an interrupted run leaves
+the previous pipeline intact rather than a directory half from each generation.
+
+### A-33 — a tie-out failure blocks ingestion; a house-model variance does not
+
+*Raised by issue #8, in adversarial review. Affects: #6, #9.*
+
+`pipeline ingest` validated a workbook through `ProjectFile` and wrote it. That checks shape, domain
+and the reject-derived rule — it does **not** check that the statements agree with each other, and
+`read_workbook` does not evaluate the workbook's own `TieOuts` sheet. A workbook of entirely
+plausible positive numbers whose EBITDA identity was out by €5m was therefore accepted and written
+as canonical pipeline data, against §7's plain statement that such a file *does not load*.
+
+**Decided.** The §7 identities are checked before anything is written, and a failure refuses the
+file with the check, the year and the residual — which is what §7 asks a loader to report.
+
+**The distinction is the point, and it is not the same test.**
+
+| | means | verdict |
+|---|---|---|
+| tie-out failure | the file **disagrees with itself** | blocking |
+| house-model variance | *this model* would have computed something else | advisory (A-7, Q-4) |
+
+There is no coherent reading of a file whose EBITDA is not revenue less opex, so nobody can
+overrule it. There are many good reasons an analyst's model differs from this one — a curtailment
+regime, a tax-loss carryforward, a merchant floor — and gating on those would make the house model
+authoritative again, which is exactly what the input design set out to change. A file whose
+*inputs* were altered still ingests, with the variance reported.
+
+**Superseded in part by A-35.** The checks were briefly `model/tieouts.py`, written before 2A
+landed. 2A's `pipeline/validator.py` is the owner, takes a `ProjectFile` directly and produces
+better messages, so the CLI calls that instead and the duplicate is gone. What the entry decides —
+that tie-outs block ingestion and a variance does not — is unchanged.
+
+### A-34 — a project's own text is written to a workbook as text, never as a formula
+
+*Raised by issue #8, in adversarial review. Affects: #9.*
+
+openpyxl infers a cell's type from its value, and a string beginning with `=` becomes a **formula**.
+A project file's `name` is 1–120 characters of free text, and `provenance.preparedBy`,
+`modelVersion` and every `note` likewise; nothing in the schema forbids a leading `=`, and nothing
+should. Exporting such a project wrote a live formula into the workbook, which Excel evaluates when
+an analyst opens it — `HYPERLINK` and the `WEBSERVICE` family reach the network — and the cell
+stopped round-tripping as the text it was.
+
+This is reachable without an attacker: `pipeline ingest` accepts an analyst-authored workbook, and
+`pipeline export` writes any project back out. A name beginning with `=` is enough.
+
+**Decided.** Every text value is written as an explicit string cell. Formulas appear in exactly one
+place, the `TieOuts` sheet, which builds its own from the layout and never from project text.
+Asserted in the stored XML rather than only through openpyxl's reader: `<f>` appears in one of the
+five sheets, and it is that one.
+
+
+### A-35 — 2C converges onto 2A's economics and validator rather than shipping a second copy
+
+*Raised by issue #8, merging 2A (#19) and 2B (#18). Affects: #6, #9.*
+
+2C was written against an empty `pipeline/` and `economics/`, because 2A had not landed. When it
+did, four things existed twice, and one of them was actively broken by the merge.
+
+**The break.** 2C had pinned `interpretation.lcoe_opex_basis = "real_from_base_year"`; 2A's
+`economics/lcoe.py` accepts `real_from_cod`, `real_from_base` and `nominal_from_base` and raises on
+anything else. The merged tree therefore could not compute an LCOE at all. **2A owns `economics/`
+and landed first, so 2C conforms** — the value is now `real_from_base`, per epic §8's rule that a
+non-owner conforms and raises any disagreement separately. There is none to raise: both issues
+measured the same thing and got the same answer (2A-4 and A-24), which is the best evidence either
+of us had that it is right.
+
+**The duplicates, and what happened to each.**
+
+| was | now | why |
+|---|---|---|
+| `model/tieouts.py` | `pipeline/validator.py` | 2A's row, takes a `ProjectFile` directly, and names the calendar year rather than an array index. |
+| `model/returns.py` | `economics/{lcoe,irr,returns,terminal}` | 2A's are vectorised over the whole pipeline and read the same two flags. The sweep now pins the **shipped** path. |
+| `model/annuity.py`'s `annuity_pv_factor` | re-exports `economics/annuity.py`'s | The two agreed to the last bit. The amortisation *schedule* stays, because `economics` has no use for one. |
+| `[irr]` in the assumption set | 2A's `IRR_BRACKET_LOW`/`HIGH` | See below. |
+
+**The IRR bracket is the one place we disagreed, and 2A wins on merit rather than on ownership.**
+2C put it in the assumption set, arguing that its width decides which cash flows have an IRR at all
+and is therefore a modelling choice. 2A hardcodes `[-0.9999, 10.0]` with a `# structural:` escape,
+having deliberately chosen a bracket *wider* than the reference's `[-0.5, 1.2]` so that the endpoint
+is the arithmetic limit rather than a number anyone picked. That is the better argument: a bracket
+chosen to be unreachable is not a dial, and leaving a second one in the assumption set would have
+moved `assumption_set_id` for a value nothing read.
+
+**What this does not change.** The interpretation sweep still pins both flags against
+`derived_expectations.json` and still shows every alternative failing — it now does so through the
+code the optimiser runs, which is strictly more useful than pinning a private copy. The two
+implementations agreed before they were merged, which is why the convergence cost no coverage:
+2A's IRR reproduces the oracle to 2.2e-16 and its LCOE to the last rounded euro.
+
+
 ## Open questions
 
 Numbered `Q-n`, append-only. Each carries a recommended default that has been applied, so a
@@ -2121,3 +2444,20 @@ storing the floor as text.
 | 2026-09-23 | #7 | 2B-11 — the whole provenance is compared at finish, the curve is reconciled by value, the event log closes when the run does, and a redelivery must repeat the failure and warnings too. |
 | 2026-09-23 | #7 | 2B-12 — a pipeline hash digests the files, not the base year or verdict stored beside them, so a disagreeing re-record raises instead of being silently dropped. |
 | 2026-09-23 | #7 | 2B-13 — percentages scale inside `Decimal`; a project name cannot become an Excel formula; the CSV comment header is newline-safe; the schema version guard refuses un-migratable files. |
+| 2026-09-22 | #8 | A-23 — the exit year's own FCFE counts alongside the terminal value; 144/144 against the oracle. |
+| 2026-09-22 | #8 | A-24 — LCOE discounts unescalated opex from the base year; neither reading issue #8 names matches. |
+| 2026-09-22 | #8 | A-25 — debt is sized by dividing by the annuity **payment** factor; issue #8's prose divides by the PV factor. |
+| 2026-09-22 | #8 | A-26 — a draw `Range` states its span; a test `Band` states its high. |
+| 2026-09-22 | #8 | A-27 — two seeding modes: index-keyed for parity, `(id, assumption_set_id)` for the shipped pipeline. |
+| 2026-09-22 | #8 | A-28 — issue #8's provenance names mapped onto §8.1's closed vocabulary. |
+| 2026-09-22 | #8 | A-29 — a project outside the min-DSCR band is redrawn from its own stream, bounded. |
+| 2026-09-22 | #8 | A-30 — workbooks are written at full double precision; Excel's own fifteen digits are not. |
+| 2026-09-22 | #8 | A-31 — the exit bridge reads `debtSchedule.closing` instead of re-amortising. |
+| 2026-09-22 | #8 | The `reconciled` file contract is applied: fixtures regenerated, template and §4.6 updated. |
+| 2026-09-22 | #8 | `assumption_set_id` moves to 9e5bfe51aeb2f40a as the generator and IRR bracket land. |
+| 2026-09-23 | #8 | A-32 — a regenerated pipeline replaces what it generated; a seed change used to duplicate every id. |
+| 2026-09-23 | #8 | A-33 — tie-out failures block ingestion; a house-model variance stays advisory. |
+| 2026-09-23 | #8 | A-34 — project text is written as an explicit string cell, never as an Excel formula. |
+| 2026-09-23 | #8 | A-29 extended — `pipeline generate` refuses to write when any project is outside the band. |
+| 2026-09-23 | #8 | A-35 — 2C converges onto 2A's `economics/` and `pipeline/validator.py`; the LCOE basis is spelled 2A's way and the duplicate IRR bracket is gone. |
+| 2026-09-23 | #8 | A-29 extended again — a site the model cannot place inside §10's band is skipped and the pool drawn deeper, rather than shipped with a warning. |

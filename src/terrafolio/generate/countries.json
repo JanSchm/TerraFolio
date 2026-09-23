@@ -1,0 +1,580 @@
+{
+  "$schemaId": "terrafolio/generator-markets/v1",
+  "note": "The 14 European markets the assumption set carries a baseload curve and a P50 capacity-factor curve for. `regions` name sites and place them inside the bounding box; they are geography, not calibration, which is why they live here rather than in assumptions/default-2026.toml.",
+  "countries": [
+    {
+      "code": "ES",
+      "name": "Spain",
+      "iso3": "ESP",
+      "currency": "EUR",
+      "latRange": [
+        36.2,
+        43.6
+      ],
+      "lonRange": [
+        -8.9,
+        3.2
+      ],
+      "offshoreCapable": true,
+      "regions": [
+        "Almonte",
+        "Tierra Llana",
+        "Ebro Valley",
+        "Sierra Norte",
+        "Castilla",
+        "Galicia",
+        "Aragon",
+        "Navarra",
+        "Extremadura",
+        "La Mancha",
+        "Andalucia",
+        "Murcia",
+        "Valencia",
+        "Cataluna",
+        "Asturias",
+        "Cantabria",
+        "Rioja",
+        "Leon",
+        "Zamora",
+        "Salamanca",
+        "Huelva",
+        "Cadiz",
+        "Teruel",
+        "Soria"
+      ]
+    },
+    {
+      "code": "PT",
+      "name": "Portugal",
+      "iso3": "PRT",
+      "currency": "EUR",
+      "latRange": [
+        37.0,
+        41.9
+      ],
+      "lonRange": [
+        -9.5,
+        -6.2
+      ],
+      "offshoreCapable": true,
+      "regions": [
+        "Alqueva",
+        "Algarve",
+        "Guadiana",
+        "Alentejo",
+        "Beira",
+        "Minho",
+        "Douro",
+        "Tejo",
+        "Estremadura",
+        "Ribatejo",
+        "Sado",
+        "Mondego",
+        "Serra da Estrela",
+        "Vouga",
+        "Lima",
+        "Coa",
+        "Sines",
+        "Evora",
+        "Beja",
+        "Portalegre",
+        "Castelo Branco",
+        "Viseu",
+        "Braganca",
+        "Faro"
+      ]
+    },
+    {
+      "code": "IT",
+      "name": "Italy",
+      "iso3": "ITA",
+      "currency": "EUR",
+      "latRange": [
+        37.0,
+        46.2
+      ],
+      "lonRange": [
+        7.5,
+        17.5
+      ],
+      "offshoreCapable": true,
+      "regions": [
+        "Puglia",
+        "Sicilia",
+        "Maremma",
+        "Apennine",
+        "Basilicata",
+        "Calabria",
+        "Sardegna",
+        "Lazio",
+        "Umbria",
+        "Marche",
+        "Abruzzo",
+        "Molise",
+        "Campania",
+        "Toscana",
+        "Emilia",
+        "Veneto",
+        "Piemonte",
+        "Lombardia",
+        "Friuli",
+        "Liguria",
+        "Trentino",
+        "Salento",
+        "Gargano",
+        "Etna"
+      ]
+    },
+    {
+      "code": "GR",
+      "name": "Greece",
+      "iso3": "GRC",
+      "currency": "EUR",
+      "latRange": [
+        35.2,
+        41.2
+      ],
+      "lonRange": [
+        20.2,
+        26.5
+      ],
+      "offshoreCapable": true,
+      "regions": [
+        "Thessaly",
+        "Peloponnese",
+        "Attica",
+        "Thrace",
+        "Macedonia",
+        "Epirus",
+        "Crete",
+        "Evia",
+        "Rhodes",
+        "Chalkidiki",
+        "Larissa",
+        "Kozani",
+        "Ptolemaida",
+        "Aetolia",
+        "Boeotia",
+        "Arcadia",
+        "Messinia",
+        "Laconia",
+        "Pieria",
+        "Serres",
+        "Drama",
+        "Kavala",
+        "Xanthi",
+        "Komotini"
+      ]
+    },
+    {
+      "code": "FR",
+      "name": "France",
+      "iso3": "FRA",
+      "currency": "EUR",
+      "latRange": [
+        43.0,
+        50.8
+      ],
+      "lonRange": [
+        -4.5,
+        7.5
+      ],
+      "offshoreCapable": true,
+      "regions": [
+        "Occitanie",
+        "Aquitaine",
+        "Bretagne",
+        "Champagne",
+        "Normandie",
+        "Picardie",
+        "Beauce",
+        "Limousin",
+        "Auvergne",
+        "Bourgogne",
+        "Lorraine",
+        "Alsace",
+        "Poitou",
+        "Vendee",
+        "Charente",
+        "Gascogne",
+        "Camargue",
+        "Provence",
+        "Ardennes",
+        "Berry",
+        "Anjou",
+        "Touraine",
+        "Perche",
+        "Artois"
+      ]
+    },
+    {
+      "code": "DE",
+      "name": "Germany",
+      "iso3": "DEU",
+      "currency": "EUR",
+      "latRange": [
+        47.5,
+        54.8
+      ],
+      "lonRange": [
+        6.2,
+        14.8
+      ],
+      "offshoreCapable": true,
+      "regions": [
+        "Lausitz",
+        "Bayern Sud",
+        "Schleswig",
+        "Eifel",
+        "Brandenburg",
+        "Sachsen",
+        "Thuringen",
+        "Niedersachsen",
+        "Westfalen",
+        "Hessen",
+        "Pfalz",
+        "Schwaben",
+        "Franken",
+        "Altmark",
+        "Uckermark",
+        "Vorpommern",
+        "Harz",
+        "Rhon",
+        "Spreewald",
+        "Oderbruch",
+        "Wendland",
+        "Emsland",
+        "Munsterland",
+        "Allgau"
+      ]
+    },
+    {
+      "code": "PL",
+      "name": "Poland",
+      "iso3": "POL",
+      "currency": "PLN",
+      "latRange": [
+        49.2,
+        54.6
+      ],
+      "lonRange": [
+        14.2,
+        23.8
+      ],
+      "offshoreCapable": true,
+      "regions": [
+        "Wielkopolska",
+        "Pomorskie",
+        "Mazowsze",
+        "Dolny Slask",
+        "Lubelskie",
+        "Podlasie",
+        "Kujawy",
+        "Opolskie",
+        "Slaskie",
+        "Lodzkie",
+        "Warmia",
+        "Mazury",
+        "Swietokrzyskie",
+        "Podkarpacie",
+        "Zachodniopomorskie",
+        "Lubuskie",
+        "Malopolska",
+        "Suwalki",
+        "Bialystok",
+        "Torun",
+        "Kalisz",
+        "Konin",
+        "Plock",
+        "Elblag"
+      ]
+    },
+    {
+      "code": "RO",
+      "name": "Romania",
+      "iso3": "ROU",
+      "currency": "RON",
+      "latRange": [
+        43.7,
+        47.9
+      ],
+      "lonRange": [
+        20.3,
+        29.5
+      ],
+      "offshoreCapable": true,
+      "regions": [
+        "Dobrogea",
+        "Banat",
+        "Oltenia",
+        "Muntenia",
+        "Moldova",
+        "Transilvania",
+        "Crisana",
+        "Maramures",
+        "Bucovina",
+        "Baragan",
+        "Braila",
+        "Galati",
+        "Tulcea",
+        "Constanta",
+        "Calarasi",
+        "Ialomita",
+        "Teleorman",
+        "Olt",
+        "Dolj",
+        "Arad",
+        "Timis",
+        "Bihor",
+        "Cluj",
+        "Alba"
+      ]
+    },
+    {
+      "code": "NL",
+      "name": "Netherlands",
+      "iso3": "NLD",
+      "currency": "EUR",
+      "latRange": [
+        51.0,
+        53.4
+      ],
+      "lonRange": [
+        3.6,
+        7.0
+      ],
+      "offshoreCapable": true,
+      "regions": [
+        "Zeeland",
+        "Groningen",
+        "Borssele",
+        "Flevoland",
+        "Drenthe",
+        "Friesland",
+        "Overijssel",
+        "Gelderland",
+        "Noord-Holland",
+        "Zuid-Holland",
+        "Brabant",
+        "Limburg",
+        "Wieringermeer",
+        "Texel",
+        "Wadden",
+        "Betuwe",
+        "Veluwe",
+        "Achterhoek",
+        "Twente",
+        "Zaanstreek",
+        "Westland",
+        "Bollenstreek",
+        "Kennemerland",
+        "Goeree"
+      ]
+    },
+    {
+      "code": "DK",
+      "name": "Denmark",
+      "iso3": "DNK",
+      "currency": "DKK",
+      "latRange": [
+        54.7,
+        57.7
+      ],
+      "lonRange": [
+        8.1,
+        12.6
+      ],
+      "offshoreCapable": true,
+      "regions": [
+        "Nordjylland",
+        "Jutland",
+        "Kriegers Flak",
+        "Midtjylland",
+        "Syddanmark",
+        "Sjaelland",
+        "Fyn",
+        "Lolland",
+        "Bornholm",
+        "Thy",
+        "Mors",
+        "Djursland",
+        "Vendsyssel",
+        "Himmerland",
+        "Salling",
+        "Samso",
+        "Langeland",
+        "Als",
+        "Ribe",
+        "Varde",
+        "Holstebro",
+        "Skive",
+        "Randers",
+        "Horsens"
+      ]
+    },
+    {
+      "code": "IE",
+      "name": "Ireland",
+      "iso3": "IRL",
+      "currency": "EUR",
+      "latRange": [
+        51.5,
+        55.3
+      ],
+      "lonRange": [
+        -10.3,
+        -6.1
+      ],
+      "offshoreCapable": true,
+      "regions": [
+        "Connacht",
+        "Kerry",
+        "Munster",
+        "Leinster",
+        "Ulster",
+        "Donegal",
+        "Mayo",
+        "Galway",
+        "Clare",
+        "Tipperary",
+        "Cork",
+        "Limerick",
+        "Sligo",
+        "Roscommon",
+        "Offaly",
+        "Laois",
+        "Kildare",
+        "Wexford",
+        "Wicklow",
+        "Carlow",
+        "Meath",
+        "Louth",
+        "Cavan",
+        "Monaghan"
+      ]
+    },
+    {
+      "code": "SE",
+      "name": "Sweden",
+      "iso3": "SWE",
+      "currency": "SEK",
+      "latRange": [
+        55.4,
+        68.0
+      ],
+      "lonRange": [
+        11.2,
+        23.8
+      ],
+      "offshoreCapable": true,
+      "regions": [
+        "Norrland",
+        "Vastra Gotaland",
+        "Skane",
+        "Smaland",
+        "Dalarna",
+        "Jamtland",
+        "Halland",
+        "Varmland",
+        "Uppland",
+        "Sodermanland",
+        "Ostergotland",
+        "Blekinge",
+        "Gastrikland",
+        "Harjedalen",
+        "Angermanland",
+        "Vasterbotten",
+        "Norrbotten",
+        "Medelpad",
+        "Narke",
+        "Bohuslan",
+        "Gotland",
+        "Oland",
+        "Lappland",
+        "Norrkoping"
+      ]
+    },
+    {
+      "code": "FI",
+      "name": "Finland",
+      "iso3": "FIN",
+      "currency": "EUR",
+      "latRange": [
+        60.0,
+        69.3
+      ],
+      "lonRange": [
+        21.3,
+        30.5
+      ],
+      "offshoreCapable": true,
+      "regions": [
+        "Ostrobothnia",
+        "Lapland",
+        "Satakunta",
+        "Pirkanmaa",
+        "Savo",
+        "Karelia",
+        "Kainuu",
+        "Uusimaa",
+        "Kymenlaakso",
+        "Paijanne",
+        "Varsinais-Suomi",
+        "Keski-Suomi",
+        "Pohjanmaa",
+        "Kuusamo",
+        "Oulu",
+        "Rovaniemi",
+        "Kemi",
+        "Tornio",
+        "Vaasa",
+        "Pori",
+        "Raahe",
+        "Kokkola",
+        "Seinajoki",
+        "Joensuu"
+      ]
+    },
+    {
+      "code": "GB",
+      "name": "United Kingdom",
+      "iso3": "GBR",
+      "currency": "GBP",
+      "latRange": [
+        50.1,
+        58.6
+      ],
+      "lonRange": [
+        -6.0,
+        1.7
+      ],
+      "offshoreCapable": true,
+      "regions": [
+        "Scottish Borders",
+        "Hornsea",
+        "Highlands",
+        "Pennines",
+        "Yorkshire",
+        "Lincolnshire",
+        "Norfolk",
+        "Suffolk",
+        "Kent",
+        "Wessex",
+        "Cornwall",
+        "Devon",
+        "Wales",
+        "Anglesey",
+        "Cumbria",
+        "Northumberland",
+        "Lanarkshire",
+        "Fife",
+        "Moray",
+        "Aberdeenshire",
+        "Humber",
+        "Mersey",
+        "Severn",
+        "Solway"
+      ]
+    }
+  ]
+}

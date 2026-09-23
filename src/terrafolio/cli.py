@@ -1,10 +1,18 @@
 """``terrafolio`` — the whole compute spine, verifiable before any HTTP exists.
 
-Four subcommands, which between them exercise everything issue 2A builds:
+Subcommands that between them exercise the compute spine (issue 2A) and the
+seed pipeline and spreadsheet path (issue 2C):
 
 ``terrafolio pipeline validate``
     Load the pipeline, report per-file status, tie-out failures, plausibility
     warnings and the cross-file dispersion report.
+``terrafolio pipeline generate``
+    Write a seed pipeline of project files, replacing the set it last generated.
+``terrafolio pipeline ingest``
+    Read an analyst's workbook into canonical JSON, through the same schema and
+    the same blocking tie-outs a JSON file passes.
+``terrafolio pipeline export``
+    Write a project back out as a workbook, so it can be revised and re-ingested.
 ``terrafolio preview``
     §5.4's feasibility footer for a mandate, including the screens to widen.
 ``terrafolio run``
@@ -22,6 +30,7 @@ does it for the wire.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from collections.abc import Sequence
@@ -35,12 +44,24 @@ from terrafolio.config.assumptions import AssumptionSet
 from terrafolio.config.loader import load_default
 from terrafolio.domain.conventions import EUR_PER_EUR_MILLION
 from terrafolio.domain.enums import Effort, RiskAppetite, Stage, WarningCode
-from terrafolio.domain.errors import render_validation_error
+from terrafolio.domain.errors import format_validation_error, render_validation_error
 from terrafolio.domain.mandate import Mandate
 from terrafolio.domain.mandate_bounds import ALL_BOUNDS
+from terrafolio.domain.project_file import ProjectFile
 from terrafolio.domain.reduce import mandate_to_scalars
 from terrafolio.domain.scalars import MandateScalars
 from terrafolio.economics.returns import contracted_revenue_share, project_returns
+from terrafolio.generate.from_file import inputs_from_file, statements_from_file
+from terrafolio.generate.pipeline import (
+    BuiltProject,
+    PipelineCollisionError,
+    PipelineExhaustedError,
+    as_file,
+    generate_pipeline,
+    write_pipeline,
+)
+from terrafolio.generate.spreadsheet import read_workbook, write_workbook
+from terrafolio.model.variance import compare_to_house_model
 from terrafolio.optimiser.feasibility import (
     FeasibilityPreview,
     FeasibilitySignal,
@@ -50,6 +71,7 @@ from terrafolio.optimiser.features import build_features
 from terrafolio.optimiser.ga import SearchControls, run_search
 from terrafolio.optimiser.result import RunResult, SelectionOutcome, build_result
 from terrafolio.pipeline.loader import LoadResult, PipelineLoadError, load_pipeline
+from terrafolio.pipeline.validator import tie_out_failures
 
 EM_DASH = "\u2014"
 """§14: undefined renders as an em dash, never as zero and never as a blank."""
@@ -66,6 +88,12 @@ BENCH_REPEATS: Final = 3  # structural: a benchmark repeat count, not a calibrat
 """Enough runs for a best-of to mean something without making `bench` slow."""
 
 BENCH_SEED: Final = 42  # structural: an arbitrary fixed seed, so two benchmarks compare
+
+GENERATE_COUNT: Final = 300
+"""The shipped pipeline's size. Epic §7 budgets the load at 300 files."""
+
+GENERATE_SEED: Final = 1
+"""The seed the committed pipeline was generated with."""
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +201,7 @@ def _validate(args: argparse.Namespace, assumptions: AssumptionSet) -> int:
         if spread.agrees:
             print(f"  {name:22s} all {spread.count} files agree at {spread.median:g}")
         else:
-            tails = ", ".join(spread.outliers[:4])
+            tails = ", ".join(spread.outliers[:OUTLIER_SAMPLE])
             print(
                 f"  {name:22s} median {spread.median:g}  "
                 f"range {spread.minimum:g} to {spread.maximum:g}  tails: {tails}"
@@ -527,6 +555,160 @@ def _add_mandate_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--exclude", nargs="*", default=[], help="project ids to strike out")
 
 
+# ---------------------------------------------------------------------------
+# The seed pipeline and the spreadsheet path (issue 2C)
+# ---------------------------------------------------------------------------
+
+MAX_REPORTED: Final = 30
+"""How many problems to print before summarising. A wall of text is not a report."""
+
+OUTLIER_SAMPLE: Final = 4  # structural: how many dispersion outliers to name
+"""How many problems to print before summarising. A wall of text is not a report."""
+
+
+def _unshippable(built: list[BuiltProject], assumptions: AssumptionSet) -> list[str]:
+    """Every reason a generated pipeline should not be written, as readable lines.
+
+    Checked **before** writing. Issue #8 asks for a pipeline that loads with zero
+    tie-out failures and zero plausibility warnings, and that is only a property
+    of what ships if the generator refuses to ship anything else. A-29 leaves the
+    decision about an unplaceable site to the caller; this is the caller.
+    """
+    problems: list[str] = []
+    band = assumptions.validation.min_dscr_band
+    for project in built:
+        if not project.within_band:
+            problems.append(
+                f"{project.site.id} {project.site.name}: min DSCR {project.min_dscr:.4f} is "
+                f"outside the {band.low}-{band.high} plausibility band after "
+                f"{project.attempts} attempt(s)"
+            )
+        for failure in tie_out_failures(
+            ProjectFile.model_validate(as_file(project, assumptions)), assumptions
+        ):
+            problems.append(f"{project.site.id} {project.site.name}: {failure.message}")
+    return problems
+
+
+def _report(lines: list[str], headline: str) -> None:
+    print(headline, file=sys.stderr)
+    for line in lines[:MAX_REPORTED]:
+        print(f"  {line}", file=sys.stderr)
+    if len(lines) > MAX_REPORTED:
+        print(f"  ... and {len(lines) - MAX_REPORTED} more", file=sys.stderr)
+
+
+def _generate(args: argparse.Namespace, assumptions: AssumptionSet) -> int:
+    if args.count <= 0:
+        print(f"--count must be positive, got {args.count}", file=sys.stderr)
+        return 2
+
+    target = Path(args.pipeline)
+    try:
+        built = generate_pipeline(args.count, args.seed, assumptions)
+    except PipelineExhaustedError as exhausted:
+        # Not a bug: a calibration whose min-DSCR band no site can reach has no
+        # pipeline to generate, and saying so beats writing a short one.
+        _report(exhausted.skipped, f"refusing to write: {exhausted}")
+        return 1
+
+    problems = _unshippable(built, assumptions)
+    if problems:
+        _report(problems, f"refusing to write: {len(problems)} project(s) would not load cleanly")
+        return 1
+
+    try:
+        outcome = write_pipeline(built, target, assumptions)
+    except PipelineCollisionError as collision:
+        print(str(collision), file=sys.stderr)
+        return 1
+
+    resampled = sum(1 for project in built if project.attempts > 1)
+    print(
+        f"wrote {len(outcome.written)} project files to {target}/ "
+        f"(seed {args.seed}, assumption set {assumptions.assumption_set_id})"
+    )
+    if resampled:
+        print(f"  {resampled} redrawn to bring min DSCR inside its plausibility band")
+    if outcome.replaced:
+        print(f"  {len(outcome.replaced)} previously generated file(s) removed")
+    if outcome.kept:
+        print(f"  {len(outcome.kept)} file(s) this generator did not write, left alone")
+    return 0
+
+
+def _ingest(args: argparse.Namespace, assumptions: AssumptionSet) -> int:
+    workbook = Path(args.workbook)
+    if not workbook.is_file():
+        print(f"{workbook}: not a file", file=sys.stderr)
+        return 2
+    file = read_workbook(workbook)
+    try:
+        validated = ProjectFile.model_validate(file)
+    except ValidationError as error:
+        print(format_validation_error(str(workbook), error), file=sys.stderr)
+        return 1
+
+    # §7's tie-outs are **blocking**: "a file that fails any of these does not
+    # load". `ProjectFile` checks shape, domain and the reject-derived rule; it
+    # does not check that the statements agree with each other, and a workbook
+    # can hold entirely plausible positive numbers that do not. This is 2A's
+    # validator, the same one `pipeline validate` runs, so a workbook and a JSON
+    # file are held to one set of identities rather than two.
+    failures = tie_out_failures(validated, assumptions)
+    if failures:
+        _report(
+            [failure.message for failure in failures],
+            f"{workbook}: {len(failures)} tie-out failure(s); not ingested",
+        )
+        return 1
+
+    target = Path(args.pipeline)
+    target.mkdir(parents=True, exist_ok=True)
+    written = target / f"{validated.id}.json"
+    written.write_text(json.dumps(file, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"{workbook} -> {written}")
+
+    # The house model's second job (epic §2), and the one advisory check here. A
+    # tie-out failure means the file disagrees with itself; a variance means this
+    # model would have computed something else, which the analyst may overrule
+    # (A-7, Q-4).
+    report = compare_to_house_model(
+        inputs_from_file(file, assumptions),
+        statements_from_file(file),
+        tolerance_abs=assumptions.validation.tolerance_abs_m,
+        tolerance_rel=assumptions.validation.tolerance_rel,
+    )
+    if report.agrees:
+        print("  the house model reproduces this file on every line")
+    else:
+        print(f"  the house model differs on {len(report.diverging)} line(s):")
+        for line in report.diverging:
+            print(f"    {line}")
+    return 0
+
+
+def _export(args: argparse.Namespace, assumptions: AssumptionSet) -> int:
+    if not args.xlsx:
+        print("--xlsx is the only export format; pass it explicitly", file=sys.stderr)
+        return 2
+    source = Path(args.pipeline)
+    matches = [
+        path
+        for path in sorted(source.glob("*.json"))
+        if json.loads(path.read_text(encoding="utf-8")).get("id") == args.id
+    ]
+    if not matches:
+        print(f"{args.id}: no project with that id in {source}/", file=sys.stderr)
+        return 1
+    destination = Path(args.out) if args.out else Path(f"{args.id}.xlsx")
+    if destination.is_dir():
+        destination = destination / f"{args.id}.xlsx"
+    written = write_workbook(json.loads(matches[0].read_text(encoding="utf-8")), destination)
+    print(f"{matches[0]} -> {written}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="terrafolio", description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -539,6 +721,18 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline = commands.add_parser("pipeline", help="inspect the candidate pipeline")
     pipeline_commands = pipeline.add_subparsers(dest="pipeline_command", required=True)
     pipeline_commands.add_parser("validate", help="tie-outs, plausibility and dispersion")
+
+    generate = pipeline_commands.add_parser("generate", help="write a seed pipeline")
+    generate.add_argument("--count", type=int, default=GENERATE_COUNT, help="how many projects")
+    generate.add_argument("--seed", type=int, default=GENERATE_SEED, help="site-pool seed")
+
+    ingest = pipeline_commands.add_parser("ingest", help="read an analyst workbook into JSON")
+    ingest.add_argument("workbook", help="an .xlsx laid out as the template is")
+
+    export = pipeline_commands.add_parser("export", help="write a project out as a workbook")
+    export.add_argument("--id", required=True, help="the project to export")
+    export.add_argument("--out", default=None, help="output path or directory")
+    export.add_argument("--xlsx", action="store_true", help="write a workbook")
 
     preview = commands.add_parser("preview", help="the §5.4 feasibility footer")
     _add_mandate_arguments(preview)
@@ -559,8 +753,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Entry point for the ``terrafolio`` console script."""
     args = build_parser().parse_args(argv)
     assumptions = load_default()
+    pipeline_handlers = {
+        "validate": _validate,
+        "generate": _generate,
+        "ingest": _ingest,
+        "export": _export,
+    }
     handlers = {
-        "pipeline": _validate,
+        "pipeline": lambda a, s: pipeline_handlers[a.pipeline_command](a, s),
         "preview": _preview,
         "run": _run,
         "bench": _bench,
