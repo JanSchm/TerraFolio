@@ -14,6 +14,7 @@ module-level singleton to reach for.
 from __future__ import annotations
 
 import datetime as dt
+import secrets
 import sqlite3
 import traceback
 from contextlib import closing
@@ -29,7 +30,7 @@ from terrafolio.api.records import (
     succeeded_record,
 )
 from terrafolio.api.settings import Settings
-from terrafolio.api.wire import OptimisationRequest
+from terrafolio.api.wire import SEED_BITS, OptimisationRequest
 from terrafolio.config.assumptions import AssumptionSet
 from terrafolio.config.loader import load_default
 from terrafolio.optimiser.feasibility import FeasibilityPreview
@@ -139,7 +140,7 @@ class Service:
             if flag
         )
         params = self.assumptions.ga.effort[effort]
-        resolved = resolve_seed(request.seed)
+        resolved = resolve_seed(request.seed if request.seed is not None else _draw_seed())
         provenance = build_provenance(
             seed=resolved,
             loaded=loaded,
@@ -246,6 +247,23 @@ class Service:
 
     def pending(self, run_id: str) -> PendingRun | None:
         return self._pending.get(run_id)
+
+
+def _draw_seed() -> int:
+    """A seed the store can hold.
+
+    ``resolve_seed(None)`` draws from ``numpy.random.SeedSequence``, whose entropy
+    is **128 bits** — more than a SQLite ``INTEGER`` can represent, so an unseeded
+    run could be searched and then not stored. Drawing here instead keeps
+    ``resolve_seed`` the one sanctioned way across while giving it a seed that
+    fits, and the run is no less reproducible for it: the seed is explicit from
+    the moment it is drawn, and it is on the 202 before the search starts.
+
+    ``secrets`` rather than any seeded generator, for the same reason
+    ``resolve_seed`` uses the operating system: a seed that came out of a seeded
+    stream would make two "unseeded" runs identical.
+    """
+    return secrets.randbits(SEED_BITS)
 
 
 def _diagnosis(error: BaseException) -> str:

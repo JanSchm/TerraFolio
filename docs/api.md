@@ -327,8 +327,16 @@ stream.
 | `eurRevenueOnly` | boolean | — | false |
 | `omContractedOnly` | boolean | — | false |
 
-`codFrom > codTo` is **400** `INVALID_MANDATE`. An empty `countries` or `stages` is accepted and
-yields `NO_CANDIDATES` on preview; it is **422** here, because there is nothing to search.
+`codFrom > codTo` is **400** `INVALID_MANDATE`, and so is any field outside the range above;
+`detail.field` names it, except where the check is a relationship between two fields and so names
+neither.
+
+An empty `countries` or `stages` is **400** `INVALID_MANDATE`, not 422. An earlier draft of this
+document had it accepted and answered `NO_CANDIDATES`; the executable definition of the schema —
+1A's `domain/mandate.py` — requires at least one of each, and epic §8 makes that model the owner of
+record. Conforming rather than forking: "you have selected no countries" is a fault in the mandate,
+which is what 400 says, where `NO_CANDIDATES` says the mandate is coherent and the pipeline has
+nothing that fits it. `NO_CANDIDATES` keeps that second meaning.
 
 ### 6.2 Request
 
@@ -383,7 +391,7 @@ release, so `detail` carries:
   "lockedIds": ["P01","P17","P44"], "excess_m": 220 }
 ```
 
-**422** `NO_CANDIDATES` — no project passes the screens.
+**422** `NO_CANDIDATES` — the mandate is well-formed and no project passes its screens.
 
 **400** `INVALID_MANDATE` — a field out of range, or `codFrom > codTo`. `detail.field` names it.
 

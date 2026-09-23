@@ -179,7 +179,10 @@ class Mercator:
     def _raw(self, lon: float, lat: float) -> tuple[float, float]:
         clamped = max(-self.limit, min(self.limit, lat))
         phi = math.radians(clamped)
-        return math.radians(lon), math.log(math.tan(math.pi / 4 + phi / 2))
+        # Spelled as d3 spells it — `log(tan((halfPi + phi) / 2))` rather than the
+        # algebraically identical `log(tan(pi/4 + phi/2))` — so the two agree in
+        # the last bits and not merely to within a rounding.
+        return math.radians(lon), math.log(math.tan((math.pi / 2 + phi) / 2))
 
     def __call__(self, lon: float, lat: float) -> tuple[float, float]:
         centre_x, centre_y = self._raw(self.centre_lon, self.centre_lat)
@@ -453,6 +456,7 @@ def _cashflow_svg(series: Sequence[float], base_year: int, spec: Mapping[str, An
     width = spec["width"]
     height = spec["height"]
     gap = spec["barGap"]
+    tick_baseline = spec["tickBaseline"]
     count = len(series)
     highest = max(*series, 0.0)
     lowest = min(*series, 0.0)
@@ -475,20 +479,23 @@ def _cashflow_svg(series: Sequence[float], base_year: int, spec: Mapping[str, An
         )
         if index % spec["tickEvery"] == 0:
             ticks.append(
-                f'<text x="{x + bar_width / 2:.1f}" y="{height + 14:.0f}" '
+                f'<text x="{x + bar_width / 2:.1f}" y="{height + tick_baseline:.0f}" '
                 f'text-anchor="middle" class="axis">{year}</text>'
             )
     baseline = (
         f'<line x1="0" y1="{zero_y:.1f}" x2="{width}" y2="{zero_y:.1f}" '
         f'stroke="var(--pack-divider)"/>'
     )
+    top = spec["axisLabelSpace"]
     labels = (
-        f'<text x="0" y="-6" class="axis">{_text(money_m(highest))}</text>'
-        f'<text x="{width}" y="-6" text-anchor="end" class="axis">'
+        f'<text x="0" y="{spec["axisBaseline"]}" class="axis">'
+        f"{_text(money_m(highest))}</text>"
+        f'<text x="{width}" y="{spec["axisBaseline"]}" text-anchor="end" class="axis">'
         f"{_text(money_m(lowest))}</text>"
     )
     return (
-        f'<svg class="chart" viewBox="0 -18 {width} {height + 24}" role="img" '
+        f'<svg class="chart" viewBox="0 {-top} {width} '
+        f'{height + top + spec["tickLabelSpace"]}" role="img" '
         f'aria-label="Free cash flow to equity over thirty years">'
         f"{labels}{''.join(bars)}{baseline}{''.join(ticks)}</svg>"
     )

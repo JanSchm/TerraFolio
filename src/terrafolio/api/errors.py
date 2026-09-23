@@ -16,10 +16,10 @@ second error shape. Raising :class:`ApiError` instead keeps there being one.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from http import HTTPStatus
-from typing import Any
+from typing import Any, Final
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
@@ -74,6 +74,47 @@ class ApiError(Exception):
 def error_body(code: ErrorCode, message: str, detail: Mapping[str, Any]) -> dict[str, Any]:
     """§1.7's envelope, built in one place so every raiser produces one shape."""
     return {"error": {"code": code.value, "message": message, "detail": dict(detail)}}
+
+
+MANDATE_LOCATION: Final = ("body", "mandate")
+"""Where a mandate sits in a request body, for both endpoints that take one."""
+
+
+def _mandate_field(location: Sequence[str | int]) -> str | None:
+    """The field named in a validation error's location, if it names one.
+
+    ``("body", "mandate", "holdYears")`` names ``holdYears``; a whole-model check
+    such as the COD window's reports ``("body", "mandate")`` and names nothing,
+    because the problem is the relationship between two fields rather than
+    either one of them.
+    """
+    tail = location[len(MANDATE_LOCATION) :]
+    return str(tail[0]) if tail and isinstance(tail[0], str) else None
+
+
+def _from_validation(error: RequestValidationError) -> ApiError:
+    problems = error.errors()
+    mandate = [
+        problem
+        for problem in problems
+        if tuple(problem["loc"][: len(MANDATE_LOCATION)]) == MANDATE_LOCATION
+    ]
+    if not mandate:
+        return ApiError(
+            HTTPStatus.BAD_REQUEST,
+            ErrorCode.INVALID_REQUEST,
+            "The request body is not in the expected shape.",
+            {"problems": jsonable_encoder(problems)},
+        )
+    first = mandate[0]
+    field = _mandate_field(first["loc"])
+    named = f"{field}: " if field else ""
+    return ApiError(
+        HTTPStatus.BAD_REQUEST,
+        ErrorCode.INVALID_MANDATE,
+        f"{named}{first['msg']}",
+        {"field": field, "problems": jsonable_encoder(mandate)},
+    )
 
 
 def _response(error: ApiError) -> JSONResponse:
@@ -135,20 +176,14 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def _malformed(request: Request, error: Exception) -> JSONResponse:
-        """A body FastAPI could not parse at all, in §1.7's shape.
+        """A body that failed validation, in §1.7's shape.
 
-        The mandate's own ranges are checked by ``domain.mandate.Mandate`` and
-        reported as ``INVALID_MANDATE`` with the field named; this is the coarser
-        case of a body that is not the right shape to check.
+        A problem inside ``mandate`` is reported as **INVALID_MANDATE** with the
+        field named, because §6.1 requires ``detail.field`` and because "your
+        hold period is out of range" is a different conversation with the user
+        than "this body is not JSON". Anything else is ``INVALID_REQUEST``.
         """
         del request
         if not isinstance(error, RequestValidationError):  # pragma: no cover - by type
             raise error
-        return _response(
-            ApiError(
-                HTTPStatus.BAD_REQUEST,
-                ErrorCode.INVALID_REQUEST,
-                "The request body is not in the expected shape.",
-                {"problems": jsonable_encoder(error.errors())},
-            )
-        )
+        return _response(_from_validation(error))

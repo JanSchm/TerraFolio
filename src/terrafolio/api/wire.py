@@ -30,6 +30,8 @@ from terrafolio.pipeline.loader import LoadResult
 from terrafolio.store.snapshots import assumption_payload
 
 __all__ = [
+    "SEED_BITS",
+    "SEED_MAX",
     "AssumptionsResponse",
     "DispersionEntry",
     "OptimisationAccepted",
@@ -230,6 +232,18 @@ class PreviewResponse(_Wire):
 # --------------------------------------------------------------------------
 
 
+SEED_BITS: Final = 63
+"""How wide a seed may be.
+
+``run.seed`` is a SQLite ``INTEGER``, which is signed 64-bit, so a seed must fit
+in 63 bits to be *storable* — and epic §5 makes a run whose seed was not recorded
+not a run. Bounded on the wire rather than discovered at the insert, where it
+would surface as a 500 on an otherwise valid request.
+"""
+
+SEED_MAX: Final = 2**SEED_BITS - 1
+
+
 class OptimisationRequest(_Wire):
     """§6.2. ``seed`` omitted means the server draws one and records it."""
 
@@ -237,7 +251,7 @@ class OptimisationRequest(_Wire):
     locked_ids: tuple[str, ...] = ()
     excluded_ids: tuple[str, ...] = ()
     effort: Effort = Effort.STANDARD
-    seed: int | None = None
+    seed: int | None = Field(default=None, ge=0, le=SEED_MAX)
     pipeline_hash: str | None = None
     """The snapshot the client was looking at. A mismatch is 409, never a
     silent run against different data."""
