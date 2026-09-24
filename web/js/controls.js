@@ -85,6 +85,33 @@
     return String(text || '').replace(/\s+/g, ' ').trim();
   }
 
+  /* ── The wire value a control carries ───────────────────────────────────────
+     Every control offers `wire()` and `restore()` as a pair, and `changed()` emits
+     what `wire()` returns, so one control has exactly one idea of its own value.
+     The mandate is fractions throughout (decisions D13) while the native range and
+     number inputs work in whole percent, and `scale` is what separates the two —
+     a factor that used to live only inside `changed()`, where a reader of the page
+     state could not reach it.
+
+     Dividing and multiplying by 100 does not round-trip in binary — 11 / 100 * 100
+     is 11.000000000000002 — so both directions are rounded at a precision far finer
+     than any control's step and far coarser than the error. Without it a mandate
+     restored from a previous session shows a hurdle the user never typed. */
+
+  var WIRE_PRECISION = 1e9;
+
+  function tidy(value) {
+    return Math.round(value * WIRE_PRECISION) / WIRE_PRECISION;
+  }
+
+  function unscale(value, scale) {
+    return tidy(value / (scale || 1));
+  }
+
+  function rescale(value, scale) {
+    return tidy(value * (scale || 1));
+  }
+
   /** Announces a control's new value to whatever is listening above it. */
   function emit(el, name, value) {
     if (!el || !el.dispatchEvent) return;
@@ -116,8 +143,10 @@
       get display() {
         return fmt[this.formatter](this.value / this.scale);
       },
+      wire: function () { return unscale(this.value, this.scale); },
+      restore: function (value) { this.value = rescale(value, this.scale); },
       changed: function ($event) {
-        emit($event.target, this.name, this.value / this.scale);
+        emit($event.target, this.name, this.wire());
       },
     };
   }
@@ -140,8 +169,10 @@
       max: o.max,
       step: o.step,
       scale: o.scale || 1,
+      wire: function () { return unscale(this.value, this.scale); },
+      restore: function (value) { this.value = rescale(value, this.scale); },
       changed: function ($event) {
-        emit($event.target, this.name, this.value / this.scale);
+        emit($event.target, this.name, this.wire());
       },
     };
   }
@@ -160,6 +191,11 @@
       values: o.values || [],
       labels: o.labels || {},
       selected: (o.selected || []).slice(),
+      wire: function () { return this.selected.slice(); },
+      restore: function (value) {
+        var wanted = value || [];
+        this.selected = this.values.filter(function (v) { return wanted.indexOf(v) !== -1; });
+      },
       /**
        * A regional-indicator flag for an ISO-2 code, purely decorative.
        * The markup hides it from assistive technology and lets the country name
@@ -210,6 +246,8 @@
       id: nextId('switch'),
       name: o.name || '',
       on: Boolean(o.on),
+      wire: function () { return this.on; },
+      restore: function (value) { this.on = Boolean(value); },
       toggle: function ($event) {
         this.on = !this.on;
         emit($event && $event.target, this.name, this.on);
@@ -245,8 +283,12 @@
       get note() {
         return this.notes[this.value] || '';
       },
+      wire: function () { return this.value; },
+      restore: function (value) {
+        if (this.options.indexOf(value) !== -1) this.value = value;
+      },
       changed: function ($event) {
-        emit($event && $event.target, this.name, this.value);
+        emit($event && $event.target, this.name, this.wire());
       },
     };
   }
@@ -273,8 +315,10 @@
       get solar() { return Math.round(this.value); },
       get wind() { return 100 - Math.round(this.value); },
       get display() { return this.solar + '% solar / ' + this.wind + '% wind'; },
+      wire: function () { return unscale(this.value, 100); },
+      restore: function (value) { this.value = rescale(value, 100); },
       changed: function ($event) {
-        emit($event && $event.target, this.name, this.value / 100);
+        emit($event && $event.target, this.name, this.wire());
       },
     };
   }

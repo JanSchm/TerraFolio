@@ -8,6 +8,8 @@
 <script defer src="js/format.js"></script>
 <script defer src="js/feasibility.js"></script>
 <script defer src="js/controls.js"></script>
+<script defer src="js/api.js"></script>
+<script defer src="js/mandate.js"></script>
 <script defer src="vendor/alpine.min.js"></script>
 </head>
 <body class="min-h-screen bg-bg text-text">
@@ -40,10 +42,27 @@
         for the subset of projects that best satisfies the objective while respecting every hard
         constraint below.</p>
     </div>
-    <p class="m-0 font-condensed text-h5 uppercase tracking-wide text-muted">
-      Pipeline: <span data-field="totalCount">&#8212;</span> screened candidates
-      &#183; <span data-field="totalCapacityMw">&#8212;</span>
-    </p>
+    <div>
+      <p class="m-0 font-condensed text-h5 uppercase tracking-wide text-muted">
+        Pipeline: <span data-field="totalCount">&#8212;</span> screened candidates
+        &#183; <span data-field="totalCapacityMw">&#8212;</span>
+      </p>
+      <!-- A file that fails its tie-outs never loads, so it is missing from every
+           figure above with nothing to mark its absence. This is the mandate
+           screen's only route to knowing a colleague's file is broken, and the
+           reason for each one comes from GET /pipeline/status (api.md §3).
+           Hidden until there is something to report. -->
+      <div class="mt-[6px] text-right" data-region="pipeline-health" hidden>
+        <button type="button" data-action="show-rejected" aria-expanded="false"
+                aria-controls="m-rejected"
+                class="min-h-[42px] cursor-pointer border-0 bg-transparent p-0 text-note text-breach underline">
+          <span class="num" aria-hidden="true">!</span>
+          <span class="sr-only">Warning: </span><span data-field="rejectedCount">&#8212;</span>
+        </button>
+        <ul id="m-rejected" class="mt-[6px] flex max-w-[460px] flex-col gap-[6px] text-left"
+            data-region="rejected-files" hidden></ul>
+      </div>
+    </div>
   </div>
 
   <form class="grid grid-cols-[repeat(auto-fit,minmax(310px,1fr))] items-start gap-[18px]"
