@@ -2807,6 +2807,190 @@ acceptance criterion in this issue.
 runs the Tailwind build that `offline.test.js` requires. The file is #2's ownership row and #2
 is closed; the change is announced on issue #1 rather than left for someone to notice.
 
+---
+
+## 4C — edge cases and error states
+
+Spec §13's nine rows plus the seven the file-based input model adds (epic §2), each driven end to
+end by a named test in `tests/unit/test_edge_cases_*.py` and `web/tests/edge-cases.test.js`. Two of
+the rows did not hold; both are fixed here under the licence issue #13 gives to open a fix against
+the module a case implicates.
+
+### 4C-1 · An empty pipeline answers `NO_CANDIDATES`, and the page tells it apart on `totalCount`
+
+*Raised by issue #13. Affects: #11.*
+
+§13 requires the mandate page to say that `pipeline/` is empty "rather than rendering a
+zero-candidate run". The obvious implementation is a new `WarningCode`, and it is the wrong one:
+the enum is 1A's, `FeasibilityWarning` validates that a severity is the one its code carries, and
+2B stores that model — so a banner would become a cross-issue contract change.
+
+**Decided.** The server keeps answering `NO_CANDIDATES`, and a client tells the two apart on
+`totalCount == 0` with an empty `screensToWiden`. "There are no files" and "no file passes your
+screens" send a user to different places, and `POST /mandate/preview` already carries both facts.
+
+The sentence — `The pipeline holds no project files. Add files to pipeline/ and reload.` — is new;
+no document pinned one. It lives in `web/js/edge-states.js` and is deliberately **not** the §3.5
+`NO_CANDIDATES` copy, which tells a user to widen three screens when there is nothing to widen.
+
+The state is derived from `fileCount`, not `loadedCount`. A directory whose files all failed their
+tie-outs is a different problem with a different answer: those files are named in `rejected[]`, and
+calling that pipeline empty would send their author looking at the wrong directory.
+
+### 4C-2 · A pipeline with no files has no distributions
+
+*Raised by issue #13. Affects: nobody — a defect fix.*
+
+An empty `pipeline/` did not render a zero-candidate mandate page. It stopped the server starting.
+
+`dispersion_report` built a `Distribution` for each of the nine declared assumptions over zero
+files, so its median, minimum and maximum were all `NaN`; `wire.DispersionEntry` sets
+`allow_inf_nan=False`, so `build_service` raised a pydantic `finite_number` error before the
+application had a route. `DispersionReport.disagreements` also reported **all nine** assumptions as
+disagreeing, because `agrees` is `minimum == maximum` and `NaN == NaN` is `False` — five problems
+reported where there was one, and none of them real.
+
+**Decided.** §11 reports "the distribution of each **declared** assumption across the pipeline". A
+pipeline with no files declares nothing, so it has no distributions — not nine unanimous ones and
+not nine disagreements. `dispersion_report` returns an empty report at zero projects, and
+`Distribution.agrees` is true at `count == 0` so a caller that builds one directly cannot be caught
+by the same `NaN` comparison.
+
+### 4C-3 · Tile 1's sub-label carries the shortfall
+
+*Raised by issue #13. Affects: #11.*
+
+`ui-contract.md` §5.1 says "Tile 1's sub-label shows the **shortfall against target** when the
+capacity target is unreachable (§13)". `export/committee.py` rendered `target {n} MW`
+unconditionally, so the printed pack went alert without ever saying by how much — which is a
+committee's next question.
+
+**Decided.** The sub-label becomes `target {t} MW · {n} MW short` when the portfolio is under
+target, through `_join`, so a portfolio at or above target is byte-identical to before. The `{n} MW
+short` wording is new — §5.1 pins the behaviour and not the words — and **`web/js/portfolio.js`
+must render the same string**, or the screen and the printout will disagree. Announced on issue #1.
+
+### 4C-4 · A post-exit COD has an exit value of exactly zero
+
+*Raised by issue #13. Affects: nobody.*
+
+§13 says a project whose COD falls after the hold "contributes only construction outflows and an
+exit value", which reads as though the exit value is positive. At a five-year hold a 2032 project
+has no EBITDA in the exit year and debt still outstanding, so `terminal_value` floors at zero under
+limited liability: the whole truncated series is negative, the IRR is undefined and the MOIC is
+`0.00×`.
+
+**Decided.** §13 is satisfied by a zero exit value and the model is not bent to avoid it. Worth
+knowing downstream: the portfolio tile drops the MOIC clause when the IRR is undefined (§5.1), but
+a per-project row shows `0.00×`, because zero distributions is a real number where no IRR is not.
+
+### 4C-5 · The drawer's hold flag is computed, never stored
+
+*Raised by issue #13. Affects: #11.*
+
+`ui-contract.md` §5.5 requires the drawer to say when a project's COD falls after the hold, and
+pins no sentence and no wire field.
+
+**Decided.** No flag is added to the wire. The drawer computes it from three figures it already
+has — the project's `codYear`, the pipeline's `baseYear` and the mandate's `holdYears` — because a
+stored flag would be mandate-dependent, and nothing mandate-dependent is stored (epic §5). Moving
+the hold slider changes the answer, which is exactly the property a stored flag would lose.
+
+The sentence is `Commercial operation falls after the {n}-year hold. The project contributes
+construction outflows and an exit value only.`, and the Technical group's COD row reads
+`2032 — after the 5-year hold`. It takes the **info** mark and word, never `text-breach`: nothing
+here is outside the mandate, and `text-breach` marks a mandate breach and nothing else.
+
+### 4C-6 · §3.5's first sentence names three screens; the actionable ones travel in `screensToWiden`
+
+*Raised by issue #13. Affects: #11, #12, and `ui-contract.md`.*
+
+`ui-contract.md` §3.5's `NO_CANDIDATES` string is `No candidates pass the current screens. Widen
+countries, stages or the COD window.` — three screens, named unconditionally. A mandate blocked on
+minimum DSCR and development risk is sent to three controls that are not what is wrong.
+
+**Decided.** The sentence stays as the document pins it, and the actionable half reaches the user
+through `screensToWiden`, which `POST /mandate/preview` and the 422 both carry and which 2A-8
+computes independently per screen. `tests/unit/test_edge_cases_mandate.py` uses precisely such a
+mandate, so the gap is pinned rather than assumed. The copy is 1B's to change; raised on issue #1.
+
+Also recorded rather than fixed: `web/js/feasibility.js` does not compute `screensToWiden` at all,
+and its nine screen names differ from `optimiser/screens.py`'s in five of nine
+(`country`/`countries`, `stage`/`stages`, `riskCap`/`riskScore`, `currency`/`eurRevenue`,
+`notExcluded`/`exclusions`) and in order. `api.md` §5 says a diverging client is wrong. Both belong
+to #11's wiring and #12's screen-parity work.
+
+### 4C-7 · A whole-pipeline failure on reload is a 500, and that is 3A's to fix
+
+*Raised by issue #13. Affects: #9's module.*
+
+`PipelineLoadError` is raised by the loader for the three failures that break the index — duplicate
+ids, disagreeing base years, mixed id widths — and is caught nowhere under `src/terrafolio/api/`.
+`POST /pipeline/reload` over a pipeline with two files claiming one id therefore answers **500
+`INTERNAL_ERROR`, "The server could not complete that request."**, and the loader's message, which
+names every file claiming the id, reaches only the log. That is exactly the §13 row "two files
+share an `id` → both rejected, **named**".
+
+**Not fixed here.** The fix needs a new `ErrorCode` and a new row in `docs/api.md` §11, and epic §8
+makes the wire contract 3A's as owner of record while `docs/api.md` is 1B's file. Proposed on issue
+#1: **422 `PIPELINE_UNUSABLE`**, `detail.files`, `message = str(error)`. The server state is safe
+either way — `PipelineSource.reload` rebinds only after a successful load, so the session keeps the
+pipeline it had — and the test asserts that half plus the CLI's, both of which hold today.
+
+### 4C-8 · The edge fixtures are derived, width-3, and guarded
+
+*Raised by issue #13. Affects: nobody.*
+
+A valid project file carries thirty years of statements across eighteen tie-outs, so a hand-written
+"minimal" file fails for reasons its name does not claim — and a test named for one reason then
+passes on another.
+
+**Decided.** Every file under `tests/fixtures/edge/` is one documented edit to
+`tests/golden/fixtures/pipeline/P01-almonte-solar.json`, with a **width-3** id (`P49`–`P53`) so it
+drops into a copy of the golden corpus rather than tripping
+`loader._require_uniform_id_width` against the shipped pipeline's width-4 ids. A parametrised guard
+repairs each documented pointer from the base and asserts the file is its base again, which proves
+in one assertion that a fixture is current with 1A's schema, current with 1C's corpus, and broken in
+exactly one way.
+
+Three §13 rows need no fixture at all: 1C's corpus already holds ten projects operating in the base
+year, fourteen with non-EUR revenue, and two whose COD falls after a five-year hold.
+
+### 4C-9 · The three missing page states land in one file, not in three of #11's
+
+*Raised by issue #13. Affects: #11.*
+
+Three §13 rows had no rendered surface anywhere, because the code that would show them belongs to
+the seven page scripts #11 is writing: the map degrading to a notice, the mandate page reporting an
+empty or moved pipeline, and the drawer's hold flag. Leaving them unasserted would have left three
+of sixteen acceptance rows covered on the server only.
+
+**Decided.** They are implemented, in **one** new file — `web/js/edge-states.js`, exporting
+`siteMap`, `pipelineNotice` and `holdingNote` — rather than in `map.js`, `mandate.js` and
+`portfolio.js`. #11 is in flight; three partial files under its own names would be three conflicts
+to resolve, where one new file is an import to fold in. The page edits are additive: a script tag
+and a slot each on `mandate.html` and `portfolio.html`.
+
+`siteMap` is a real projection, not a placeholder: `d3.geoMercator` centred on §5.3's `[12, 55]` at
+`width × 1.15`, reading the atlas `public/countries-110m.js` already puts on `window`. It
+reproduces the committee pack's own Python reimplementation to the rendered decimal, and
+`web/tests/edge-cases.test.js` pins that agreement.
+
+### 4C-10 · §5.3's map geometry puts most of the corpus off-panel
+
+*Raised by issue #13. Affects: #11, and `ui-contract.md`.*
+
+Noticed while checking the client against the pack. §5.3 pins `d3.geoMercator`, centre `[12, 55]`,
+scale `width × 1.15` and a 300px panel. At a 960px width that scale is 1,104, so 300px of height
+spans a narrow band around 55°N: of the first six markers a default run draws, **five fall outside
+the `0 0 960 300` viewBox**, Almonte at `cy="600.8"`. The shipped committee pack has always done
+this.
+
+**Not fixed here.** The numbers are `ui-contract.md`'s, quoted into `export/pack-layout.json` and
+checked against the document by `tests/api/test_committee_pack.py`, so changing them is a documented
+contract change touching 1B, 3A and #11 at once. Raised on issue #1. What is fixed is that the two
+implementations agree exactly, so whatever scale is chosen will move both.
+
 ## Log
 
 | Date | Issue | Entry |
@@ -2938,3 +3122,13 @@ is closed; the change is announced on issue #1 rather than left for someone to n
 | 2026-09-24 | #10 | 3B-8 — the search standfirst's hard-coded 90 and "recombining" raised for #3, copy left as §4 pins it. |
 | 2026-09-24 | #10 | 3B-9 — CI gains a web job; nothing under `web/` was verified on `main` before. |
 | 2026-09-24 | #10 | `ui-contract.md` §7.3 corrected: muted is `neutral-700` at 5.87:1, not `text` at 55%. |
+| 2026-09-24 | #13 | 4C-1 — an empty pipeline answers `NO_CANDIDATES`; a client tells it apart on `totalCount == 0`. |
+| 2026-09-24 | #13 | 4C-2 — a pipeline with no files has no distributions; the `NaN` ones stopped the server starting. |
+| 2026-09-24 | #13 | 4C-3 — tile 1's sub-label gains `· {n} MW short`, as §5.1 has always required. |
+| 2026-09-24 | #13 | 4C-4 — a post-exit COD has an exit value of exactly zero; §13 is satisfied and the model is unchanged. |
+| 2026-09-24 | #13 | 4C-5 — the drawer's hold flag is computed from `codYear`, `baseYear` and `holdYears`; no wire flag. |
+| 2026-09-24 | #13 | 4C-6 — §3.5's first sentence names three screens statically; `screensToWiden` carries the real ones. |
+| 2026-09-24 | #13 | 4C-7 — a whole-pipeline failure on reload is a 500; `422 PIPELINE_UNUSABLE` proposed to 3A on #1. |
+| 2026-09-24 | #13 | 4C-8 — the edge fixtures are single documented edits to `P01`, width-3, and guarded against drift. |
+| 2026-09-24 | #13 | 4C-9 — the three missing page states land in `web/js/edge-states.js`, not in three of #11's files. |
+| 2026-09-24 | #13 | 4C-10 — §5.3's map scale puts five of six markers outside the panel, in the pack as on screen. |

@@ -8,6 +8,7 @@
 <script defer src="js/format.js"></script>
 <script defer src="js/feasibility.js"></script>
 <script defer src="js/controls.js"></script>
+<script defer src="js/edge-states.js"></script>
 <script defer src="vendor/alpine.min.js"></script>
 </head>
 <body class="min-h-screen bg-bg text-text">
@@ -40,10 +41,22 @@
         for the subset of projects that best satisfies the objective while respecting every hard
         constraint below.</p>
     </div>
+    <div>
     <p class="m-0 font-condensed text-h5 uppercase tracking-wide text-muted">
       Pipeline: <span data-field="totalCount">&#8212;</span> screened candidates
       &#183; <span data-field="totalCapacityMw">&#8212;</span>
     </p>
+    <!-- §13: `pipeline/` holding no files, and the pipeline moving under a stored
+         run, are both blockers rather than advisories, so both take the blocking
+         mark and word rather than a colour. Neither is a feasibility warning —
+         they are about the data, not about the mandate — so they sit here rather
+         than in the §5.4 list. -->
+    <p class="m-0 mt-2 max-w-[460px] text-cell" data-region="pipeline-notice"
+       x-data="pipelineNotice()" x-show="visible" x-cloak :class="toneClass">
+      <span aria-hidden="true" x-text="mark"></span><span class="sr-only" x-text="word"></span>
+      <span x-text="message"></span>
+    </p>
+    </div>
   </div>
 
   <form class="grid grid-cols-[repeat(auto-fit,minmax(310px,1fr))] items-start gap-[18px]"

@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="dist/app.css">
 <script defer src="js/format.js"></script>
 <script defer src="js/controls.js"></script>
+<script defer src="js/edge-states.js"></script>
 <script defer src="public/countries-110m.js"></script>
 <script defer src="vendor/d3-array.min.js"></script>
 <script defer src="vendor/d3-geo.min.js"></script>
@@ -197,8 +198,12 @@
       <figcaption class="mb-3">
         <h2 class="m-0 text-h6 uppercase tracking-caps text-muted">Selected sites</h2>
       </figcaption>
+      <!-- §13: the panel degrades to a notice when the geometry will not load, and
+           the rest of the page is unaffected. `siteMap` projects the sites #11
+           supplies; before a run there are none and it draws nothing. -->
       <div class="h-[300px] w-full" data-region="map" role="img"
-           aria-label="Map of selected sites across Europe" aria-describedby="p-map-note"></div>
+           aria-label="Map of selected sites across Europe" aria-describedby="p-map-note"
+           x-data="siteMap()" x-html="markup"></div>
       <p id="p-map-note" class="sr-only">The map is a visual summary only. The holdings table
         below lists every selected site with its country, capacity and technology.</p>
       <ul class="mt-[10px] flex flex-wrap gap-[14px] text-legend text-muted">
@@ -421,6 +426,15 @@
             class="min-h-[44px] flex-none cursor-pointer border border-edge bg-transparent px-4 py-2 font-condensed text-label font-semibold hover:bg-accent-100">Close</button>
   </div>
   <dl class="my-[18px] grid grid-cols-2 border border-divider" data-region="drawer-headline"></dl>
+  <!-- §13 and ui-contract.md §5.5: a project whose commercial operation falls after
+       the hold contributes construction outflows and an exit value only, and the
+       drawer says so. Derived from the COD, the base year and the hold period
+       rather than from a flag, because the hold period is a live control. -->
+  <p class="m-0 mb-[14px] text-cell text-muted" data-region="drawer-hold-note"
+     x-data="holdingNote()" x-show="afterHold" x-cloak>
+    <span aria-hidden="true" x-text="mark"></span><span class="sr-only" x-text="word"></span>
+    <span x-text="message"></span>
+  </p>
   <div data-region="drawer-groups"></div>
   <div class="mt-[22px] flex flex-wrap gap-2">
     <button type="button" data-action="drawer-lock" aria-pressed="false"
