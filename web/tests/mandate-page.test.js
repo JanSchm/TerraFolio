@@ -423,3 +423,64 @@ test('a field no control on this form owns never reaches the mandate', async () 
   assert.equal(p.mandate.somethingElse, undefined);
   ctx.dom.window.close();
 });
+
+/* ── §13: naming the screens to widen ────────────────────────────────────────── */
+
+test('the screens named are the ones the user can see, not the wire\'s', async () => {
+  const ctx = await page();
+  const labels = ctx.M.SCREEN_LABELS;
+  assert.equal(labels.eurRevenue, 'EUR-denominated revenue only',
+    'a user cannot widen a thing called eurRevenue');
+  assert.equal(labels.riskScore, 'Development risk appetite');
+  assert.equal(labels.minDscr, 'Min DSCR');
+  assert.deepEqual(Object.keys(labels).sort(),
+    Object.keys(require('../js/feasibility.js').WIRE_SCREEN_NAMES)
+      .map((k) => require('../js/feasibility.js').WIRE_SCREEN_NAMES[k]).sort(),
+    'every screen the preview can name has a label here');
+  ctx.dom.window.close();
+});
+
+test('the sentence reads for one screen, for several, and stops at three', async () => {
+  const ctx = await page();
+  const widen = ctx.M.widenSentence;
+  assert.equal(widen(['minDscr']), 'Every candidate is dropped by Min DSCR.');
+  assert.equal(widen(['minDscr', 'riskScore']),
+    'Most are dropped by Min DSCR and Development risk appetite.');
+  assert.match(widen(['minDscr', 'codWindow', 'eurRevenue', 'countries']),
+    /^Most are dropped by Min DSCR, the COD window and EUR-denominated revenue only\.$/);
+  assert.equal(widen([]), '', 'nothing to widen is nothing to say');
+  ctx.dom.window.close();
+});
+
+test('an empty pool names what actually emptied it, beside the pinned sentence', async () => {
+  const ctx = await page();
+  const p = ctx.M.startPage();
+  // Nothing passes, and the reason is the DSCR floor rather than the three screens
+  // ui-contract §3.5's string happens to name.
+  ctx.M.usePipeline(p, payload([candidate({ id: 'P01', minDscr: 1.1 })]));
+  p.mandate = Object.assign(ctx.M.readMandate(ctx.form), { minDscr: 2 });
+  change(ctx, 'minDscr', 2);
+
+  const item = ctx.d.querySelector('[data-region="feasibility-warnings"] li');
+  assert.equal(item.dataset.code, 'NO_CANDIDATES');
+  assert.match(item.textContent,
+    /No candidates pass the current screens\. Widen countries, stages or the COD window\./,
+    'the pinned sentence is the server\'s message and stays exactly as it is');
+  assert.match(item.textContent, /Every candidate is dropped by Min DSCR\./,
+    'spec §13: an explicit warning naming the screens to widen');
+  assert.equal(ctx.d.querySelector('[data-action="run"]').disabled, true);
+  ctx.dom.window.close();
+});
+
+test('only the blocking warning carries the extra line', async () => {
+  const ctx = await page();
+  const p = ctx.M.startPage();
+  ctx.M.usePipeline(p, payload([candidate({ id: 'P01', capacityMw: 10 })]));
+  p.mandate = Object.assign(ctx.M.readMandate(ctx.form), { capacityTargetMw: 4000 });
+  change(ctx, 'capacityTargetMw', 4000);
+  const below = [...ctx.d.querySelectorAll('[data-region="feasibility-warnings"] li')]
+    .find((li) => li.dataset.code === 'CAPACITY_BELOW_TARGET');
+  assert.equal(/dropped by/.test(below.textContent), false,
+    'a pipeline smaller than the target is not a screen anyone can widen');
+  ctx.dom.window.close();
+});

@@ -17,6 +17,10 @@
 (function (root) {
   'use strict';
 
+  var fmt = (typeof require === 'function')
+    ? require('./format.js')
+    : (root.TerraFolio && root.TerraFolio.format);
+
   var SVG_NS = 'http://www.w3.org/2000/svg';
 
   /** ui-contract.md §5.3, pinned so the committee pack's own projection can match. */
@@ -169,8 +173,11 @@
       // carry the technology too. The svg itself is aria-hidden; the panel's own
       // label and the holdings table are what a reader uses.
       var title = element('title', {});
-      title.textContent = [row.name, isSolar(row) ? 'Solar' : 'Wind',
-        Math.round(row.capacityMw) + ' MW', row.country].join(' · ');
+      /* Through format.js like every other figure. `Math.round(mw) + ' MW'` drops
+       * the thousands separator the rest of the product carries (spec §14), so a
+       * large site's marker disagreed with its own row in the holdings table. */
+      title.textContent = fmt.join(row.name, isSolar(row) ? 'Solar' : 'Wind',
+        fmt.mw(row.capacityMw), row.country);
       marker.appendChild(title);
       svg.appendChild(marker);
     });

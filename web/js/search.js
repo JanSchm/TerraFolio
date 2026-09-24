@@ -109,7 +109,12 @@
 
     var held = store ? store.steering() : null;
     if (!page.runId && held) page.runId = held.runId;
-    if (held && held.totalRounds) showTotal(page, held.totalRounds);
+    /* Only when it is **this** run's total. A session that watched run A and then
+       opened a link to run B would otherwise scale B's progress bar and its curve
+       against A's length, and the three effort levels do not share one. */
+    if (held && held.totalRounds && held.runId === page.runId) {
+      showTotal(page, held.totalRounds);
+    }
     if (!page.runId || !api || api.offline()) return page;
 
     // The total has to be known before the first frame: the announcer stays silent
@@ -126,6 +131,7 @@
     }
 
     page.stream = api.openStream(page.runId, {
+      status: function () { page.lostAt = undefined; },
       round: function (frame) { arrive(page, frame); },
       done: function (frame) { page.finished = frame; settle(page); },
       failed: function (frame) { fail(page, frame); },
@@ -154,8 +160,15 @@
 
   function showTotal(page, total) {
     if (!total || page.total === total) return;
+    var corrected = page.total > 0;
     page.total = total;
     setField('roundTotal', counter(total));
+    /* A corrected total changes the cadence, so the ticker is rebuilt rather than
+       left running at the rate the old one implied. */
+    if (corrected && page.ticker) {
+      root.clearInterval(page.ticker);
+      page.ticker = null;
+    }
     if (!page.ticker) begin(page);
   }
 
@@ -165,6 +178,10 @@
    */
   function arrive(page, frame) {
     if (!frame) return;
+    /* The stream is alive, so any earlier drop is history. Leaving the mark set
+       would make a blip now and another ten minutes later read as one continuous
+       outage, and stop a run that is still streaming. */
+    page.lostAt = undefined;
     showTotal(page, frame.totalGenerations);
     page.waiting.push(frame);
     begin(page);

@@ -127,3 +127,29 @@ test('a site with no usable coordinates is skipped rather than drawn at the orig
   assert.equal(panel.querySelectorAll('circle').length, 1);
   dom.window.close();
 });
+
+/* ── The marker's own figures go through format.js ───────────────────────────── */
+
+test('a marker names its capacity the way the rest of the product does', async () => {
+  const dom = await servePage('portfolio.html');
+  const w = dom.window;
+  const panel = w.document.querySelector('[data-region="map"]');
+  w.TerraFolio.map.draw(panel, [site({ capacityMw: 1234, name: 'Grande Solar' })],
+    w.TerraFolio.worldAtlas);
+  const title = panel.querySelector('circle title').textContent;
+  assert.match(title, /1,234 MW/,
+    'spec §14: grouped, en-GB, and through format.js like every other figure');
+  assert.equal(/1234 MW/.test(title), false);
+  assert.match(title, /^Grande Solar · Solar · 1,234 MW · Spain$/,
+    'and joined with the one inline separator');
+  dom.window.close();
+});
+
+test('a marker with no capacity says so rather than printing nothing', async () => {
+  const dom = await servePage('portfolio.html');
+  const w = dom.window;
+  const panel = w.document.querySelector('[data-region="map"]');
+  w.TerraFolio.map.draw(panel, [site({ capacityMw: null })], w.TerraFolio.worldAtlas);
+  assert.match(panel.querySelector('circle title').textContent, /—/);
+  dom.window.close();
+});

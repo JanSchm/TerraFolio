@@ -293,3 +293,95 @@ test('the run id is read by the one parser both screens share', async () => {
     'the copy in this file is gone; api.js owns every other URL concern already');
   ctx.dom.window.close();
 });
+
+/* ── The stored total belongs to one run ─────────────────────────────────────── */
+
+test('a total stored for another run is not used for this one', async () => {
+  const ctx = await page();
+  const M = ctx.w.TerraFolio.mandate;
+  // The session watched run A at 35 rounds; the user then opens a link to run B.
+  M.saveSteering(Object.assign(M.steering(), { runId: 'RUN-A', totalRounds: 35 }));
+  ctx.w.history.replaceState({}, '', '?run=RUN-B');
+  ctx.S.reset();
+  const run = ctx.S.start();
+  try {
+    assert.equal(run.runId, 'RUN-B');
+    assert.equal(ctx.field('roundTotal'), '—',
+      'Fast is 35 rounds and Exhaustive 110; borrowing A\'s would misscale B');
+    assert.equal(run.total, 0);
+  } finally {
+    ctx.S.stop(run);
+    ctx.dom.window.close();
+  }
+});
+
+test('the stored total is used when it is this run\'s', async () => {
+  const ctx = await page();
+  const M = ctx.w.TerraFolio.mandate;
+  M.saveSteering(Object.assign(M.steering(), { runId: 'RUN-A', totalRounds: 35 }));
+  ctx.w.history.replaceState({}, '', '?run=RUN-A');
+  ctx.S.reset();
+  const run = ctx.S.start();
+  try {
+    assert.equal(ctx.field('roundTotal'), '35',
+      'which is the point of storing it: 3B-3 wants the total before the first round');
+  } finally {
+    ctx.S.stop(run);
+    ctx.dom.window.close();
+  }
+});
+
+test('a corrected total rebuilds the cadence rather than keeping the old rate', async () => {
+  const ctx = await page();
+  const run = ctx.S.start();
+  try {
+    ctx.S.arrive(run, { generation: 1, totalGenerations: 35, bestFitness: 1, meanFitness: 0, best: {} });
+    const first = run.ticker;
+    assert.equal(ctx.field('roundTotal'), '35');
+
+    ctx.S.arrive(run, { generation: 2, totalGenerations: 110, bestFitness: 1, meanFitness: 0, best: {} });
+    assert.equal(ctx.field('roundTotal'), '110');
+    assert.notEqual(run.ticker, first,
+      'the interval is sized from the total, so a corrected total needs a new one');
+  } finally {
+    ctx.S.stop(run);
+    ctx.dom.window.close();
+  }
+});
+
+/* ── A frame proves the stream came back ─────────────────────────────────────── */
+
+test('a frame clears an earlier drop, so two blips are not one outage', async () => {
+  const ctx = await page();
+  const run = ctx.S.start();
+  try {
+    ctx.S.lost(run);
+    assert.notEqual(run.lostAt, undefined, 'the first error starts the clock');
+
+    ctx.S.arrive(run, { generation: 1, totalGenerations: 60, bestFitness: 1, meanFitness: 0, best: {} });
+    assert.equal(run.lostAt, undefined, 'and a frame stops it');
+
+    ctx.S.lost(run);
+    ctx.S.lost(run);
+    assert.equal(run.stopped, false,
+      'a second blip starts a fresh grace period rather than expiring the first');
+  } finally {
+    ctx.S.stop(run);
+    ctx.dom.window.close();
+  }
+});
+
+test('a drop that never recovers still reports itself', async () => {
+  const ctx = await page();
+  const run = ctx.S.start();
+  try {
+    ctx.S.lost(run);
+    run.lostAt = -Infinity;
+    ctx.S.lost(run);
+    assert.match(ctx.field('progress-note'), /Lost contact/);
+    assert.equal(run.stopped, true);
+  } finally {
+    ctx.S.stop(run);
+    ctx.dom.window.close();
+  }
+});

@@ -618,3 +618,55 @@ test('re-rendering does not leave a second listener on an export button', async 
     'one click, one download, however many times the screen has rendered');
   ctx.dom.window.close();
 });
+
+/* ── The baseline the primary action compares against ────────────────────────── */
+
+test('a shared result opened fresh records what its run was submitted with', async () => {
+  const ctx = await page();
+  const run = runOf();
+  assert.equal(ctx.M.steering().signature, null, 'a session that did not submit it has none');
+
+  ctx.P.show(ctx.handle, run);
+  assert.notEqual(ctx.M.steering().signature, null,
+    'without a baseline changed() answers false for ever and the action never relabels');
+  assert.equal(ctx.d.querySelector('[data-action="rerun"]').textContent.trim(), 'Re-run',
+    'nothing has moved yet');
+  ctx.dom.window.close();
+});
+
+test('and then notices when the saved mandate has moved since that run', async () => {
+  const ctx = await page();
+  const run = runOf();
+  ctx.P.show(ctx.handle, run);
+  ctx.M.saveMandate(Object.assign({}, run.mandate, { holdYears: 20 }));
+  ctx.P.rerunLabel(ctx.handle);
+  assert.equal(ctx.d.querySelector('[data-action="rerun"]').textContent.trim(),
+    'Re-run with changes', '§7.6 relabels when the mandate has been edited');
+  ctx.dom.window.close();
+});
+
+test('the baseline is what the run carried, not what this session holds now', async () => {
+  const ctx = await page();
+  const run = runOf({ lockedIds: [], excludedIds: [] });
+  // A lock this session added before opening the run must still read as a change.
+  ctx.M.steer('P01', { locked: true });
+  ctx.P.show(ctx.handle, run);
+  ctx.P.rerunLabel(ctx.handle);
+  assert.equal(ctx.d.querySelector('[data-action="rerun"]').textContent.trim(),
+    'Re-run with changes');
+  ctx.dom.window.close();
+});
+
+test('opening a second run re-bases the comparison onto that run', async () => {
+  const ctx = await page();
+  ctx.P.show(ctx.handle, runOf({ runId: 'RUN-A', runRef: 'A-1' }));
+  const first = ctx.M.steering().signature;
+
+  const second = runOf({ runId: 'RUN-B', runRef: 'A-2' });
+  second.mandate = Object.assign({}, second.mandate, { holdYears: 25 });
+  ctx.P.show(ctx.handle, second);
+  assert.notEqual(ctx.M.steering().signature, first,
+    'the baseline describes the run on screen, not the one before it');
+  assert.equal(ctx.d.querySelector('[data-action="rerun"]').textContent.trim(), 'Re-run');
+  ctx.dom.window.close();
+});

@@ -769,19 +769,39 @@
    * the right starting point. A session that already has its own steering keeps it.
    */
   function adoptSteering(page, run) {
-    var locked = (run.holdings || []).filter(function (row) { return row.locked; })
-      .map(function (row) { return row.id; });
-    var excluded = run.excludedIds || [];
     if (!store) return;
-    if (page.locks.lockedIds.length || page.locks.excludedIds.length) return;
-    if (!locked.length && !excluded.length) return;
-    page.locks = store.saveSteering({
-      lockedIds: locked.slice().sort(),
-      excludedIds: excluded.slice().sort(),
-      runId: page.locks.runId || run.runId,
-      runRef: page.locks.runRef || run.runRef,
-      signature: page.locks.signature,
-    });
+    var mine = page.locks.lockedIds.length || page.locks.excludedIds.length;
+    if (!mine) {
+      var locked = (run.holdings || []).filter(function (row) { return row.locked; })
+        .map(function (row) { return row.id; });
+      var excluded = run.excludedIds || [];
+      if (locked.length || excluded.length) {
+        page.locks.lockedIds = locked.slice().sort();
+        page.locks.excludedIds = excluded.slice().sort();
+      }
+    }
+
+    /* And the baseline the primary action compares against.
+     *
+     * A session that did not submit this run has no signature, and `changed()`
+     * answers false whenever there is none — so a shared result opened fresh read
+     * "Re-run" however far the saved mandate had moved since. The old code only
+     * reached this branch when there was steering to adopt, which is the rarer
+     * case; a run with no locks never got a baseline at all.
+     *
+     * Seeded from what the run was **submitted with** — its own mandate and its own
+     * `lockedIds`/`excludedIds` — rather than from whatever this session now holds,
+     * so a lock added since the run still counts as a change.
+     */
+    if (!page.locks.signature || page.locks.runId !== run.runId) {
+      page.locks.runId = run.runId;
+      page.locks.runRef = run.runRef;
+      page.locks.signature = store.signature(run.mandate, {
+        lockedIds: run.lockedIds || [],
+        excludedIds: run.excludedIds || [],
+      });
+    }
+    page.locks = store.saveSteering(page.locks);
   }
 
   /**

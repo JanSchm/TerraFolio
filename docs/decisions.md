@@ -3087,6 +3087,55 @@ been copy-pasted into both screens that carry a run id.
 
 ---
 
+### 4A-17 · §13's warning names the screens that actually emptied the pool
+
+`ui-contract.md` §3.5 pins `NO_CANDIDATES` as *"No candidates pass the current screens. Widen
+countries, stages or the COD window."* That sentence is the server's `message` and three guards
+hold it verbatim, so it cannot move — and it is simply wrong whenever the pool was emptied by
+the DSCR floor, the risk appetite or one of the three execution toggles. §13 asks for "an
+explicit warning naming the screens to widen", and the screen was naming three it had not
+consulted.
+
+**Decided.** The pinned sentence stays exactly as it is, and a second line beneath it is built
+from `screensToWiden` — which [4A-4](#4a-4--screenstowiden-in-the-servers-vocabulary) already
+computes, worst offender first, and which nothing had been reading. `SCREEN_LABELS` maps the
+wire names onto `ui-contract.md` §3.2 and §3.3's own control labels, because a user cannot widen
+a thing called `eurRevenue`. At most three are named; past that it is a list rather than a
+sentence.
+
+Only `NO_CANDIDATES` carries it. `CAPACITY_BELOW_TARGET` is not a screen anyone can widen.
+
+### 4A-18 · A stored total, and a stored signature, each belong to one run
+
+Two pieces of session state were being applied to whatever run happened to be on screen.
+
+* **`totalRounds`.** `search.js` seeded the round counter from the stored total without checking
+  whose it was, so a session that had watched a Fast run (35 rounds) and then opened a link to
+  an Exhaustive one (110) scaled the progress bar and the convergence curve against 35 until the
+  first frame corrected it. It is used only when `runId` matches. `showTotal` also rebuilds the
+  replay ticker when a total is corrected, since the cadence is sized from it and was otherwise
+  left at the rate the old total implied.
+* **The re-run baseline.** `adoptSteering` preserved a null `signature`, and `changed()` answers
+  false whenever there is none — so a shared result opened in a fresh session read `Re-run`
+  however far the saved mandate had moved. Worse, the branch that could have seeded it only ran
+  when there was steering to adopt, which is the rarer case: a run with no locks never got a
+  baseline at all. It is now seeded from what the run was **submitted with** — its own mandate
+  and its own `lockedIds`/`excludedIds`, not whatever this session holds — and re-seeded when a
+  different run is opened, so a lock added before opening the run still reads as a change.
+
+### 4A-19 · A frame is proof the stream came back
+
+`lost()` recorded the time of the first `EventSource` error and never cleared it, so a blip now
+and an unrelated blip ten minutes later read as one ten-minute outage and stopped a run that was
+still streaming. Any `generation` or `status` frame now clears the mark, because receiving one is
+proof the connection recovered. The grace period exists for transient drops; it should start
+again each time, not accumulate.
+
+`map.js` also builds its marker titles through `format.js` now. `Math.round(mw) + ' MW'` printed
+`1000 MW` where the row for the same project in the holdings table said `1,000 MW` (spec §14).
+
+---
+
 ## Log
 
 | Date | Issue | Entry |
@@ -3234,3 +3283,6 @@ been copy-pasted into both screens that carry a run id.
 | 2026-09-24 | #11 | 4A-14 — a missing cash flow and an excluded lock stop being coerced to zero. |
 | 2026-09-24 | #11 | 4A-15 — a refused re-run, an unrenderable run and a dead stream all say so. |
 | 2026-09-24 | #11 | 4A-16 — `totalRounds` survives the store; the mandate persists on a debounce; exports bind once. |
+| 2026-09-24 | #11 | 4A-17 — `NO_CANDIDATES` names the screens that emptied the pool, beside §3.5's pinned sentence. |
+| 2026-09-24 | #11 | 4A-18 — a stored round total and a re-run baseline each belong to one run, and are checked against it. |
+| 2026-09-24 | #11 | 4A-19 — a frame clears an earlier stream drop; map marker titles go through `format.js`. |

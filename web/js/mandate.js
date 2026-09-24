@@ -246,11 +246,52 @@
   }
 
   /**
+   * The nine screens, named as the panel that carries them names them.
+   *
+   * `screensToWiden` speaks `optimiser/screens.py`'s vocabulary, which is right for
+   * the wire and useless on screen — a user cannot widen a thing called `eurRevenue`.
+   * These are ui-contract.md §3.2 and §3.3's own control labels, so the sentence
+   * points at something the user can see.
+   */
+  var SCREEN_LABELS = {
+    countries: 'Eligible countries',
+    stages: 'Stages in scope',
+    codWindow: 'the COD window',
+    minDscr: 'Min DSCR',
+    riskScore: 'Development risk appetite',
+    gridSecured: 'Grid connection secured only',
+    eurRevenue: 'EUR-denominated revenue only',
+    omContracted: 'O&M partner contracted',
+    exclusions: 'the projects you have excluded',
+  };
+
+  /** How many to name before the sentence stops being a list and starts being noise. */
+  var SCREENS_NAMED = 3;
+
+  /**
+   * §13 asks for "an explicit warning naming the screens to widen". §3.5's pinned
+   * string names countries, stages and the COD window, which is the common case and
+   * simply wrong when the pool was emptied by the DSCR floor or the risk appetite.
+   *
+   * The pinned sentence is left exactly as it is — it is the server's `message` and
+   * three guards hold it verbatim — and this is a second line beneath it, built from
+   * the screens that actually rejected something, worst offender first.
+   */
+  function widenSentence(screens) {
+    var named = (screens || []).slice(0, SCREENS_NAMED)
+      .map(function (name) { return SCREEN_LABELS[name] || name; });
+    if (!named.length) return '';
+    if (named.length === 1) return 'Every candidate is dropped by ' + named[0] + '.';
+    return 'Most are dropped by ' + named.slice(0, -1).join(', ')
+      + ' and ' + named[named.length - 1] + '.';
+  }
+
+  /**
    * One warning, in the shape styleguide.html demonstrates: a mark that is hidden
    * from a reader because the word beside it says the same thing, and a tone that is
    * never the only signal (ui-contract.md §7.1).
    */
-  function warningItem(warning) {
+  function warningItem(warning, screens) {
     var blocks = warning.code === 'NO_CANDIDATES' || warning.code === 'LOCKS_EXCEED_CAPITAL';
     var key = blocks ? 'blocking' : warning.severity;
     var item = document.createElement('li');
@@ -271,15 +312,27 @@
     body.appendChild(word);
     body.appendChild(document.createTextNode(warning.message));
 
+    if (warning.code === 'NO_CANDIDATES') {
+      var widen = widenSentence(screens);
+      if (widen) {
+        var detail = document.createElement('span');
+        detail.className = 'mt-[2px] block';
+        detail.textContent = widen;
+        body.appendChild(detail);
+      }
+    }
+
     item.appendChild(mark);
     item.appendChild(body);
     return item;
   }
 
-  function renderWarnings(list, warnings) {
+  function renderWarnings(list, warnings, screens) {
     if (!list) return;
     list.textContent = '';
-    warnings.forEach(function (warning) { list.appendChild(warningItem(warning)); });
+    warnings.forEach(function (warning) {
+      list.appendChild(warningItem(warning, screens));
+    });
   }
 
   /* ── The page ───────────────────────────────────────────────────────────── */
@@ -388,7 +441,7 @@
     setField('eligibleEquity_m', result.display.eligibleEquity_m);
 
     var shown = page.submitWarning ? [page.submitWarning].concat(result.warnings) : result.warnings;
-    renderWarnings(warningList, shown);
+    renderWarnings(warningList, shown, result.screensToWiden);
     if (runButton) runButton.disabled = !result.runnable || page.submitting;
     return result;
   }
@@ -503,6 +556,8 @@
     readMandate: readMandate,
     applyMandate: applyMandate,
     warningItem: warningItem,
+    widenSentence: widenSentence,
+    SCREEN_LABELS: SCREEN_LABELS,
     startPage: startPage,
     reset: function () { current = null; },
     usePipeline: usePipeline,
