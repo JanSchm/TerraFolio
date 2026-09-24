@@ -184,6 +184,11 @@ def evolve(
 
     equity = features.fit[:, COLUMN["equity"]]
     budget = mandate.available_capital_eur
+    # A row totalling within this of the budget is left alone rather than re-ranked.
+    # The same constant epic §6.2 put on the objective's cap, for the same reason: a
+    # chromosome sitting exactly on the boundary must not be moved by a rounding
+    # artefact, and the utilisation reward actively pushes them onto it (#12, 4B-2).
+    cap_tolerance = assumptions.objective.equity_cap_tolerance_eur
     resolved = resolve_seed(controls.seed)
     rng = np.random.default_rng(resolved)
 
@@ -203,6 +208,7 @@ def evolve(
         equity=equity,
         budget=budget,
         locked=locked,
+        tolerance=cap_tolerance,
     )
 
     def exact_fitness(selection: BoolVector) -> tuple[float, object]:
@@ -258,7 +264,12 @@ def evolve(
         offspring = uniform_crossover(coin, population[mothers], population[fathers])
         offspring = force_locks(mutate(mutation, offspring, assumptions), locked)
         offspring = repair_to_budget(
-            offspring, priority=priority, equity=equity, budget=budget, locked=locked
+            offspring,
+            priority=priority,
+            equity=equity,
+            budget=budget,
+            locked=locked,
+            tolerance=cap_tolerance,
         )
 
         population = np.vstack([population[ranked[:elites]], offspring])

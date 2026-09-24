@@ -101,20 +101,33 @@ def _rows_only(  # noqa: PLR0913 - a drop-in for `repair_to_budget`, so the sign
     return repaired
 
 
-def _slice_only(**kwargs: object) -> BoolVector:
+def _legacy(population: BoolVector, **kwargs: object) -> BoolVector:
+    """The pre-#12 operator, which never had a ``tolerance`` to be passed.
+
+    ``ga.evolve`` passes one at both call sites now, so the keyword is dropped here
+    rather than added to the oracle — which has to stay a frozen copy to be worth
+    comparing against.
+    """
+    kwargs.pop("tolerance", None)
+    return legacy_repair_to_budget(population, **kwargs)  # type: ignore[arg-type]
+
+
+def _slice_only(population: BoolVector, **kwargs: object) -> BoolVector:
     """The shipped operator with the row mask switched off."""
-    return repair_to_budget(**{**kwargs, "tolerance": None})  # type: ignore[arg-type]
+    kwargs["tolerance"] = None
+    return repair_to_budget(population, **kwargs)  # type: ignore[arg-type]
 
 
 def _variants(assumptions: AssumptionSet) -> dict[str, RepairFn]:
     tolerance = assumptions.objective.equity_cap_tolerance_eur
 
-    def both(**kwargs: object) -> BoolVector:
+    def both(population: BoolVector, **kwargs: object) -> BoolVector:
         """The shipped operator exactly as ``ga.py`` calls it."""
-        return repair_to_budget(**{**kwargs, "tolerance": tolerance})  # type: ignore[arg-type]
+        kwargs["tolerance"] = tolerance
+        return repair_to_budget(population, **kwargs)  # type: ignore[arg-type]
 
     return {
-        "legacy": legacy_repair_to_budget,
+        "legacy": _legacy,
         "rows": _rows_only,
         "slice": _slice_only,
         "both": both,
