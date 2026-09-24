@@ -2807,6 +2807,283 @@ acceptance criterion in this issue.
 runs the Tailwind build that `offline.test.js` requires. The file is #2's ownership row and #2
 is closed; the change is announced on issue #1 rather than left for someone to notice.
 
+### 4B-1 · Epic §7's 30 s does not reproduce, and the masking it prescribes is not the win
+
+*Raised by issue #12. Affects: epic §7's performance table.*
+
+Epic §7 records a known gap — "Exhaustive 160×110 at 2,000 candidates measures 30 s" — and #12
+attributes it to the budget repair's `argsort` running over the whole population every generation
+"but after a few generations most chromosomes are already within budget". Both halves were
+measured before anything was changed.
+
+**The 30 s does not reproduce.** Exhaustive at 2,000 candidates measures **2.2 s** for the search
+on an 8-core arm64 box under a load average of 14, and 1.4 s on an idle one. #12's criterion
+"materially faster than 30 s" was already true before this issue started, which is worth saying
+plainly rather than claiming a 20× win for a change that delivers under 2×.
+
+**Most chromosomes are not within budget.** A census over a real Exhaustive run counts
+**17,278 of 17,382 rows (99.4%)** over budget at the point of repair, and 95–99% at every other
+width and effort. The utilisation reward actively pushes portfolios onto the equity cap, so
+repair leaves almost every chromosome sitting on it and mutation and crossover push almost every
+child back over. There is next to nothing for a row mask to skip.
+
+**Decided.** The operator is narrowed on the *other* axis. No row holds more than `width`
+projects, so ranked positions beyond `width` are unheld in every row: `held` is `False` there and
+the scatter would write back the zeros it started from. The gather, the accumulation and the
+scatter therefore stop at `width` — about 22 of 2,000 in practice — while the ranking still runs
+over the full row, so sort stability is untouched and the answer is bit-identical.
+
+The row mask ships too, because #12 asks for it and because it covers the one shape where it
+would matter — a mandate whose capital dwarfs its pipeline. It is a measured net cost on every
+configuration in the shipped calibration, and the numbers are here so that nobody has to take
+that on trust. Dropping it is a one-line change: pass `tolerance=None` at `ga.py`'s two call
+sites.
+
+The operator alone, fastest of twenty calls, on populations drawn to be over budget at a rate
+*more* favourable to the row mask than reality (60–65%, against the 95–99% the census measures):
+
+| candidates | rows | over budget | legacy | rows only | slice only | both | speed-up |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 500 | 48 | 32/48 | 0.38 ms | 0.29 ms | 0.13 ms | 0.12 ms | 3.02× |
+| 500 | 88 | 57/88 | 0.68 ms | 0.51 ms | 0.23 ms | 0.22 ms | 3.11× |
+| 500 | 158 | 101/158 | 1.21 ms | 0.87 ms | 0.40 ms | 0.37 ms | 3.29× |
+| 2,000 | 48 | 30/48 | 1.39 ms | 1.05 ms | 0.37 ms | 0.36 ms | 3.86× |
+| 2,000 | 88 | 57/88 | 2.59 ms | 2.05 ms | 0.68 ms | 0.66 ms | 3.92× |
+| 2,000 | 158 | 95/158 | 4.61 ms | 3.19 ms | 1.20 ms | 1.13 ms | 4.09× |
+
+The whole search, fastest of nine, `identical` in every cell:
+
+| candidates | effort | legacy | rows only | slice only | both |
+|---:|---|---:|---:|---:|---:|
+| 500 | fast | 0.031 s | 0.032 s | 0.023 s | 0.026 s |
+| 500 | standard | 0.094 s | 0.092 s | 0.064 s | 0.067 s |
+| 500 | exhaustive | 0.281 s | 0.329 s | 0.263 s | 0.296 s |
+| 2,000 | fast | 0.158 s | 0.172 s | 0.112 s | 0.155 s |
+| 2,000 | standard | 0.651 s | 0.694 s | 0.530 s | 0.503 s |
+| 2,000 | exhaustive | 2.167 s | 2.278 s | 1.187 s | 1.538 s |
+
+numpy 2.4.6 · BLAS threads 8 · 8 CPUs · load 14.37 · Darwin arm64. **These were taken under
+load**, which this document is emphatic about elsewhere: the operator table is stable to a few
+percent because it times one call, and the whole-search table wobbles by 10–20% because a search
+is a fraction of a second and the load average is not a constant. The direction is consistent
+across every run: `slice` beats `legacy`, and `both` is slower than `slice` alone.
+
+Repair was 55% of an Exhaustive run at 2,000 before (argsort 0.224 s, cumsum 0.136 s,
+`take_along_axis` 0.115 s, `put_along_axis` 0.112 s of 1.23 s) and is 37% after, with `argsort`
+now the dominant remaining term at 0.517 s of 2.18 s. Narrowing that further means giving up
+either the stable sort or the full-row ranking, and neither is worth a further 20% here.
+
+### 4B-2 · The row mask is a margin below the budget, not a test against it
+
+*Raised by issue #12. Affects: `optimiser/repair.py`, `optimiser/ga.py`.*
+
+A row whose holdings total exactly the budget has a pairwise row sum of exactly the budget, so a
+bare `total > budget` test skips it — while the ranked `cumsum` the operator actually uses
+overshoots by a last-bit fraction and drops its final holding. Skipping such a row therefore
+keeps a holding the unmasked operator drops, and the masked and unmasked forms answer
+differently. Measured at 1.14e-13 on a 40-holding row totalling about 1,034.
+
+This is not a corner case. Epic §6.2 introduced `equity_cap_tolerance_eur` precisely because
+"the utilisation reward actively pushes portfolios onto that boundary", so rows sitting exactly
+on the cap are the ones the search spends its time on.
+
+**Decided.** `repair_to_budget` takes `tolerance`, a margin *below* the budget: a row is repaired
+when its total exceeds `budget - tolerance`, so every row within a tolerance of the cap goes
+through the full path and the answer cannot move. `ga.py` passes
+`objective.equity_cap_tolerance_eur` — €1 against sums of order €10⁹, five orders of magnitude
+more headroom than any reduction-order difference needs, and the same constant epic §6.2
+introduced for the same artefact on the same boundary rather than a second one.
+
+`tolerance=None` means no row mask at all, which is the pre-#12 behaviour exactly. That is the
+default, so 2A's four direct callers stay green untouched, and it is also the escape hatch if the
+row mask is later dropped as 4B-1 suggests it could be.
+
+The row totals are a pairwise `sum`, deliberately not `population @ equity`: a GEMM's reduction
+order depends on BLAS blocking and thread count, and the one place in this system permitted to
+vary across machines is the fitness the GA quantises, not an operator that decides which holdings
+survive.
+
+### 4B-3 · `deterministic_reduction` is a run control, not an assumption
+
+*Raised by issue #12. Affects: `optimiser/ga.py`, `optimiser/aggregate.py`, and 3A's provenance.*
+
+§12 asks for a bit-exact guarantee, and #12 asks for a `deterministic_reduction` flag that swaps
+the GEMM for `einsum(optimize=False)` so a golden can be checked across architectures. The
+question is where the flag lives. Epic §5 says every rate, weight, floor, clamp, tolerance and
+band belongs in the assumption set, and a naive reading puts this there too.
+
+It cannot go there. `assumption_set_id` is the sha256 of every non-metadata section of the
+calibration (`config/loader.py:320`), and `generate/draws.py:83` salts each project's PRNG with
+it — so a new key in the assumption set changes the id, changes every project's draws, and
+obliges 2C to regenerate all 300 committed pipeline files. That is a very large cascade for an
+execution mode, and it would break `test_the_committed_pipeline_is_what_the_generator_produces`
+on the way.
+
+**Decided.** It is a field on `SearchControls`, beside `effort`, `locked` and `seed` — which that
+class's own docstring already describes as "the run controls, which are not part of the mandate".
+Epic §5's rule is about numeric calibration, and the existing precedent for an execution mode is
+`RunnerMode`, which is a setting rather than an assumption. Default off, so no existing caller
+and no stored run changes.
+
+`optimize=False` is the mechanism and not a detail: with optimisation on, einsum may hand a
+two-operand contraction to `tensordot` and so back to the GEMM the flag exists to avoid. The flag
+would still be set, the tests would still pass on one machine, and the guarantee would be
+silently gone — so a source-level guard asserts the keyword rather than trusting it.
+
+Measured at 17× the GEMM at (50, 177), 36× at (90, 500) and 45× at (160, 2000) — which is
+2.13 ms per generation at the largest shape, about 0.23 s added to an Exhaustive run. Cheap
+enough to be a usable mode rather than a theoretical one.
+
+**Left open, raised for 3A.** `api/service.py:196` still derives the stored
+`deterministic_reduction` column from `blas_threads == 1` alone, and the wire has no way to ask
+for the flag. A run submitted over HTTP therefore cannot use it, and the column's meaning is now
+narrower than its name. Both are 3A's to resolve.
+
+### 4B-4 · The reproducibility guarantee, and what it does not cover
+
+*Raised by issue #12. Affects: §12's sign-off, epic §7's memory budget.*
+
+§12 says "mandate + pipeline hash + assumption set + seed determines the result **exactly**", and
+#12 asks for that to be written down honestly rather than asserted.
+
+**Decided.** The guarantee has exactly two tiers, and the second one needs a flag:
+
+- **On a given architecture, unconditionally.** Same mandate, pipeline hash, assumption set,
+  seed, engine version and numpy version produce byte-identical served bytes. Asserted on what
+  `GET /optimisations/{id}` actually serves, not on the optimiser in isolation, with four fields
+  exempt — `runId`, `runRef`, `createdAt`, `durationMs` — and a test asserting that the exemption
+  list is exactly those four.
+- **Across architectures, with `deterministic_reduction` on.** The reduction order is then fixed
+  by shape and dtype rather than by BLAS blocking and thread count.
+
+**Across architectures without the flag, nothing stronger than "very likely" is claimed.** The
+search's trajectory turns on `f[a] >= f[b]`; fitness is quantised to 6 dp before every comparison
+and the runner pins BLAS to one thread, which makes a divergence vanishingly unlikely. It does
+not make it impossible, and a §12 sign-off that claimed otherwise would be a lie the first CI
+migration exposed.
+
+Also settled, since it was ambiguous: epic §7's "core arrays under 16 MB at 2,000 candidates"
+does not say whether the pipeline's own 30-year statements count. Both readings hold, so there
+was no need to choose the one that passes — **3.83 MB** for the search's working set (feature
+matrices at both precisions, the population, the aggregation's per-generation temporaries) and
+**15.83 MB** once the statements are included, extrapolated from the shipped 300 files to 2,000.
+Both are asserted. The inclusive reading has about 1% of headroom, which is the finding worth
+recording: one more 30-year matrix on `StatementArrays` would breach epic §7 at 2,000 candidates.
+
+### 4B-5 · Screen parity compares answers exactly and figures within a tolerance
+
+*Raised by issue #12. Affects: `tests/parity/`, and any later change to either implementation.*
+
+`web/js/feasibility.js` and `optimiser/feasibility.py` implement the same nine screens and seven
+warnings, and comparing them turns out to need two different kinds of equality.
+
+**Decided.** Compared **exactly**: the eligible count, the total, `runnable`, the warning codes in
+order, the eligible ids, and each project's list of failed screens. Those are the answer, and any
+difference in them is a bug.
+
+Compared **within 1e-12 relative**: `eligibleCapacityMw`, `eligibleEquity_m`,
+`eligibleSolarShare`, `eligibleGearing`, `lockedEquity_m`. Python aggregates in euros and converts
+at the API boundary; the JavaScript aggregates in €m because that is what the wire carries.
+`(x·10⁶)/(y·10⁶)` is not obliged to equal `x/y` to the last bit, and numpy's pairwise sum is not
+obliged to equal a sequential `forEach`. 1e-12 is five orders of magnitude tighter than anything
+the UI renders — €1,246.4162355799467m prints as `€1,246m` — and four wider than the ~1e-16 a
+unit conversion and a summation order can introduce.
+
+Both sides read the same projects: the payloads are generated from the golden fixtures by
+`api/scalars.py`, the real `GET /pipeline` serialiser, and a test fails if they ever stop matching
+what the API would serve.
+
+**Two smaller things settled with it.** The nine screens are spelled differently on the two
+sides — `country`/`countries`, `stage`/`stages`, `riskCap`/`riskScore`, `currency`/`eurRevenue`,
+`notExcluded`/`exclusions` — and the risk screen sits fifth in the JavaScript order and eighth in
+the Python one. `docs/api.md` §5's `screensToWiden` uses the Python names and `feasibility.js`
+does not expose `screensToWiden` at all, so the JavaScript names are internal: the harness maps
+them, pinned at both ends, rather than renaming them and breaking 1D's own tests. Raised for #11.
+
+And `feasibility.js` reads `payload.assumptions.riskCaps`, which `GET /pipeline` does not serve —
+the caps live behind `GET /assumptions`. Every existing JS test hand-builds them, so the page as
+shipped would throw on a real payload. The generated payload carries them so the harness can
+run; the gap is #11's.
+
+### 4B-6 · Three ways the two feasibility implementations had drifted, and one left alone
+
+*Raised by issue #12. Affects: `web/js/feasibility.js`, #11.*
+
+The thirty parity pairs found four divergences on their first run. Three changed the eligible
+count, which is the failure the parity suite exists to catch: the mandate footer promising a
+candidate count the run would not deliver.
+
+**Decided — fixed in `feasibility.js`, each with a pair that fails without it.**
+
+- **A lock re-admits.** `screens.py` computes `eligible = survives_every_screen | locked`, so a
+  locked project that fails a screen stays in the pool; `feasibility.js` filtered it out. Six of
+  the thirty pairs catch this. An exclusion still beats a lock, on both sides.
+- **`UK` collapses onto `GB`.** `pipeline-schema.md` §4.1 keeps `UK` as an alias and the loader
+  normalises files to `GB`; `mandate.html`'s country chips emit `UK`. Python normalises both ends
+  through `normalise_country_code`; the JavaScript compared raw strings, so every British project
+  was screened out client-side while the server admitted it. Now normalised inside the screen, so
+  it is right however the screen is called — which is what keeps 1D's direct test of
+  `screens.country({countryCode: 'UK'}, …)` green.
+- **Locked equity subtracts exclusions.** `feasibility.py` takes `set(locked) - set(excluded)`
+  before summing; the JavaScript summed every locked id, so an excluded project was still
+  committing capital in the footer.
+- **Capital absorption compares a ratio** (`equity / capital < 0.9`) rather than a product
+  (`equity < capital * 0.9`), matching `feasibility.py`, so a pool absorbing exactly the floor
+  lands on the same side on both sides. The two forms differ only in the last bits and only
+  exactly on the boundary — which is one of the four boundary pairs.
+
+**Decided — left alone, and asserted instead.** With no eligible pool, `feasibility.js` returns
+`NaN` for `eligibleSolarShare` and `eligibleGearing` and renders an em dash; `feasibility.py`
+returns `0.0`. Neither is wrong. The em dash is epic §5's rule — undefined is a dash, never a
+zero — and 1D asserts it directly ("there is no mix without a pool", "never 0%"). The `0.0` is
+forced: `PreviewResponse` types both fields as `float` under `allow_inf_nan=False`, so the wire
+cannot carry a `NaN` and the server has no way to say "undefined" here.
+
+Closing it means either dropping 1D's em dash or making two wire fields nullable, and the wire is
+a shared contract with a named owner. So each side's documented value is asserted exactly — a
+JavaScript `0` and a Python `NaN` both fail, which is tighter than the tolerance it replaces —
+and the contract question goes to #1: should `eligibleSolarShare` and `eligibleGearing` be
+`float | None`?
+
+### 4B-7 · Two of #12's criteria describe an engine 2A did not build
+
+*Raised by issue #12. Affects: #12's acceptance criteria.*
+
+Two criteria are written in terms that do not match the implementation, and both were guarded for
+their intent rather than restated to match the criterion.
+
+**"`irr_bisect` is called exactly `n_eligible + 1` times per run."** There is no `irr_bisect`;
+the solver is `economics/irr.py::irr`, and it is called **twice** per run — once on an
+`(n, hold)` matrix covering every loaded project in a single vectorised bisection, and once on
+the portfolio's own `(1, hold)` cash flow. The criterion describes a scalar per-project solver.
+2A's vectorised one is strictly better and satisfies what §10.3 actually forbids, which is IRR
+solving *inside the fitness loop*.
+
+**Decided.** The guard asserts what §10.3 forbids: exactly two bisections, the first vectorised
+over more than one row, and **no solve between the first and last scoring of the run**. The
+ordering assertion is the one that catches the regression — a per-project solve moved inside the
+loop would still be "a few calls" by some countings, but it would not be outside the scoring
+window.
+
+It is hooked at `npv` rather than at `irr`, which is the difference between a guard and a
+decoration: `irr` is imported by name into two modules, so patching those two bindings catches
+only the call sites that exist today, and a solve added inside the loop through a fresh
+`from … import irr` in `ga.py` would be invisible. `npv` is reachable only from inside `irr`,
+which resolves it from its own module globals at call time, so one hook sees every solve however
+`irr` was imported. Verified by adding exactly that call on purpose: 3,774 NPV evaluations against
+the 204 that two bisections make, where the binding-level hook had reported nothing wrong.
+
+**"One fitness call per generation."** There are two kinds. `ga.py` scores the whole population
+once per generation in float32 — the hot path, and the count that must not grow — and then
+re-scores the *leader alone* in float64 once per generation, once more for the winner, and once
+in `build_result`, so that nothing reported inherits the hot path's precision. That is deliberate
+and `ga.py`'s own docstring says so.
+
+**Decided.** Both counts are pinned separately, and the dtypes with them. Collapsing them into
+one number would let a population-scale call hide behind a one-row one, and asserting the dtypes
+at the same time is epic §5's float32 invariant — one `astype` moved by a line and either the hot
+path loses its speed or a reported metric inherits its precision.
+
 ## Log
 
 | Date | Issue | Entry |
@@ -2938,3 +3215,10 @@ is closed; the change is announced on issue #1 rather than left for someone to n
 | 2026-09-24 | #10 | 3B-8 — the search standfirst's hard-coded 90 and "recombining" raised for #3, copy left as §4 pins it. |
 | 2026-09-24 | #10 | 3B-9 — CI gains a web job; nothing under `web/` was verified on `main` before. |
 | 2026-09-24 | #10 | `ui-contract.md` §7.3 corrected: muted is `neutral-700` at 5.87:1, not `text` at 55%. |
+| 2026-09-24 | #12 | 4B-1 — epic §7's 30 s does not reproduce (2.2 s measured); 99.4% of rows are over budget, so the column slice is the win and the row mask is a measured cost. |
+| 2026-09-24 | #12 | 4B-2 — the row mask is a margin *below* the budget, and it is `objective.equity_cap_tolerance_eur`; `None` keeps the pre-#12 behaviour. |
+| 2026-09-24 | #12 | 4B-3 — `deterministic_reduction` is a `SearchControls` field, not an assumption: a new TOML key would change `assumption_set_id` and reprice all 300 files. |
+| 2026-09-24 | #12 | 4B-4 — the §12 guarantee stated with its scope: bit-exact per architecture unconditionally, across architectures with the flag. Epic §7's 16 MB holds on both readings, 3.83 MB and 15.83 MB. |
+| 2026-09-24 | #12 | 4B-5 — parity compares answers exactly and the six figures at 1e-12; the nine screen names are mapped, not renamed. `GET /pipeline` serves no `riskCaps`, raised for #11. |
+| 2026-09-24 | #12 | 4B-6 — three `feasibility.js` divergences fixed (locks re-admit, `UK`→`GB`, locked equity less exclusions, absorption as a ratio); the empty-pool NaN-vs-0.0 left alone and asserted, raised for #1. |
+| 2026-09-24 | #12 | 4B-7 — `irr` is called twice per run, not `n_eligible + 1`, and is guarded at `npv`; "one fitness call per generation" is one population-scale call plus three one-row re-scores. |

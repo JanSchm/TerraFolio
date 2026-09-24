@@ -283,6 +283,51 @@ def _report_repair(
             )
 
 
+def _report_operator(widths: Sequence[int], efforts: Sequence[Effort], repeats: int) -> None:
+    """Time the four variants on the operator alone, away from the rest of the search.
+
+    The whole-run table is the number that matters, and on a shared machine it is also
+    the number that moves: a search is a fifth of a second and the load average is not
+    a constant. This times only ``repair_to_budget``, on populations recorded from a
+    real run — so it is stable to a few percent under load and it isolates the change.
+
+    The populations are drawn to be over budget at the rate a real late generation is,
+    which the census in ``--compare-repair`` measures at 95-99%. Drawing them uniformly
+    instead would flatter the row mask by inventing rows it could skip.
+    """
+    loaded, assumptions = load_shipped()
+    mandate: MandateScalars = REFERENCE_MANDATES["M0-default"]
+    variants = _variants(assumptions)
+    budget = mandate.available_capital_eur
+    print(f"\nenvironment: {describe_environment()}\n")
+    print("| candidates | rows | over budget | " + " | ".join(variants) + " | speed-up |")
+    print("|---:|---:|---:|" + "---:|" * (len(variants) + 1))
+    for width in widths:
+        pool = build_pool(loaded, mandate, assumptions, candidates=width)
+        equity = pool.fit[:, COLUMN["equity"]]
+        for effort in efforts:
+            rows = assumptions.ga.effort[effort].population - assumptions.ga.elite_count
+            rng = np.random.default_rng(17)
+            # Chromosomes just over their budget, which is where the search spends
+            # almost all of its generations.
+            population = rng.random((rows, width)) < (budget / float(equity.sum())) * 1.15
+            priority = rng.random((rows, width))
+            over = int((np.where(population, equity, 0.0).sum(axis=-1) > budget).sum())
+            timings: dict[str, float] = {}
+            for name, variant in variants.items():
+                best = float("inf")
+                for _ in range(repeats):
+                    started = time.perf_counter()
+                    variant(population, priority=priority, equity=equity, budget=budget)
+                    best = min(best, time.perf_counter() - started)
+                timings[name] = best * 1000
+            cells = " | ".join(f"{timings[name]:.2f} ms" for name in variants)
+            print(
+                f"| {width:,} | {rows} | {over}/{rows} | {cells} |"
+                f" {timings['legacy'] / timings['both']:.2f}x |"
+            )
+
+
 def _report_profile(width: int, effort: Effort, seed: int, rows: int) -> None:
     case = _cases([width])[0]
     profiler = cProfile.Profile()
@@ -306,6 +351,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--repeats", type=int, default=3, help="runs per cell; the fastest is reported"
     )
     parser.add_argument("--compare-repair", action="store_true", help="the before/after table")
+    parser.add_argument(
+        "--operator", action="store_true", help="time the repair operator on its own"
+    )
     parser.add_argument("--profile", action="store_true", help="hot spots for one configuration")
     parser.add_argument("--profile-rows", type=int, default=14)
     args = parser.parse_args(argv)
@@ -315,9 +363,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.profile:
         _report_profile(widths[-1], efforts[-1], args.seed, args.profile_rows)
+    if args.operator:
+        _report_operator(widths, efforts, max(args.repeats, 20))
     if args.compare_repair:
         _report_repair(widths, efforts, args.seed, args.repeats)
-    if not args.compare_repair and not args.profile:
+    if not args.compare_repair and not args.profile and not args.operator:
         _report_runs(widths, efforts, args.seed, args.repeats)
     return 0
 
