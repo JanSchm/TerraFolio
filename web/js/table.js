@@ -27,6 +27,11 @@
     : function (name) { return root.TerraFolio && root.TerraFolio[name]; };
 
   var fmt = load('format');
+  /* The one status vocabulary (decisions 3B-2). The toggle's square is the same mark
+     the lock column uses, and a second copy of it here is the drift that decision
+     exists to prevent — an ASCII lookalike renders perfectly and means nothing. */
+  var status = (typeof require === 'function') ? require('./controls.js').status
+    : (root.TerraFolio && root.TerraFolio.status);
 
   /** Long enough to swallow a burst of typing, short enough to feel immediate. */
   var SEARCH_DEBOUNCE_MS = 120;
@@ -198,7 +203,7 @@
     chip.setAttribute('aria-pressed', showingAll ? 'true' : 'false');
     var mark = chip.querySelector('[aria-hidden="true"]');
     var label = chip.querySelector('span:not([aria-hidden])');
-    if (mark) mark.textContent = showingAll ? '■' : '□';
+    if (mark) mark.textContent = showingAll ? status.MARK.locked : status.MARK.unlocked;
     if (label) label.textContent = showingAll ? 'Showing all candidates' : 'Show all candidates';
   }
 

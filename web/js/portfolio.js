@@ -167,7 +167,7 @@
   function cashflow(run) {
     var series = run.cashflow30Y_m || [];
     var baseYear = baseYearOf(run);
-    var shape = charts.bars(series, baseYear);
+    var shape = charts.bars(series, baseYear === null ? null : baseYear);
     var plot = document.querySelector('[data-region="cashflow-bars"]');
     var tickRow = document.querySelector('[data-region="cashflow-ticks"]');
     var body = document.querySelector('[data-region="cashflow-table"] tbody');
@@ -198,9 +198,21 @@
    * because sitting below the line is a position and a lighter tone is a colour —
    * neither survives on its own (§7.1).
    */
+  var IDLE_HOVER = 'hover a bar';
+
   function barColumn(bar, zeroPercent) {
     var column = document.createElement('li');
     column.className = 'relative flex-1';
+
+    /* No figure, no bar. A zero-height control would be unreachable anyway, and
+       drawing one on the zero line would assert a cash flow of nothing. */
+    if (bar.missing) {
+      var absent = document.createElement('span');
+      absent.className = 'sr-only';
+      absent.textContent = readoutFor(bar);
+      column.appendChild(absent);
+      return column;
+    }
 
     var button = document.createElement('button');
     button.type = 'button';
@@ -216,17 +228,30 @@
     readout.textContent = readoutFor(bar);
     button.appendChild(readout);
 
+    /* §5.2 gives the sub-title as `… · {hover}` with `hover a bar` when idle, so the
+       readout has to come back when the pointer or the focus leaves. Without the
+       second pair the caption kept naming a year nobody was pointing at. */
     var show = function () { setField('cashflow-hover', readoutFor(bar)); };
+    var idle = function () { setField('cashflow-hover', IDLE_HOVER); };
     button.addEventListener('mouseenter', show);
     button.addEventListener('focus', show);
+    button.addEventListener('mouseleave', idle);
+    button.addEventListener('blur', idle);
     column.appendChild(button);
     return column;
   }
 
-  /** `2027: minus €28.9m` — one decimal, and the sign as a word (§5.2, §7.1). */
+  /**
+   * `2027: minus €28.9m` — one decimal, and the sign as a word (§5.2, §7.1).
+   *
+   * One decimal because §5.2 asks for it, and because these are construction
+   * draw-downs: rounding to whole millions hides up to €500k of the year a committee
+   * reads most closely. A year with no figure reads as an em dash, never as zero.
+   */
   function readoutFor(bar) {
-    var amount = fmt.eurM(Math.abs(bar.value));
-    return fmt.year(bar.year) + ': ' + (bar.negative ? 'minus ' : '') + amount;
+    var year = bar.year === null ? fmt.DASH : fmt.year(bar.year);
+    if (bar.missing) return year + ': ' + fmt.DASH;
+    return year + ': ' + (bar.negative ? 'minus ' : '') + fmt.eurM1(Math.abs(bar.value));
   }
 
   function tick(year) {
@@ -240,24 +265,41 @@
     var row = document.createElement('tr');
     var year = document.createElement('th');
     year.setAttribute('scope', 'row');
-    year.textContent = fmt.year(bar.year);
+    year.textContent = bar.year === null ? fmt.DASH : fmt.year(bar.year);
     var amount = document.createElement('td');
-    amount.textContent = (bar.negative ? 'minus ' : '') + fmt.eurM(Math.abs(bar.value));
+    amount.textContent = bar.missing
+      ? fmt.DASH
+      : (bar.negative ? 'minus ' : '') + fmt.eurM1(Math.abs(bar.value));
     row.appendChild(year);
     row.appendChild(amount);
     return row;
   }
 
   /**
-   * The base year of the run, taken from its exit year rather than assumed.
+   * The first of the thirty years `cashflow30Y_m` covers.
    *
-   * `holdYears` and the mandate's COD window are both on the run, and the pipeline's
-   * base year is the COD floor — 2027 for the shipped corpus. Reading it off the
-   * mandate keeps the chart's x-axis tied to the run rather than to a literal.
+   * It is a property of the **pipeline** — identical for every file in it
+   * (`pipeline-schema.md` §4.6.1) — and `RunRecord` does not carry it, so the page
+   * fetches it and holds it beside the run. `api.getBaseYear` asks a project's own
+   * statements and falls back to `GET /pipeline`.
+   *
+   * It is emphatically **not** the mandate's `codFrom`, which this used to read.
+   * That is an independent screen the user sets anywhere in 2027–2033 (ui-contract
+   * §3.2), and it is equal to the base year only because the default happens to
+   * match the shipped corpus. A mandate opening its COD window in 2030 moved every
+   * bar label, every tick, every row of the sr-only table, the §13 hold note and the
+   * payback text three years out.
+   *
+   * Null until it is known, and every caller renders an em dash rather than guess.
    */
   function baseYearOf(run) {
-    var m = run.mandate || {};
-    return typeof m.codFrom === 'number' ? m.codFrom : 2027;
+    return typeof (run || {}).baseYear === 'number' ? run.baseYear : null;
+  }
+
+  /** `baseYear + offset`, or null, so a missing base year stays missing. */
+  function yearAt(run, offset) {
+    var base = baseYearOf(run);
+    return base === null ? null : base + offset;
   }
 
   /* ── The drawer (ui-contract.md §5.5) ───────────────────────────────────── */
@@ -304,7 +346,7 @@
 
   function groups(page, row) {
     var run = page.run || {};
-    var lastYear = baseYearOf(run) + (run.mandate || {}).holdYears - 1;
+    var lastYear = yearAt(run, ((run.mandate || {}).holdYears || 0) - 1);
     var basis = (row.provenance || {});
 
     var sections = [
@@ -321,7 +363,7 @@
           + fmt.percent1(row.debtRate) + ', ' + fmt.count(row.debtTenorYears) + 'y', basis.debtTerms],
         ['Minimum DSCR', fmt.dscr(row.minDscr), basis.debtTerms],
         ['Equity payback', row.paybackYear === null || row.paybackYear === undefined
-          ? 'beyond ' + fmt.year(baseYearOf(run) + 29) : fmt.year(row.paybackYear), null],
+          ? 'beyond ' + fmt.year(yearAt(run, 29)) : fmt.year(row.paybackYear), null],
         ['Currency', row.currency + (row.currency === 'EUR' ? '' : ' — hedge required'), null],
       ]],
       ['Revenue', [
@@ -352,7 +394,7 @@
 
     // spec §13: a project completing after the hold ends contributes construction
     // outflows and an exit value only, and the sheet has to say so.
-    if (row.codYear > lastYear) {
+    if (lastYear !== null && row.codYear > lastYear) {
       var note = document.createElement('p');
       note.className = 'mt-3 text-meta text-muted';
       note.textContent = 'Commercial operation in ' + fmt.year(row.codYear)
@@ -459,6 +501,32 @@
     });
   }
 
+  /**
+   * Say something, rather than leave the screen looking merely empty.
+   *
+   * spec §13 requires a re-run against a moved pipeline to warn; a run that failed
+   * is audit trail rather than a 404 (api.md §8), and one still in flight is a URL
+   * shared a second early. All three used to render twelve em dashes and no reason.
+   */
+  function notice(message) {
+    var region = document.querySelector('[data-region="portfolio-notice"]');
+    if (!region) return;
+    setField('notice', message || '');
+    region.hidden = !message;
+  }
+
+  /** What to say about a run this screen cannot draw. */
+  function unrenderable(result) {
+    var status = (result || {}).status;
+    if (status === 'queued' || status === 'running') {
+      return 'This run has not finished. Watch it on the search screen, or reopen this '
+        + 'link once it is done.';
+    }
+    if (status === 'cancelled') return 'This run was cancelled before it finished.';
+    var error = (result || {}).error || {};
+    return error.message || 'This run did not complete, so it has no portfolio to show.';
+  }
+
   /* ── Steering (§7.6) ────────────────────────────────────────────────────── */
 
   function steeringButtons(page, row) {
@@ -538,21 +606,33 @@
 
   /* ── Exports (api.md §9) ────────────────────────────────────────────────── */
 
+  /** The dialog's figures, which move with the run. */
   function exports(page) {
     var run = page.run || {};
     setField('export-subtitle', subtitle(run));
     setField('export-rows', fmt.count((run.selectedIds || []).length) + ' rows');
+  }
+
+  /**
+   * The three export buttons, bound **once** from `start`.
+   *
+   * Binding them inside `show` added a listener per render and removed none, so a
+   * second render made one click download the same file twice. The run id is read
+   * when the button is pressed rather than captured when it was bound, which is also
+   * what lets these survive a re-render.
+   */
+  var EXPORTS = ['holdings', 'cashflow', 'pack'];
+
+  function bindExports(page) {
     if (!api) return;
-    var urls = api.exportUrls(run.runId);
-    var wanted = [
-      ['export-holdings', urls.holdings],
-      ['export-cashflow', urls.cashflow],
-      ['export-pack', urls.pack],
-    ];
-    wanted.forEach(function (pair) {
-      var button = document.querySelector('[data-action="' + pair[0] + '"]');
+    EXPORTS.forEach(function (kind) {
+      var button = document.querySelector('[data-action="export-' + kind + '"]');
       if (!button) return;
-      button.addEventListener('click', function () { download(pair[1]); });
+      button.addEventListener('click', function () {
+        var run = page.run;
+        if (!run || !run.runId) return;
+        download(api.exportUrls(run.runId)[kind]);
+      });
     });
   }
 
@@ -572,15 +652,6 @@
   }
 
   /* ── Wiring ─────────────────────────────────────────────────────────────── */
-
-  function runIdFromUrl() {
-    var search = root.location && root.location.search;
-    if (!search) return null;
-    var match = search.replace('?', '').split('&').filter(function (pair) {
-      return pair.indexOf('run=') === 0;
-    })[0];
-    return match ? decodeURIComponent(match.slice(4)) : null;
-  }
 
   /**
    * Wire the screen, once.
@@ -613,13 +684,29 @@
 
     current = page;
     table.bind(page.view, function () { refresh(page); });
+    bindExports(page);
     listen(page);
 
-    var runId = runIdFromUrl() || page.locks.runId;
+    var runId = (api ? api.runIdFromUrl() : null) || page.locks.runId;
     if (runId && api && !api.offline()) {
       api.getResult(runId).then(function (result) {
-        if (result && result.status === 'succeeded') show(page, result);
-      }).catch(function () { /* the page keeps its em dashes */ });
+        if (!result) return null;
+        if (result.status !== 'succeeded') {
+          notice(unrenderable(result));
+          return null;
+        }
+        /* The base year is a property of the pipeline and is not on the run, so it
+           is resolved before anything is drawn: rendering thirty bars and then
+           correcting their labels is worse than waiting one small request. */
+        var first = (result.holdings || [])[0];
+        return api.getBaseYear(first && first.id).then(function (year) {
+          result.baseYear = year;
+          show(page, result);
+          return result;
+        });
+      }).catch(function (error) {
+        notice(error.message || 'That run could not be loaded.');
+      });
     }
     return page;
   }
@@ -703,19 +790,32 @@
    * relabelled action does what its label says.
    */
   function submit(page) {
-    if (!api || api.offline() || !page.run) return null;
+    if (!api || api.offline() || !page.run || page.submitting) return null;
+    page.submitting = true;
+    setRerunEnabled(false);
+    notice('');
+    if (store) store.flushMandate();
     var mandate = (store && store.savedMandate()) || page.run.mandate;
-    return api.getPipelineStatus().then(function (health) {
-      return api.postOptimisation({
-        mandate: mandate,
-        lockedIds: page.locks.lockedIds,
-        excludedIds: page.locks.excludedIds,
-        effort: page.run.effort || 'standard',
-        seed: null,
-        pipelineHash: health ? health.pipelineHash : null,
-      });
+    var provenance = page.run.provenance || {};
+    return api.postOptimisation({
+      mandate: mandate,
+      lockedIds: page.locks.lockedIds,
+      excludedIds: page.locks.excludedIds,
+      effort: page.run.effort || 'standard',
+      seed: null,
+      /* The snapshot **this run saw**, not whatever the directory holds now. Asking
+         the server for the current hash immediately before posting would make the
+         409 unreachable by construction — the claim would always be true. §13 wants
+         a re-run after the pipeline has moved to say so, and the way back is the
+         mandate screen, which loads the new snapshot. */
+      pipelineHash: provenance.pipelineHash || null,
+      assumptionSetId: provenance.assumptionSetId || null,
     }).then(function (accepted) {
-      if (!accepted || !store) return null;
+      if (!accepted || !store) {
+        page.submitting = false;
+        setRerunEnabled(true);
+        return null;
+      }
       var next = store.steering();
       next.runId = accepted.runId;
       next.runRef = accepted.runRef;
@@ -724,7 +824,20 @@
       store.saveSteering(next);
       root.location.assign('search.html?run=' + encodeURIComponent(accepted.runId));
       return accepted;
-    }).catch(function () { return null; });
+    }).catch(function (error) {
+      /* A 409 PIPELINE_MOVED or a 422 used to vanish here, leaving the primary
+         action of the screen looking broken. `message` is already one sentence fit
+         to show a user (api.md §1.7). */
+      page.submitting = false;
+      setRerunEnabled(true);
+      notice(error.message || 'The optimiser did not accept that re-run.');
+      return null;
+    });
+  }
+
+  function setRerunEnabled(enabled) {
+    var button = document.querySelector('[data-action="rerun"]');
+    if (button) button.disabled = !enabled;
   }
 
   function boot() {
@@ -755,7 +868,10 @@
     refresh: refresh,
     readoutFor: readoutFor,
     capacitySub: capacitySub,
-    runIdFromUrl: runIdFromUrl,
+    notice: notice,
+    submit: submit,
+    unrenderable: unrenderable,
+    yearAt: yearAt,
   };
 
   root.TerraFolio = root.TerraFolio || {};

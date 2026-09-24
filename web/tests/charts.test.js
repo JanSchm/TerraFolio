@@ -118,3 +118,33 @@ test('ticks fall on every fifth year from the base year', () => {
   assert.equal(marks[25], 2052);
   assert.equal(marks.filter(Boolean).length, 6);
 });
+
+/* ── A year with no figure is absent, not zero ───────────────────────────────── */
+
+test('a missing value is not drawn as a bar on the zero line', () => {
+  const out = charts.bars([-30, null, 25], 2027);
+  assert.equal(out.bars[1].missing, true);
+  assert.equal(out.bars[1].value, null, 'epic §5 gives undefined one representation');
+  assert.equal(out.bars[1].heightPercent, 0);
+  assert.equal(out.bars[1].negative, false);
+  assert.equal(out.complete, false);
+});
+
+test('a missing value does not drag the cumulative total toward zero', () => {
+  assert.equal(charts.bars([10, null, 20], 2027).total, 30,
+    'the caption reports what is known, rather than implying the gap was nothing');
+  assert.equal(charts.bars([10, 20], 2027).complete, true);
+});
+
+test('a missing value does not stretch the axis either', () => {
+  const out = charts.bars([-30, NaN, 25], 2027);
+  assert.equal(out.max, 25);
+  assert.equal(out.min, -30);
+});
+
+test('years are null until the base year is known, never counted from zero', () => {
+  assert.deepEqual(charts.bars([1, 2], null).bars.map((b) => b.year), [null, null]);
+  assert.deepEqual(charts.ticks(6, null).filter(Boolean), [],
+    'a year label is a claim; RunRecord carries no base year to make it with');
+  assert.deepEqual(charts.bars([1, 2], 2027).bars.map((b) => b.year), [2027, 2028]);
+});

@@ -375,8 +375,13 @@
     });
     var agg = aggregate(pool);
 
+    /* `held`, not `lockedIds`: a project that is both locked and excluded is not
+       held, so its equity is not required. `preview_feasibility` sums over
+       `set(locked) - set(excluded)` for the same reason, and this figure decides a
+       *blocking* warning — counting an excluded project here disables a run the
+       server would accept. See docs/decisions.md 4A-3. */
     var lockedEquity_m = all.reduce(function (sum, p) {
-      return lockedIds.indexOf(p.id) === -1 ? sum : sum + p.equity_m;
+      return held.indexOf(p.id) === -1 ? sum : sum + p.equity_m;
     }, 0);
 
     var found = warnings(pool, agg, mandate, all.length, lockedIds, excludedIds, lockedEquity_m);

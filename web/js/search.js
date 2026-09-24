@@ -35,6 +35,14 @@
   var FASTEST_TICK_MS = 16;
 
   /**
+   * How long a dropped stream may keep trying before the screen says so.
+   *
+   * `EventSource` retries by itself and the log replays what was missed, so a brief
+   * outage should pass unremarked; an id that resolves to nothing never will.
+   */
+  var RECONNECT_GRACE_MS = 5000;
+
+  /**
    * ui-contract.md §4's status line, in thirds of the run. The strings are pinned
    * there verbatim — they are the replacements §14 requires for the mockup's copy,
    * which named the operators rather than what the user's portfolios are doing.
@@ -72,15 +80,6 @@
 
   /* ── The run ────────────────────────────────────────────────────────────── */
 
-  function runIdFromUrl() {
-    var search = root.location && root.location.search;
-    if (!search) return null;
-    var match = search.replace('?', '').split('&').filter(function (pair) {
-      return pair.indexOf('run=') === 0;
-    })[0];
-    return match ? decodeURIComponent(match.slice(4)) : null;
-  }
-
   /** Idempotent: `boot` calls it, and a second call would open a second stream. */
   var current = null;
 
@@ -89,7 +88,7 @@
     if (!document.querySelector('[data-region="round-counter"]')) return null;
 
     var page = {
-      runId: runIdFromUrl(),
+      runId: api ? api.runIdFromUrl() : null,
       total: 0,
       waiting: [],
       shown: [],
@@ -118,16 +117,35 @@
     // string, so an unknown total keeps the whole region quiet (decisions 3B-3).
     if (!page.total) {
       api.getResult(page.runId).then(function (result) {
-        if (result && result.totalGenerations) showTotal(page, result.totalGenerations);
-      }).catch(function () { /* the stream carries the total too, one frame later */ });
+        showTotal(page, totalOf(result));
+      }).catch(function (error) {
+        /* A run id that resolves to nothing would otherwise spin for ever: the
+           stream against a 404 reconnects on a timer and never says anything. */
+        fail(page, { error: { message: error.message } });
+      });
     }
 
     page.stream = api.openStream(page.runId, {
       round: function (frame) { arrive(page, frame); },
       done: function (frame) { page.finished = frame; settle(page); },
       failed: function (frame) { fail(page, frame); },
+      dropped: function () { lost(page); },
     });
     return page;
+  }
+
+  /**
+   * How many rounds this run has.
+   *
+   * A run still in flight says so directly; one that has already finished — which is
+   * the common case, since a Standard search takes less time than opening this page —
+   * comes back as a full record with no `totalGenerations` on it at all, and its
+   * length is the trace it stored.
+   */
+  function totalOf(result) {
+    if (!result) return 0;
+    if (result.totalGenerations) return result.totalGenerations;
+    return (result.convergence && result.convergence.length) || 0;
   }
 
   function now() {
@@ -238,6 +256,23 @@
     setField('progress-note', error.message || 'The search did not complete.');
   }
 
+  /**
+   * The stream dropped and did not come back.
+   *
+   * `EventSource` reconnects on its own and the event log replays from
+   * `Last-Event-ID`, so a blip needs no help. This only speaks once the connection
+   * has failed outright, because the alternative is a screen that spins for ever
+   * saying nothing.
+   */
+  function lost(page) {
+    if (page.stopped || page.finished) return;
+    if (page.lostAt === undefined) page.lostAt = now();
+    if (now() - page.lostAt < RECONNECT_GRACE_MS) return;
+    stop(page);
+    setField('progress-note',
+      'Lost contact with the optimiser. The run is still recorded; reopen it from the mandate.');
+  }
+
   function stop(page) {
     page.stopped = true;
     if (page.ticker) { root.clearInterval(page.ticker); page.ticker = null; }
@@ -265,7 +300,8 @@
     tick: tick,
     draw: draw,
     stop: stop,
-    runIdFromUrl: runIdFromUrl,
+    lost: lost,
+    totalOf: totalOf,
   };
 
   root.TerraFolio = root.TerraFolio || {};

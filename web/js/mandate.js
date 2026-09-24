@@ -66,9 +66,21 @@
   function local() { return safely(function () { return root.localStorage; }); }
   function session() { return safely(function () { return root.sessionStorage; }); }
 
+  /**
+   * How long to wait before writing the mandate back.
+   *
+   * `localStorage.setItem` is synchronous and disk-backed, and A-18 makes ranges
+   * dispatch on `input` so the footer can stay live — one drag of the capital slider
+   * is 76 events. spec §5 asks for the mandate to survive *between sessions*, not for
+   * every intermediate tick of a slider to reach disk, so the write trails the drag.
+   */
+  var PERSIST_DEBOUNCE_MS = 250;
+
   /* ── The store ──────────────────────────────────────────────────────────── */
 
-  var EMPTY_STEERING = { lockedIds: [], excludedIds: [], runId: null, runRef: null, signature: null };
+  var EMPTY_STEERING = {
+    lockedIds: [], excludedIds: [], runId: null, runRef: null, signature: null, totalRounds: null,
+  };
 
   function savedMandate() {
     var saved = readJson(local(), MANDATE_KEY);
@@ -77,6 +89,33 @@
 
   function saveMandate(mandate) {
     writeJson(local(), MANDATE_KEY, mandate);
+  }
+
+  var persistTimer = null;
+  var pending = null;
+
+  /**
+   * Persist the mandate, once the user stops moving.
+   *
+   * Also flushed on `pagehide`, so a mandate stated and immediately navigated away
+   * from is still there on return — a trailing debounce that can lose the last edit
+   * is not persistence.
+   */
+  function persistMandate(mandate) {
+    pending = mandate;
+    if (typeof root.setTimeout !== 'function') return flushMandate();
+    if (persistTimer) root.clearTimeout(persistTimer);
+    persistTimer = root.setTimeout(flushMandate, PERSIST_DEBOUNCE_MS);
+    return null;
+  }
+
+  function flushMandate() {
+    if (persistTimer && typeof root.clearTimeout === 'function') root.clearTimeout(persistTimer);
+    persistTimer = null;
+    if (!pending) return null;
+    saveMandate(pending);
+    pending = null;
+    return null;
   }
 
   function steering() {
@@ -88,6 +127,12 @@
       runId: saved.runId || null,
       runRef: saved.runRef || null,
       signature: saved.signature || null,
+      /* The run's length, from the 202. The search screen needs it before the first
+         round streams or its live region stays silent at the one moment a user is
+         waiting to hear a number (decisions 3B-3). Rebuilding this object field by
+         field is what dropped it, and any later `saveSteering(steering())` then
+         erased the stored value too. */
+      totalRounds: saved.totalRounds || null,
     };
   }
 
@@ -114,7 +159,14 @@
    */
   function steer(projectId, change) {
     var next = steering();
-    if (change.locked !== undefined) next.lockedIds = withId(next.lockedIds, projectId, change.locked);
+    if (change.locked !== undefined) {
+      next.lockedIds = withId(next.lockedIds, projectId, change.locked);
+      /* Symmetric with the branch below. Locking a project the user had excluded
+         used to leave it in both sets, which is a contradiction the screens then
+         resolve one way and the equity sum another. Whichever instruction is given
+         second is the one meant. */
+      if (change.locked) next.excludedIds = withId(next.excludedIds, projectId, false);
+    }
     if (change.excluded !== undefined) {
       next.excludedIds = withId(next.excludedIds, projectId, change.excluded);
       if (change.excluded) next.lockedIds = withId(next.lockedIds, projectId, false);
@@ -258,8 +310,13 @@
     form.addEventListener('tf:change', function (event) {
       var name = event.detail && event.detail.name;
       if (!name) return;
+      /* Only a field the mandate already has. Every control on this form emits an
+         api.md §6.1 name and `wire-contract.test.js` guards that, but `Mandate`
+         forbids extra keys, so anything that slipped through would be a 400 on the
+         wire rather than an ignored value. */
+      if (!Object.prototype.hasOwnProperty.call(page.mandate, name)) return;
       page.mandate[name] = event.detail.value;
-      saveMandate(page.mandate);
+      persistMandate(page.mandate);
       page.submitWarning = null;
       render(page, runButton, warningList);
     });
@@ -268,6 +325,10 @@
       event.preventDefault();
       submit(page, runButton, warningList);
     });
+
+    if (typeof root.addEventListener === 'function') {
+      root.addEventListener('pagehide', flushMandate);
+    }
 
     var disclosure = document.querySelector('[data-action="show-rejected"]');
     if (disclosure) disclosure.addEventListener('click', function () { toggleRejected(disclosure); });
@@ -392,6 +453,7 @@
     page.submitWarning = null;
     if (runButton) runButton.disabled = true;
 
+    flushMandate();
     var locks = steering();
     return api.postOptimisation({
       mandate: page.mandate,
@@ -432,6 +494,8 @@
     STEERING_KEY: STEERING_KEY,
     savedMandate: savedMandate,
     saveMandate: saveMandate,
+    persistMandate: persistMandate,
+    flushMandate: flushMandate,
     steering: steering,
     saveSteering: saveSteering,
     steer: steer,

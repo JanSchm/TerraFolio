@@ -169,3 +169,33 @@ test('an exclusion is itself a screen the user can widen', () => {
   const result = preview([candidate({ id: 'P01' })], mandate(), { excludedIds: ['P01'] });
   assert.deepEqual(result.screensToWiden, ['exclusions']);
 });
+
+/* ── 4. The equity a lock actually requires ──────────────────────────────────── */
+
+test('a project that is both locked and excluded is not held, so its equity is not required', () => {
+  const projects = [candidate({ id: 'P01', equity_m: 30 }), candidate({ id: 'P02', equity_m: 400 })];
+  const both = preview(projects, mandate(), { lockedIds: ['P02'], excludedIds: ['P02'] });
+  assert.equal(both.lockedEquity_m, 0,
+    'preview_feasibility sums over set(locked) - set(excluded); so does this');
+  assert.equal(both.eligibleCount, 1);
+});
+
+test('the locked equity still counts a lock that is only locked', () => {
+  const projects = [candidate({ id: 'P01', equity_m: 30 }), candidate({ id: 'P02', equity_m: 400 })];
+  assert.equal(preview(projects, mandate(), { lockedIds: ['P02'] }).lockedEquity_m, 400);
+  assert.equal(preview(projects, mandate(), { lockedIds: ['P01', 'P02'] }).lockedEquity_m, 430);
+});
+
+test('an excluded lock cannot raise LOCKS_EXCEED_CAPITAL, because it is not being bought', () => {
+  const projects = [candidate({ id: 'P01', equity_m: 30 }), candidate({ id: 'P02', equity_m: 4000 })];
+  const m = mandate({ availableCapital_m: 1200 });
+
+  const locked = preview(projects, m, { lockedIds: ['P02'] });
+  assert.equal(locked.runnable, false, 'a lock alone needing more than the budget blocks');
+  assert.ok(locked.warnings.some((w) => w.code === 'LOCKS_EXCEED_CAPITAL'));
+
+  const alsoExcluded = preview(projects, m, { lockedIds: ['P02'], excludedIds: ['P02'] });
+  assert.equal(alsoExcluded.runnable, true,
+    'once excluded it is not held, and the run button must not stay disabled');
+  assert.equal(alsoExcluded.warnings.some((w) => w.code === 'LOCKS_EXCEED_CAPITAL'), false);
+});

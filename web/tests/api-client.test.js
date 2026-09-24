@@ -157,3 +157,87 @@ test('the three exports are the server-side URLs api.md §9 lists', () => {
 test('a run id is escaped rather than pasted into the path', () => {
   assert.equal(api.exportUrls('a/b').holdings, '/optimisations/a%2Fb/holdings.csv');
 });
+
+/* ── The run id, read once for both screens ──────────────────────────────────── */
+
+test('the run id comes out of the query string, whatever else is in it', () => {
+  const cases = [
+    ['?run=01JB2Q', '01JB2Q'],
+    ['?cb=1&run=01JB2Q', '01JB2Q'],
+    ['?run=01JB2Q&cb=1', '01JB2Q'],
+    ['?run=a%2Fb', 'a/b'],
+    ['?other=1', null],
+    ['', null],
+  ];
+  for (const [search, expected] of cases) {
+    const dom = inWindow('http://127.0.0.1:8000/portfolio.html' + search);
+    assert.equal(dom.window.TerraFolio.api.runIdFromUrl(), expected, search || '(no query)');
+    dom.window.close();
+  }
+});
+
+/* ── The base year, which is not on a stored run ─────────────────────────────── */
+
+test('the base year comes from a project\'s own declared assumptions', async () => {
+  const asked = [];
+  const dom = inWindow('http://127.0.0.1:8000/portfolio.html', {
+    fetch: (url) => {
+      asked.push(url);
+      return Promise.resolve({
+        ok: true, status: 200, headers: { get: () => null },
+        text: () => Promise.resolve('{"id":"P001","assumptions":{"baseYear":2027}}'),
+      });
+    },
+  });
+  const year = await dom.window.TerraFolio.api.getBaseYear('P001');
+  assert.equal(year, 2027);
+  assert.deepEqual(asked, ['/projects/P001/statements'],
+    'a few KB, not the several hundred GET /pipeline costs');
+  dom.window.close();
+});
+
+test('it falls back to the pipeline when the project cannot answer', async () => {
+  const asked = [];
+  const dom = inWindow('http://127.0.0.1:8000/portfolio.html', {
+    fetch: (url) => {
+      asked.push(url);
+      if (url.indexOf('/statements') !== -1) {
+        return Promise.resolve({ ok: false, status: 404, headers: { get: () => null },
+          text: () => Promise.resolve('{"error":{"code":"PROJECT_NOT_FOUND"}}') });
+      }
+      return Promise.resolve({ ok: true, status: 200, headers: { get: () => null },
+        text: () => Promise.resolve('{"baseYear":2027,"projects":[]}') });
+    },
+  });
+  assert.equal(await dom.window.TerraFolio.api.getBaseYear('P999'), 2027,
+    'a project deleted since the run must not cost the chart its axis');
+  assert.equal(asked.length, 2);
+  dom.window.close();
+});
+
+test('a base year nobody can supply is null, never a guess', async () => {
+  const dom = inWindow('file:///tmp/portfolio.html');
+  assert.equal(await dom.window.TerraFolio.api.getBaseYear('P001'), null,
+    'the mandate carries a COD window that merely looks like this number');
+  dom.window.close();
+});
+
+/* ── A reload invalidates everything derived from the old directory ──────────── */
+
+test('reloading the pipeline forgets the statements cached from before it', async () => {
+  const bodies = ['{"id":"P001","assumptions":{"baseYear":2027}}', '{"id":"P001","assumptions":{"baseYear":2031}}'];
+  let call = 0;
+  const dom = inWindow('http://127.0.0.1:8000/mandate.html', {
+    fetch: (url) => Promise.resolve({
+      ok: true, status: 200, headers: { get: () => null },
+      text: () => Promise.resolve(url.indexOf('/statements') !== -1 ? bodies[call++] : '{}'),
+    }),
+  });
+  const client = dom.window.TerraFolio.api;
+  assert.equal((await client.getProjectStatements('P001')).assumptions.baseYear, 2027);
+  assert.equal((await client.getProjectStatements('P001')).assumptions.baseYear, 2027, 'cached');
+  await client.reloadPipeline();
+  assert.equal((await client.getProjectStatements('P001')).assumptions.baseYear, 2031,
+    'users add and remove files while the server runs; a reload can change any of them');
+  dom.window.close();
+});

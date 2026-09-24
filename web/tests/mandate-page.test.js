@@ -187,6 +187,7 @@ test('a lock can be released and an exclusion re-admitted', async () => {
   ctx.M.steer('P02', { excluded: false });
   assert.deepEqual(plain(ctx.M.steering()), {
     lockedIds: [], excludedIds: [], runId: null, runRef: null, signature: null,
+    totalRounds: null,
   });
   ctx.dom.window.close();
 });
@@ -340,4 +341,85 @@ test('a page opened from disk cannot persist, and states a mandate anyway', asyn
   assert.deepEqual(plain(M.steering().lockedIds), []);
   assert.equal(Object.keys(M.readMandate(dom.window.document.querySelector('[data-form="mandate"]'))).length, 18);
   dom.window.close();
+});
+
+/* ── The two steering instructions are symmetric ─────────────────────────────── */
+
+test('locking a project the user had excluded clears the exclusion', async () => {
+  const ctx = await page();
+  ctx.M.steer('P01', { excluded: true });
+  ctx.M.steer('P01', { locked: true });
+  const held = ctx.M.steering();
+  assert.deepEqual(plain(held.lockedIds), ['P01']);
+  assert.deepEqual(plain(held.excludedIds), [],
+    'the two instructions contradict each other; the second one given is the one meant');
+  ctx.dom.window.close();
+});
+
+test('neither set can hold the same project as the other', async () => {
+  const ctx = await page();
+  for (const order of [['excluded', 'locked'], ['locked', 'excluded']]) {
+    ctx.M.saveSteering({ lockedIds: [], excludedIds: [] });
+    ctx.M.steer('P07', { [order[0]]: true });
+    ctx.M.steer('P07', { [order[1]]: true });
+    const held = ctx.M.steering();
+    const both = held.lockedIds.filter((id) => held.excludedIds.indexOf(id) !== -1);
+    assert.deepEqual(plain(both), [], `applying ${order.join(' then ')} left it in both`);
+  }
+  ctx.dom.window.close();
+});
+
+/* ── The run's length survives the store ─────────────────────────────────────── */
+
+test('totalRounds round-trips, so the search screen can know the total in advance', async () => {
+  const ctx = await page();
+  const held = ctx.M.steering();
+  held.runId = '01JB2Q';
+  held.totalRounds = 60;
+  ctx.M.saveSteering(held);
+  assert.equal(ctx.M.steering().totalRounds, 60,
+    'decisions 3B-3: an unknown total keeps the whole live region silent');
+  ctx.dom.window.close();
+});
+
+test('a later save built from steering() does not erase the total', async () => {
+  const ctx = await page();
+  ctx.M.saveSteering(Object.assign(ctx.M.steering(), { runId: 'x', totalRounds: 110 }));
+  ctx.M.steer('P01', { locked: true });
+  assert.equal(ctx.M.steering().totalRounds, 110,
+    'steer() rebuilds the object from steering(); a dropped field is lost there');
+  ctx.dom.window.close();
+});
+
+/* ── Persistence trails the drag rather than riding it ───────────────────────── */
+
+test('the mandate is written once the user stops moving, not once per tick', async () => {
+  const ctx = await page();
+  // Storage is a Proxy whose `set` trap stores a key, so assigning `setItem` on the
+  // instance writes an entry called "setItem" instead of replacing the method. The
+  // prototype is the only place a spy sticks.
+  const writes = [];
+  const proto = Object.getPrototypeOf(ctx.w.localStorage);
+  const real = proto.setItem;
+  proto.setItem = function (key, value) { writes.push(key); return real.call(this, key, value); };
+
+  for (let mw = 200; mw <= 1000; mw += 50) change(ctx, 'capacityTargetMw', mw);
+  assert.deepEqual(writes, [], 'A-18 fires on input: one drag is dozens of events');
+
+  ctx.M.flushMandate();
+  assert.equal(writes.filter((k) => k === ctx.M.MANDATE_KEY).length, 1);
+  assert.equal(ctx.M.savedMandate().capacityTargetMw, 1000, 'and the last value is the one kept');
+  proto.setItem = real;
+  ctx.dom.window.close();
+});
+
+test('a field no control on this form owns never reaches the mandate', async () => {
+  const ctx = await page();
+  const p = ctx.M.startPage();
+  const before = Object.keys(ctx.M.readMandate(ctx.form)).length;
+  change(ctx, 'somethingElse', 42);
+  assert.equal(Object.keys(p.mandate).length, before,
+    'Mandate forbids extra keys, so a stray name would be a 400 rather than ignored');
+  assert.equal(p.mandate.somethingElse, undefined);
+  ctx.dom.window.close();
 });

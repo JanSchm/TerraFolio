@@ -2997,6 +2997,96 @@ to. One line, once someone says which.
 
 ---
 
+### 4A-12 · The cash-flow chart's base year is the pipeline's, and is fetched
+
+`baseYearOf` read the mandate's `codFrom`. That is an independent screen the user sets
+anywhere in 2027–2033 (`ui-contract.md` §3.2); the base year is a property of the
+**pipeline**, identical for every file in it (`pipeline-schema.md` §4.6.1). They are equal
+only because the shipped corpus starts where the default COD window does.
+
+A mandate opening its window in 2030 therefore moved all thirty bar readouts, the six
+x-axis ticks, all thirty rows of the sr-only table, §13's "COD falls after the hold" note
+and the undefined-payback year three years out — every one of them a figure an investment
+committee reads.
+
+**Decided.** `RunRecord` carries no `baseYear`, so the page asks. `api.getBaseYear` reads a
+project's own `assumptions.baseYear` off `GET /projects/{id}/statements` — a few KB, and the
+drawer caches the same response — and falls back to `GET /pipeline`, which carries it too and
+costs several hundred. It resolves **before** the first render, because thirty bars drawn and
+then relabelled is worse than one small request.
+
+When neither answers, the base year is `null` and every year renders an em dash. A year label
+is a claim, and the number that was being used instead of it merely looked like one.
+
+Worth folding `baseYear` into the run record if 3A's wire is revisited: it is a property of
+the snapshot the run recorded, and every consumer of `cashflow30Y_m` needs it.
+
+### 4A-13 · A re-run claims the snapshot its own run saw
+
+The first implementation fetched `GET /pipeline/status` immediately before posting and sent
+the hash it returned. That makes **409 `PIPELINE_MOVED` unreachable by construction** — the
+claim is fetched fresh, so it is always true — and §13's "Re-running warns that the pipeline
+moved" could never fire. Confirmed by moving a file under a loaded page: the re-run succeeded
+silently against different data.
+
+**Decided.** The re-run sends `provenance.pipelineHash` from the run it is re-running. If the
+directory has moved, the server answers 409 and the screen says so; the way forward is the
+mandate screen, which loads the new snapshot. This also removes a round trip from the path.
+
+### 4A-14 · Undefined stays undefined in the two places this screen coerced it
+
+Two more instances of the coercion epic §5 exists to forbid, both found in review:
+
+* `charts.bars` mapped a non-finite value to `0`, which drew a bar on the zero line and read
+  `2031: €0m` aloud — a claim that the portfolio returned nothing that year — and pulled the
+  caption's cumulative total toward zero. It now marks the year `missing`, draws no control,
+  reads an em dash, and excludes it from the sum. `curves` had always done this correctly.
+* `feasibility.js` summed `lockedEquity_m` over the raw `lockedIds`, including projects that
+  were also excluded. `preview_feasibility` sums over `set(locked) - set(excluded)`, and that
+  figure decides `LOCKS_EXCEED_CAPITAL` — a **blocking** warning. The client could disable a
+  run the server would accept. The `held` set the pool already used now feeds the sum too.
+
+Locking and excluding are also symmetric now: each clears the other, so the contradictory
+state that produced the second bug cannot be reached from the drawer at all.
+
+### 4A-15 · Silence is not an error state
+
+Three paths reported failure by doing nothing, which on a screen full of em dashes is
+indistinguishable from not having loaded yet.
+
+* A re-run the server refused returned `null` from a bare `.catch`. The portfolio screen now
+  carries one `role="status"` notice, and `message` is already one sentence fit to show a user
+  (api.md §1.7).
+* A run that is not `succeeded` — failed, cancelled, or a URL shared a second early — fell
+  through a status check and rendered nothing. It now says which.
+* A run id that resolves to nothing left the search screen spinning for ever: the `getResult`
+  rejection was swallowed and `EventSource` retries a 404 on a timer. `openStream` always had
+  an `on.dropped` seam; it is now used, after a five-second grace so an ordinary reconnect —
+  which the event log replays through `Last-Event-ID` — passes unremarked.
+
+### 4A-16 · Four smaller ones, each from review
+
+* **`steering()` dropped `totalRounds`.** It rebuilds the stored object field by field, so the
+  value `submit` wrote from the 202 was unreadable, and any later `saveSteering(steering())`
+  erased it. 3B-3's "know the total before the first round" was dead code. `search.js` also
+  falls back to `convergence.length`, because a run that has already succeeded comes back as a
+  `RunRecord` with no `totalGenerations` on it at all.
+* **The mandate was written to `localStorage` on every `input`.** A-18 makes ranges dispatch on
+  `input` so the footer stays live, so one drag of the capital slider is 76 synchronous,
+  disk-backed writes inside §12's 100 ms budget — invisible in jsdom, where the store is in
+  memory. The write now trails the drag by 250 ms and is flushed on `pagehide` and before a
+  submit, because a debounce that can lose the last edit is not persistence.
+* **`exports()` bound a click listener per render.** Two renders meant two downloads per click.
+  The three buttons are bound once from `start` and read the run id when pressed.
+* **The *Show all candidates* chip carried its own `■`/`□`.** 3B-2 made `TerraFolio.status` the
+  single table precisely because "an ASCII lookalike renders perfectly and means nothing", and
+  `table.js` was outside that guard. It reads the table now, as every other mark does.
+
+`runIdFromUrl` also moved into `api.js`, which already owns every other URL concern; it had
+been copy-pasted into both screens that carry a run id.
+
+---
+
 ## Log
 
 | Date | Issue | Entry |
@@ -3139,3 +3229,8 @@ to. One line, once someone says which.
 | 2026-09-24 | #11 | 4A-9 — the map joins on numeric ISO, and degrades only when both vendored atlases are gone. |
 | 2026-09-24 | #11 | 4A-10 — a lock change rebuilds the row; Alpine reuses a keyed element and would not repaint. |
 | 2026-09-24 | #11 | 4A-11 — raised: an empty pool's `0` share on the wire, and §5.4's two thresholds as literals. |
+| 2026-09-24 | #11 | 4A-12 — the chart's base year is the pipeline's, fetched; `codFrom` had moved every year label. |
+| 2026-09-24 | #11 | 4A-13 — a re-run claims its own run's snapshot, so 409 `PIPELINE_MOVED` can actually fire. |
+| 2026-09-24 | #11 | 4A-14 — a missing cash flow and an excluded lock stop being coerced to zero. |
+| 2026-09-24 | #11 | 4A-15 — a refused re-run, an unrenderable run and a dead stream all say so. |
+| 2026-09-24 | #11 | 4A-16 — `totalRounds` survives the store; the mandate persists on a debounce; exports bind once. |

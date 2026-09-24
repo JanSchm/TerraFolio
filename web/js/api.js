@@ -111,6 +111,9 @@
   var pipelineCache = {};
   var assumptionsCache = null;
 
+  /** api.md §2's default, used only where a caller wants a hold-independent field. */
+  var DEFAULT_HOLD_YEARS = 10;
+
   function pipelineBody(holdYears) {
     var key = String(holdYears);
     var cached = pipelineCache[key];
@@ -190,9 +193,62 @@
     return request('/pipeline/status');
   }
 
+  /**
+   * Revalidate the directory, and forget everything derived from the old one.
+   *
+   * Users add and remove files while the server runs, so a reload can change any
+   * project's statements and can move the assumption set the snapshot was recorded
+   * against. Clearing only the pipeline bodies would leave the drawer serving
+   * statements from before the reload with nothing to say they are stale.
+   */
   function reloadPipeline() {
     pipelineCache = {};
+    statementsCache = {};
+    assumptionsCache = null;
     return request('/pipeline/reload', { method: 'POST' });
+  }
+
+  /**
+   * The pipeline's base year — the first of the thirty years `cashflow30Y_m` covers.
+   *
+   * It is a property of the pipeline, identical for every file in it
+   * (`pipeline-schema.md` §4.6.1), and it is **not** on a stored run: `RunRecord`
+   * carries no `baseYear`, so a screen that needs one has to ask. A project's own
+   * statements carry it in `assumptions.baseYear` and cost a few KB; `GET /pipeline`
+   * carries it too and costs several hundred, so it is the fallback rather than the
+   * first move. Resolves to `null` when neither answers — a caller must not guess,
+   * because the mandate's COD window is a different number that merely looks like
+   * this one.
+   */
+  function getBaseYear(projectId) {
+    if (offline()) return Promise.resolve(null);
+    var viaStatements = projectId
+      ? getProjectStatements(projectId).then(function (statements) {
+        var declared = statements && statements.assumptions;
+        return declared && typeof declared.baseYear === 'number' ? declared.baseYear : null;
+      }).catch(function () { return null; })
+      : Promise.resolve(null);
+
+    return viaStatements.then(function (year) {
+      if (year !== null) return year;
+      return pipelineBody(DEFAULT_HOLD_YEARS).then(function (pipeline) {
+        return pipeline && typeof pipeline.baseYear === 'number' ? pipeline.baseYear : null;
+      }).catch(function () { return null; });
+    });
+  }
+
+  /**
+   * The run id in the query string, which is what makes a result shareable (§11).
+   * One reader, because both screens that carry a run id parse the same parameter.
+   */
+  function runIdFromUrl() {
+    var search = root.location && root.location.search;
+    if (!search) return null;
+    var pairs = search.replace('?', '').split('&');
+    for (var i = 0; i < pairs.length; i++) {
+      if (pairs[i].indexOf('run=') === 0) return decodeURIComponent(pairs[i].slice(4));
+    }
+    return null;
   }
 
   /* ── GET /projects/{id}/statements (api.md §4) ──────────────────────────────
@@ -304,6 +360,8 @@
     getPipelineStatus: getPipelineStatus,
     reloadPipeline: reloadPipeline,
     getProjectStatements: getProjectStatements,
+    getBaseYear: getBaseYear,
+    runIdFromUrl: runIdFromUrl,
     previewMandate: previewMandate,
     postOptimisation: postOptimisation,
     getResult: getResult,

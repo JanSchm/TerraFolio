@@ -119,22 +119,35 @@
    * puts it on the ceiling, both without a special case.
    */
   function bars(values, baseYear) {
-    var amounts = (values || []).map(function (v) { return finite(v) ? v : 0; });
-    var max = Math.max.apply(null, amounts.concat([0]));
-    var min = Math.min.apply(null, amounts.concat([0]));
+    var series = values || [];
+    /* A year with no number is **absent**, not a year in which the portfolio
+       returned nothing. Coercing it to zero would draw a bar on the line and read
+       "2031: €0m" aloud, which is a claim; epic §5 gives undefined one
+       representation and it is not zero. `curves` skips such a point for the same
+       reason, and `total` excludes it rather than dragging the caption's cumulative
+       figure toward zero. */
+    var known = series.filter(finite);
+    var max = Math.max.apply(null, known.concat([0]));
+    var min = Math.min.apply(null, known.concat([0]));
     var span = max - min;
     var zero = span > 0 ? (max / span) * 100 : 100;
     return {
       max: max,
       min: min,
       zeroPercent: zero,
-      total: amounts.reduce(function (sum, v) { return sum + v; }, 0),
-      bars: amounts.map(function (value, index) {
-        var share = span > 0 ? (Math.abs(value) / span) * 100 : 0;
+      total: known.reduce(function (sum, v) { return sum + v; }, 0),
+      /** False when any year is missing, so a caller can say so rather than imply it. */
+      complete: known.length === series.length,
+      bars: series.map(function (value, index) {
+        var present = finite(value);
+        var share = present && span > 0 ? (Math.abs(value) / span) * 100 : 0;
         return {
-          year: baseYear + index,
-          value: value,
-          negative: value < 0,
+          /* Null when the base year is not known yet. `baseYear + index` would make
+             a confident 0, 1, 2 … out of it, and a year label is a claim. */
+          year: typeof baseYear === 'number' ? baseYear + index : null,
+          value: present ? value : null,
+          missing: !present,
+          negative: present && value < 0,
           /** Per cent of the plot height, so the column CSS needs no pixel maths. */
           heightPercent: share,
         };
@@ -149,8 +162,9 @@
    */
   function ticks(count, baseYear, every) {
     var step = every || 5;
+    var known = typeof baseYear === 'number';
     var out = [];
-    for (var i = 0; i < count; i++) out.push(i % step === 0 ? baseYear + i : null);
+    for (var i = 0; i < count; i++) out.push(known && i % step === 0 ? baseYear + i : null);
     return out;
   }
 

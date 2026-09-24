@@ -58,6 +58,10 @@ const THIRTY_YEAR_TOTAL = cashflow30().reduce((t, v) => t + v, 0);
 function runOf(overrides) {
   return Object.assign({
     runId: '01JB2Q', runRef: 'A-4', status: 'succeeded', durationMs: 2483,
+    // Not a field of RunRecord: `start` resolves it through api.getBaseYear and hangs
+    // it on the result before rendering, because the pipeline's base year is what
+    // cashflow30Y_m is indexed from and the mandate's COD window is not.
+    baseYear: 2027,
     mandate: MANDATE, lockedIds: [], excludedIds: [], effort: 'standard',
     selectedIds: ['P01'], holdings: [holding()],
     cashflow30Y_m: cashflow30(),
@@ -193,7 +197,8 @@ test('thirty bars, from the series that carries no terminal value', async () => 
   const readouts = [...bars].map((b) => b.textContent);
   assert.equal(readouts.some((r) => r.includes('640')), false,
     'the chart must not be drawn from cashflowHold_m');
-  assert.match(readouts[0], /^2027: minus €29m$/);
+  assert.match(readouts[0], /^2027: minus €28\.9m$/,
+    'ui-contract.md §5.2 pins the hover readout at one decimal');
   ctx.dom.window.close();
 });
 
@@ -222,7 +227,7 @@ test('the same series is available as text, for a reader who cannot see a bar', 
   const rows = ctx.d.querySelectorAll('[data-region="cashflow-table"] tbody tr');
   assert.equal(rows.length, 30);
   assert.equal(rows[0].querySelector('th').textContent, '2027');
-  assert.match(rows[0].querySelector('td').textContent, /minus/);
+  assert.equal(rows[0].querySelector('td').textContent, 'minus €28.9m');
   ctx.dom.window.close();
 });
 
@@ -436,5 +441,180 @@ test('opened with no run the screen keeps its em dashes and renders nothing fals
   assert.equal(ctx.field('capacity'), '—');
   assert.equal(ctx.d.querySelectorAll('[data-region="holdings"] tr').length, 0);
   assert.equal(ctx.d.querySelectorAll('[data-region="cashflow-bars"] li').length, 0);
+  ctx.dom.window.close();
+});
+
+/* ── The base year is the pipeline's, not the mandate's COD window ───────────── */
+
+test('the chart is labelled from the base year the pipeline supplied', async () => {
+  const ctx = await page(runOf({ baseYear: 2030 }));
+  const bars = [...ctx.d.querySelectorAll('[data-region="cashflow-bars"] button')];
+  assert.match(bars[0].textContent, /^2030:/);
+  assert.match(bars[29].textContent, /^2059:/);
+  const marks = [...ctx.d.querySelectorAll('[data-region="cashflow-ticks"] li')]
+    .map((li) => li.textContent).filter(Boolean);
+  assert.deepEqual(marks, ['2030', '2035', '2040', '2045', '2050', '2055']);
+  ctx.dom.window.close();
+});
+
+test('the mandate\'s COD window does not move the chart\'s years', async () => {
+  // codFrom is an independent screen, 2027-2033 (ui-contract §3.2). Reading it as
+  // the base year mislabelled all thirty bars whenever a user narrowed the window.
+  const run = runOf({ baseYear: 2027 });
+  run.mandate = Object.assign({}, run.mandate, { codFrom: 2031, codTo: 2033 });
+  const ctx = await page(run);
+  assert.match(ctx.d.querySelector('[data-region="cashflow-bars"] button').textContent, /^2027:/);
+  ctx.dom.window.close();
+});
+
+test('an unknown base year is an em dash, not a confident wrong year', async () => {
+  const run = runOf();
+  delete run.baseYear;
+  const ctx = await page(run);
+  const bars = [...ctx.d.querySelectorAll('[data-region="cashflow-bars"] button')];
+  assert.equal(bars.length, 30, 'the amounts are known even when the years are not');
+  assert.match(bars[0].textContent, /^—:/);
+  assert.deepEqual([...ctx.d.querySelectorAll('[data-region="cashflow-ticks"] li')]
+    .map((li) => li.textContent).filter(Boolean), []);
+  ctx.dom.window.close();
+});
+
+/* ── A year with no figure ───────────────────────────────────────────────────── */
+
+test('a year with no cash flow reads as an em dash and draws no bar', async () => {
+  const cash = cashflow30();
+  cash[4] = null;
+  const ctx = await page(runOf({ cashflow30Y_m: cash }));
+  const columns = [...ctx.d.querySelectorAll('[data-region="cashflow-bars"] li')];
+  assert.equal(columns.length, 30);
+  assert.equal(columns[4].querySelector('button'), null,
+    'epic §5: an absent figure is not a cash flow of zero');
+  assert.equal(columns[4].textContent.trim(), '2031: —');
+  const rows = ctx.d.querySelectorAll('[data-region="cashflow-table"] tbody tr');
+  assert.equal(rows[4].querySelector('td').textContent, '—');
+  ctx.dom.window.close();
+});
+
+/* ── The hover readout returns to its idle text ──────────────────────────────── */
+
+test('the readout names the bar under the pointer, and lets go of it', async () => {
+  const ctx = await page(runOf());
+  const bar = ctx.d.querySelector('[data-region="cashflow-bars"] button');
+  assert.equal(ctx.field('cashflow-hover'), 'hover a bar');
+  bar.dispatchEvent(new ctx.w.Event('mouseenter'));
+  assert.equal(ctx.field('cashflow-hover'), '2027: minus €28.9m');
+  bar.dispatchEvent(new ctx.w.Event('mouseleave'));
+  assert.equal(ctx.field('cashflow-hover'), 'hover a bar',
+    'ui-contract.md §5.2: `hover a bar` when idle');
+  bar.dispatchEvent(new ctx.w.Event('focus'));
+  assert.equal(ctx.field('cashflow-hover'), '2027: minus €28.9m');
+  bar.dispatchEvent(new ctx.w.Event('blur'));
+  assert.equal(ctx.field('cashflow-hover'), 'hover a bar');
+  ctx.dom.window.close();
+});
+
+/* ── A run this screen cannot draw ───────────────────────────────────────────── */
+
+test('a run that has not finished says so instead of showing twelve em dashes', async () => {
+  const ctx = await page();
+  ctx.P.notice(ctx.P.unrenderable({ status: 'running' }));
+  const region = ctx.d.querySelector('[data-region="portfolio-notice"]');
+  assert.equal(region.hidden, false);
+  assert.match(region.textContent, /has not finished/);
+  assert.equal(region.getAttribute('role'), 'status');
+  assert.match(region.querySelector('.sr-only').textContent, /Warning/,
+    '§7.1: the alert tone is never the only signal');
+  ctx.dom.window.close();
+});
+
+test('a failed run shows the reason the API gave for it', async () => {
+  const ctx = await page();
+  assert.match(ctx.P.unrenderable({ status: 'failed', error: { message: 'The search did not complete.' } }),
+    /The search did not complete\./);
+  assert.match(ctx.P.unrenderable({ status: 'cancelled' }), /cancelled/);
+  assert.match(ctx.P.unrenderable({ status: 'failed' }), /no portfolio to show/,
+    'a failed run is audit trail, not a blank page');
+  ctx.dom.window.close();
+});
+
+test('the notice hides again when there is nothing to say', async () => {
+  const ctx = await page();
+  ctx.P.notice('something');
+  ctx.P.notice('');
+  assert.equal(ctx.d.querySelector('[data-region="portfolio-notice"]').hidden, true);
+  ctx.dom.window.close();
+});
+
+/* ── Re-run ──────────────────────────────────────────────────────────────────── */
+
+test('a re-run the server refuses says why, and hands the button back', async () => {
+  const ctx = await page(runOf());
+  const api = ctx.w.TerraFolio.api;
+  api.postOptimisation = () => Promise.reject(Object.assign(
+    new Error('The pipeline changed since you loaded it; reload and try again.'),
+    { code: 'PIPELINE_MOVED', status: 409 }));
+  api.offline = () => false;
+
+  await ctx.P.submit(ctx.handle);
+  const region = ctx.d.querySelector('[data-region="portfolio-notice"]');
+  assert.equal(region.hidden, false, 'spec §13: a re-run against a moved pipeline warns');
+  assert.match(region.textContent, /reload and try again/);
+  assert.equal(ctx.d.querySelector('[data-action="rerun"]').disabled, false);
+  assert.equal(ctx.handle.submitting, false, 'and the screen is ready to try again');
+  ctx.dom.window.close();
+});
+
+test('a re-run will not start twice while one is in flight', async () => {
+  const ctx = await page(runOf());
+  const api = ctx.w.TerraFolio.api;
+  let posts = 0;
+  api.offline = () => false;
+  api.postOptimisation = () => { posts += 1; return new Promise(() => {}); };
+
+  ctx.P.submit(ctx.handle);
+  ctx.P.submit(ctx.handle);
+  ctx.P.submit(ctx.handle);
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(posts, 1, 'spec §12 keeps every run indefinitely; a double-click must not store two');
+  ctx.dom.window.close();
+});
+
+test('a re-run claims the snapshot its own run saw, so a moved pipeline can 409', async () => {
+  const run = runOf();
+  run.provenance = { pipelineHash: 'sha256:the-one-this-run-saw', assumptionSetId: 'default-2026' };
+  const ctx = await page(run);
+  const api = ctx.w.TerraFolio.api;
+  let sent = null;
+  let askedForCurrent = false;
+  api.offline = () => false;
+  api.getPipelineStatus = () => { askedForCurrent = true; return Promise.resolve({ pipelineHash: 'sha256:moved' }); };
+  api.postOptimisation = (body) => { sent = body; return new Promise(() => {}); };
+
+  ctx.P.submit(ctx.handle);
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(sent.pipelineHash, 'sha256:the-one-this-run-saw',
+    'fetching the current hash first would make the 409 unreachable by construction');
+  assert.equal(sent.assumptionSetId, 'default-2026');
+  assert.equal(askedForCurrent, false, 'and there is no round trip to make before posting');
+  ctx.dom.window.close();
+});
+
+/* ── Exports ─────────────────────────────────────────────────────────────────── */
+
+test('re-rendering does not leave a second listener on an export button', async () => {
+  const ctx = await page(runOf());
+  const downloads = [];
+  const proto = ctx.w.HTMLAnchorElement.prototype;
+  const real = proto.click;
+  proto.click = function () { downloads.push(this.getAttribute('href')); };
+  ctx.w.TerraFolio.api.offline = () => false;
+
+  ctx.P.show(ctx.handle, runOf());
+  ctx.P.show(ctx.handle, runOf());
+  ctx.d.querySelector('[data-action="export-holdings"]').click();
+  proto.click = real;
+
+  assert.deepEqual(downloads, ['/optimisations/01JB2Q/holdings.csv'],
+    'one click, one download, however many times the screen has rendered');
   ctx.dom.window.close();
 });

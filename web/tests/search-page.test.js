@@ -233,3 +233,63 @@ test('the way out of the screen is a real link, and it stops listening first', a
     'a run can take half a minute; the screen must have a way out that works with no script');
   ctx.dom.window.close();
 });
+
+/* ── Knowing the run's length before the first round ─────────────────────────── */
+
+test('the total comes from the 202 through the store, and survives it', async () => {
+  const ctx = await page();
+  const M = ctx.w.TerraFolio.mandate;
+  M.saveSteering(Object.assign(M.steering(), { runId: '01JB2Q', totalRounds: 60 }));
+  ctx.S.reset();
+  const run = ctx.S.start();
+  assert.equal(ctx.field('roundTotal'), '60',
+    'decisions 3B-3: an unknown total keeps the whole live region silent');
+  ctx.S.stop(run);
+  ctx.dom.window.close();
+});
+
+test('a run that finished before the page opened still reports its length', async () => {
+  const ctx = await page();
+  // GET /optimisations/{id} answers with a RunRecord once a run has succeeded, and
+  // that shape carries no totalGenerations at all — only the in-flight one does.
+  assert.equal(ctx.S.totalOf({ status: 'running', totalGenerations: 60 }), 60);
+  assert.equal(ctx.S.totalOf({ status: 'succeeded', convergence: new Array(60) }), 60,
+    'the stored trace is one point per round, so its length is the total');
+  assert.equal(ctx.S.totalOf({ status: 'succeeded', convergence: [] }), 0);
+  assert.equal(ctx.S.totalOf(null), 0);
+  ctx.dom.window.close();
+});
+
+/* ── A run that never answers ────────────────────────────────────────────────── */
+
+test('a stream that fails outright says so rather than spinning for ever', async () => {
+  const ctx = await page();
+  const run = ctx.S.start();
+  run.startedAt = -Infinity;
+  ctx.S.lost(run);
+  assert.equal(ctx.field('progress-note'), '', 'a blip is not worth mentioning');
+  run.lostAt = -Infinity;
+  ctx.S.lost(run);
+  assert.match(ctx.field('progress-note'), /Lost contact/);
+  assert.equal(run.stopped, true, 'and it stops retrying');
+  ctx.dom.window.close();
+});
+
+test('a run that has already finished is never reported as lost', async () => {
+  const ctx = await page();
+  const run = ctx.S.start();
+  run.finished = { status: 'succeeded' };
+  run.lostAt = -Infinity;
+  ctx.S.lost(run);
+  assert.equal(ctx.field('progress-note'), '',
+    'EventSource fires error when the server closes a finished stream');
+  ctx.dom.window.close();
+});
+
+test('the run id is read by the one parser both screens share', async () => {
+  const ctx = await page();
+  assert.equal(typeof ctx.w.TerraFolio.api.runIdFromUrl, 'function');
+  assert.equal(ctx.w.TerraFolio.search.runIdFromUrl, undefined,
+    'the copy in this file is gone; api.js owns every other URL concern already');
+  ctx.dom.window.close();
+});

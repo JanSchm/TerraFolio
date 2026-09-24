@@ -122,6 +122,17 @@ test('score — development risk to one decimal', () => {
   assertDashesUndefined(fmt.score, 'score');
 });
 
+test('eurM1 keeps the decimal a whole million would hide', () => {
+  assert.equal(fmt.eurM1(28.93), '€28.9m');
+  assert.equal(fmt.eurM1(-28.93), '€-28.9m');
+  assert.equal(fmt.eurM1(1204.65), '€1,204.7m', 'grouped like every other figure');
+  assert.equal(fmt.eurM1(0), '€0.0m', 'a flow of zero is a flow, not a blank');
+  assert.notEqual(fmt.eurM1(28.93), fmt.eurM(28.93), 'it is not the whole-million format');
+  for (const bad of [null, undefined, NaN, Infinity, -Infinity, 'x', {}]) {
+    assert.equal(fmt.eurM1(bad), fmt.DASH);
+  }
+});
+
 test('eur is euros with the unit left to the label beside it', () => {
   assert.equal(fmt.eur(41), '\u20ac41');
   assert.equal(fmt.eur(1204.6), '\u20ac1,205');

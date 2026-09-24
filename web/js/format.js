@@ -77,6 +77,18 @@
     return defined(value) ? '\u20ac' + group(Math.round(value), 0) : DASH;
   }
 
+  /**
+   * Euros in millions to one decimal: `€28.9m`.
+   *
+   * ui-contract.md §5.2's hover readout, and the only euro amount in the product
+   * shown below whole millions. The years it labels are the construction draw-down,
+   * which is what a committee reads most closely, and rounding to whole millions
+   * hides up to €500k of it.
+   */
+  function eurM1(value) {
+    return defined(value) ? '€' + group(value, 1) + 'm' : DASH;
+  }
+
   /** Euros per MWh, whole euros: `€41/MWh`. */
   function eurMwh(value) {
     return defined(value) ? '€' + group(Math.round(value), 0) + '/MWh' : DASH;
@@ -179,6 +191,7 @@
     defined: defined,
     eurM: eurM,
     eur: eur,
+    eurM1: eurM1,
     eurMwh: eurMwh,
     mw: mw,
     gwh: gwh,
