@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 _TESTS = Path(__file__).resolve().parent.parent
-sys.path[:0] = [str(_TESTS / "golden")]
+sys.path[:0] = [str(_TESTS / "golden"), str(_TESTS / "parity")]
 
 import pytest  # noqa: E402
 from engine import Timeline, traced_run  # noqa: E402
