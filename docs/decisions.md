@@ -2946,21 +2946,52 @@ narrower than its name. Both are 3A's to resolve.
 §12 says "mandate + pipeline hash + assumption set + seed determines the result **exactly**", and
 #12 asks for that to be written down honestly rather than asserted.
 
-**Decided.** The guarantee has exactly two tiers, and the second one needs a flag:
+**Decided.** The guarantee has three tiers, and the third one is a "no".
 
-- **On a given architecture, unconditionally.** Same mandate, pipeline hash, assumption set,
-  seed, engine version and numpy version produce byte-identical served bytes. Asserted on what
-  `GET /optimisations/{id}` actually serves, not on the optimiser in isolation, with four fields
-  exempt — `runId`, `runRef`, `createdAt`, `durationMs` — and a test asserting that the exemption
-  list is exactly those four.
-- **Across architectures, with `deterministic_reduction` on.** The reduction order is then fixed
-  by shape and dtype rather than by BLAS blocking and thread count.
+- **A whole run, on a given architecture: bit-exact, unconditionally.** Same mandate, pipeline
+  hash, assumption set, seed, engine version and numpy version produce byte-identical served
+  bytes. Asserted on what `GET /optimisations/{id}` actually serves, not on the optimiser in
+  isolation, with four fields exempt — `runId`, `runRef`, `createdAt`, `durationMs` — and a test
+  asserting that the exemption list is exactly those four.
+- **The search, across architectures, with `deterministic_reduction` on: bit-exact.** The
+  reduction order is then fixed by shape and dtype rather than by BLAS blocking and thread count.
+  Not a claim on paper: `tests/regression/deterministic_reduction_golden.json` was recorded on
+  arm64 Darwin and reproduces on x86_64 Linux in CI — same winning rows, same fitness to the last
+  bit, same 35-point convergence series.
+- **A whole run, across architectures: *not* bit-exact, and the flag does not fix it.**
 
-**Across architectures without the flag, nothing stronger than "very likely" is claimed.** The
-search's trajectory turns on `f[a] >= f[b]`; fitness is quantised to 6 dp before every comparison
-and the runner pins BLAS to one thread, which makes a divergence vanishingly unlikely. It does
-not make it impossible, and a §12 sign-off that claimed otherwise would be a lie the first CI
-migration exposed.
+That third tier was found by CI, which is the outcome this issue's own scope predicts: *"claiming
+more in the §12 sign-off is a lie the first CI migration would expose."* The first run of #12's
+payload guard failed on x86_64 Linux having passed on arm64 Darwin, and the difference is a
+single field:
+
+**`annualGenerationGwh` differs by one ulp on 29 of the 48 golden projects, and it is the
+only field that differs at all.** The cause is
+`pipeline/derive.py:48`, which de-degrades each operating year with
+`(1 - degradationRate) ** age` — `numpy.power` on float64, which calls libm `pow`. `pow` is not
+required to be correctly rounded, and glibc's and Apple's implementations disagree in the last
+bit. It is upstream of the GA entirely, so `deterministic_reduction` cannot reach it.
+
+It is not confined to a diagnostic, either: `annualGenerationGwh` is served per project on
+`GET /pipeline`, stored on every holding (`optimiser/result.py:320`), and summed into §7.1's
+*Annual generation* tile (`api/records.py:152`). So two runs of the same mandate and seed on two
+architectures produce different stored bytes, in that field and in the tile above it.
+
+**Nothing the screens read is affected**, which is why the thirty parity pairs are portable:
+`id`, `countryCode`, `stage`, `technology`, `capacityMw`, `codYear`, `minDscr`,
+`developmentRiskScore`, `gridSecured`, `omContracted`, `currency`, `totalCapex_m`,
+`seniorDebt_m` and `equity_m` are bit-identical on both platforms, and the payload guard asserts
+exactly that rather than comparing whole records.
+
+**Recommended fix, which is 2A's to make.** Build the decline factor by repeated multiplication
+rather than by exponentiation — a `cumprod` along the year axis is the same arithmetic without
+libm in it. Raised on issue #1; until then the guarantee is as stated above, and a §12 sign-off
+should say "on a given architecture" and stop.
+
+**Across architectures without the flag, nothing stronger than "very likely" is claimed** for the
+search either. The trajectory turns on `f[a] >= f[b]`; fitness is quantised to 6 dp before every
+comparison and the runner pins BLAS to one thread, which makes divergence vanishingly unlikely
+rather than impossible.
 
 Also settled, since it was ambiguous: epic §7's "core arrays under 16 MB at 2,000 candidates"
 does not say whether the pipeline's own 30-year statements count. Both readings hold, so there
@@ -3218,7 +3249,7 @@ path loses its speed or a reported metric inherits its precision.
 | 2026-09-24 | #12 | 4B-1 — epic §7's 30 s does not reproduce (2.2 s measured); 99.4% of rows are over budget, so the column slice is the win and the row mask is a measured cost. |
 | 2026-09-24 | #12 | 4B-2 — the row mask is a margin *below* the budget, and it is `objective.equity_cap_tolerance_eur`; `None` keeps the pre-#12 behaviour. |
 | 2026-09-24 | #12 | 4B-3 — `deterministic_reduction` is a `SearchControls` field, not an assumption: a new TOML key would change `assumption_set_id` and reprice all 300 files. |
-| 2026-09-24 | #12 | 4B-4 — the §12 guarantee stated with its scope: bit-exact per architecture unconditionally, across architectures with the flag. Epic §7's 16 MB holds on both readings, 3.83 MB and 15.83 MB. |
+| 2026-09-24 | #12 | 4B-4 — the §12 guarantee has three tiers, the third a "no": a whole run is **not** bit-exact across architectures. `annualGenerationGwh` differs by one ulp via libm `pow` in `derive.py:48`, found by CI. The search *is*, with the flag. Epic §7's 16 MB holds on both readings, 3.83 MB and 15.83 MB. |
 | 2026-09-24 | #12 | 4B-5 — parity compares answers exactly and the six figures at 1e-12; the nine screen names are mapped, not renamed. `GET /pipeline` serves no `riskCaps`, raised for #11. |
 | 2026-09-24 | #12 | 4B-6 — three `feasibility.js` divergences fixed (locks re-admit, `UK`→`GB`, locked equity less exclusions, absorption as a ratio); the empty-pool NaN-vs-0.0 left alone and asserted, raised for #1. |
 | 2026-09-24 | #12 | 4B-7 — `irr` is called twice per run, not `n_eligible + 1`, and is guarded at `npv`; "one fitness call per generation" is one population-scale call plus three one-row re-scores. |
