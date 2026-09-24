@@ -47,6 +47,13 @@ class Event:
     shape: tuple[int, ...]
     dtype: str = ""
 
+    deterministic: bool | None = None
+    """The reduction mode the call asked for, where the call takes one.
+
+    ``None`` means the argument was absent, which is how a call site that forgot to
+    thread it shows up — see ``tests/regression/test_deterministic_reduction.py``.
+    """
+
 
 @dataclass(slots=True)
 class Timeline:
@@ -99,6 +106,7 @@ def _recorded(
                 kind=kind,
                 shape=tuple(int(size) for size in seen.shape) if seen is not None else (),
                 dtype=str(seen.dtype) if seen is not None else "",
+                deterministic=kwargs.get("deterministic"),
             )
         )
         return original(*args, **kwargs)
@@ -141,7 +149,11 @@ so a change to the iteration count reads as a change and not as a failure."""
 
 
 def traced_run(
-    mandate: MandateScalars, *, effort: Effort = Effort.FAST, pipeline: Any = None
+    mandate: MandateScalars,
+    *,
+    effort: Effort = Effort.FAST,
+    pipeline: Any = None,
+    deterministic: bool = False,
 ) -> Timeline:
     """Run the whole in-process path once, recording every traced call.
 
@@ -168,9 +180,8 @@ def traced_run(
             irr_defined=returns.defined,
             merchant_share=1.0 - arrays.revenue.ppa_share,
         ).take(rows)
-        outcome = run_search(
-            features, mandate, assumptions, SearchControls(effort=effort, seed=SEED)
-        )
+        controls = SearchControls(effort=effort, seed=SEED, deterministic_reduction=deterministic)
+        outcome = run_search(features, mandate, assumptions, controls)
         timeline.result = build_result(
             arrays,
             features,
@@ -183,6 +194,7 @@ def traced_run(
                 returns=returns,
                 contracted_share=contracted_revenue_share(arrays),
             ),
+            deterministic=controls.deterministic_reduction,
         )
 
     timeline.population_size = outcome.population_size

@@ -45,10 +45,11 @@ back over it. The mask ships because it costs almost nothing and protects the on
 where it would matter — a mandate whose capital dwarfs its pipeline — but the numbers
 are in ``docs/decisions.md`` 4B-1 so nobody expects it to do more.
 
-``tolerance`` is a **margin below the budget**, not a margin above it. A row whose total
-sits exactly on the budget has a pairwise row sum of exactly ``budget`` and a ranked
-``cumsum`` that overshoots it by a last-bit fraction, so skipping such a row would keep
-a holding the unmasked operator drops. Widening the mask by the tolerance puts every
+``tolerance`` is a **margin below the budget**, not a margin above it. The mask sums a
+row all at once and the trimming accumulates along a ranked permutation, so the two can
+disagree in the last bit about whether a row exceeds its budget — and where the mask says
+"fits" and the accumulation says "does not", skipping the row would keep a holding the
+unmasked operator drops. Widening the mask by the tolerance puts every
 such row back on the full path. ``None`` means no row mask at all, which is the pre-#12
 behaviour exactly; ``ga.py`` passes ``objective.equity_cap_tolerance_eur``, the constant
 epic §6.2 introduced for this same rounding artefact on this same boundary.
@@ -68,14 +69,23 @@ def _rows_to_repair(
 ) -> slice | IntVector:
     """Which rows need the full treatment, or every row when ``tolerance`` is ``None``.
 
-    The row totals are a pairwise ``sum``, deliberately not ``population @ equity``: a
-    GEMM's reduction order depends on BLAS blocking and thread count, and the one place
-    that may vary across machines is the fitness the GA quantises, not an operator that
-    decides which holdings survive.
+    The row totals come from ``einsum``, deliberately not from ``population @ equity``:
+    a GEMM's reduction order depends on BLAS blocking and thread count, and the one
+    place that may vary across machines is the fitness the GA quantises, not an operator
+    that decides which holdings survive. ``optimize=False`` keeps einsum from handing
+    the contraction back to ``tensordot`` and so to the GEMM.
+
+    It is also the form that does not build an ``(m, n)`` temporary — ``np.where``
+    materialises one, 2.6 MB at (158, 2000), once per generation. einsum buffers
+    instead: 0.07 MB, and slightly faster at the width that matters.
+
+    Its summation order differs from a pairwise ``sum`` by about 1e-15 relative, which
+    is six orders of magnitude inside the €1 tolerance the caller passes, so it cannot
+    move a row across the mask boundary.
     """
     if tolerance is None:
         return slice(None)
-    held = np.where(population, equity, 0.0).sum(axis=-1)
+    held = np.einsum("mn,n->m", population, equity, optimize=False)
     return np.flatnonzero(held > budget - tolerance)
 
 
@@ -111,6 +121,10 @@ def repair_to_budget(  # noqa: PLR0913 - one keyword per axis of the operator, b
     trimmed = np.zeros_like(over)
     np.put_along_axis(trimmed, ranked, held & (cumulative <= budget), axis=-1)
 
+    if isinstance(rows, slice):
+        # Every row was repaired, so `trimmed` is already the whole answer. Copying the
+        # population only to overwrite all of it is a (m, n) allocation for nothing.
+        return trimmed
     repaired = population.copy()
     repaired[rows] = trimmed
     return repaired

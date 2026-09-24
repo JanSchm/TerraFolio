@@ -25,6 +25,7 @@ from typing import Any, Final
 
 import httpx
 from pool import GOLDEN_PIPELINE, repo_root
+from wire import mandate
 
 from terrafolio.api.app import create_app
 from terrafolio.api.service import build_service
@@ -33,40 +34,12 @@ from terrafolio.runner.modes import RunnerMode
 from terrafolio.store.runs import load_result_json, load_run
 
 __all__ = [
-    "MANDATE",
     "VOLATILE",
     "ServedRun",
-    "mandate",
     "served_run",
     "settings_for",
     "stable",
 ]
-
-COUNTRIES: Final = (
-    "ES", "PT", "IT", "GR", "FR", "DE", "PL", "RO", "NL", "DK", "IE", "SE", "FI", "GB",
-)  # fmt: skip
-
-MANDATE: Final[Mapping[str, Any]] = {
-    "availableCapital_m": 1200,
-    "capacityTargetMw": 1500,
-    "solarShare": 0.45,
-    "targetIrr": 0.11,
-    "holdYears": 10,
-    "countries": list(COUNTRIES),
-    "stages": ["greenfield", "ready_to_build", "construction"],
-    "minLeverage": 0.6,
-    "minDscr": 1.25,
-    "maxMerchantShare": 0.35,
-    "maxCountryShare": 0.35,
-    "maxProjectShare": 0.15,
-    "codFrom": 2027,
-    "codTo": 2032,
-    "riskAppetite": "balanced",
-    "gridSecuredOnly": False,
-    "eurRevenueOnly": False,
-    "omContractedOnly": False,
-}
-"""§5's default mandate in the ``api.md`` §6.1 wire shape."""
 
 VOLATILE: Final = ("runId", "runRef", "createdAt", "durationMs")
 """What two identical runs are allowed to differ by, and nothing else.
@@ -75,10 +48,6 @@ VOLATILE: Final = ("runId", "runRef", "createdAt", "durationMs")
 the database. ``createdAt`` and ``durationMs`` are wall clock. A field added here in
 future is a field §12 stops guaranteeing, so the list is short on purpose.
 """
-
-
-def mandate(**overrides: Any) -> dict[str, Any]:
-    return {**MANDATE, **overrides}
 
 
 def settings_for(tmp_path: Path, *, pipeline: Path | None = None, **overrides: Any) -> Settings:

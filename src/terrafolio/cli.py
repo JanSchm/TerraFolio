@@ -317,12 +317,8 @@ def _search(
     # project the user struck out.
     held = set(args.lock) - set(args.exclude)
     locked_all = np.array([project_id in held for project_id in arrays.ids], dtype=np.bool_)
-    outcome = run_search(
-        features,
-        mandate,
-        assumptions,
-        SearchControls(effort=effort, locked=locked_all[rows], seed=args.seed),
-    )
+    controls = SearchControls(effort=effort, locked=locked_all[rows], seed=args.seed)
+    outcome = run_search(features, mandate, assumptions, controls)
     result = build_result(
         arrays,
         features,
@@ -335,6 +331,9 @@ def _search(
             returns=returns,
             contracted_share=contracted_revenue_share(arrays),
         ),
+        # The reported tiles reduce the way the search did, or a run asking for a
+        # BLAS-free reduction would get one only up to the point it reports (#12).
+        deterministic=controls.deterministic_reduction,
     )
     elapsed = (time.perf_counter() - started) * MILLISECONDS_PER_SECOND
     return result, outcome.seed, elapsed

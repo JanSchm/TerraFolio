@@ -20,10 +20,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from pathlib import Path
 from typing import Any, Final
-
-import numpy as np
 
 from terrafolio.api.scalars import Candidates, DerivedColumns, project_scalars
 from terrafolio.config.assumptions import AssumptionSet
@@ -35,10 +32,51 @@ from terrafolio.pipeline.loader import LoadResult
 
 __all__ = [
     "CONTINUOUS",
+    "DEFAULT_MANDATE",
     "JS_SCREEN_NAMES",
+    "mandate",
     "parity_view",
     "pipeline_payload",
 ]
+
+COUNTRIES: Final = (
+    "ES", "PT", "IT", "GR", "FR", "DE", "PL", "RO", "NL", "DK", "IE", "SE", "FI", "GB",
+)  # fmt: skip
+
+DEFAULT_MANDATE: Final[Mapping[str, Any]] = {
+    "availableCapital_m": 1200.0,
+    "capacityTargetMw": 1500.0,
+    "solarShare": 0.45,
+    "targetIrr": 0.11,
+    "holdYears": 10,
+    "countries": list(COUNTRIES),
+    "stages": ["greenfield", "ready_to_build", "construction"],
+    "minLeverage": 0.6,
+    "minDscr": 1.25,
+    "maxMerchantShare": 0.35,
+    "maxCountryShare": 0.35,
+    "maxProjectShare": 0.15,
+    "codFrom": 2027,
+    "codTo": 2032,
+    "riskAppetite": "balanced",
+    "gridSecuredOnly": False,
+    "eurRevenueOnly": False,
+    "omContractedOnly": False,
+}
+"""§5's default mandate in the ``api.md`` §6.1 wire shape — one copy, here.
+
+The reproducibility suite and the parity fixture generator both need it, and each
+started with its own transcription. Three copies of §5's defaults across the repo
+(counting 3A's own in ``tests/api/conftest.py``) is three places to miss when a slider
+default moves or a field is added, and a suite silently asserting yesterday's defaults
+is the drift these tests exist to catch.
+"""
+
+
+def mandate(**overrides: Any) -> dict[str, Any]:
+    """The default mandate with ``overrides`` applied."""
+    return {**DEFAULT_MANDATE, **overrides}
+
 
 EUR_PER_M: Final = 1_000_000.0
 
@@ -138,13 +176,3 @@ def parity_view(preview: FeasibilityPreview, *, ids: Sequence[str]) -> dict[str,
         ],
         "failedScreens": {key: value for key, value in failed.items() if value},
     }
-
-
-def load_payload(path: Path) -> dict:
-    parsed: dict = json.loads(path.read_text(encoding="utf-8"))
-    return parsed
-
-
-def as_float(value: object) -> float:
-    """``None`` and JSON ``null`` become ``NaN``, which is what an absent ratio is."""
-    return float("nan") if value is None else float(np.asarray(value, dtype=np.float64))

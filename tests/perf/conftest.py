@@ -17,7 +17,15 @@ import pytest  # noqa: E402
 from engine import Timeline, traced_run  # noqa: E402
 from reference_mandates import REFERENCE_MANDATES  # noqa: E402
 
+from terrafolio.config.assumptions import AssumptionSet  # noqa: E402
+from terrafolio.config.loader import load_default  # noqa: E402
 from terrafolio.domain.scalars import MandateScalars  # noqa: E402
+
+
+@pytest.fixture(scope="session")
+def assumptions() -> AssumptionSet:
+    """The shipped calibration. Guards read their constants from it, never restate them."""
+    return load_default()
 
 
 @pytest.fixture(scope="session")

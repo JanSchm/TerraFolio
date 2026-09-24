@@ -134,27 +134,31 @@ def test_a_row_of_nothing_but_locks_is_still_trimmed_to_the_budget(
 def test_the_row_mask_is_a_margin_below_the_budget_not_a_test_against_it() -> None:
     """Why ``tolerance`` is subtracted, and why a zero margin would be wrong.
 
-    A row whose holdings total exactly the budget has a pairwise row sum of exactly the
-    budget — so a bare ``total > budget`` test skips it — while the ranked ``cumsum``
-    overshoots by a last-bit fraction and drops its final holding. Widening the mask by
-    any positive margin puts the row back on the full path, which is why ``ga.py``
-    passes €1 rather than nothing.
+    The mask and the trimming reduce the same row in different orders — the mask sums
+    the whole row at once, the trimming accumulates along a ranked permutation — so the
+    two can disagree in the last bit about whether a row exceeds its budget. When the
+    mask says "fits" and the accumulation says "does not", a zero margin skips a row
+    the unmasked operator would have trimmed, and the answer moves.
+
+    The budget here is set to exactly what the mask computes, so the construction does
+    not depend on which reduction the mask happens to use — only on the two disagreeing,
+    which is the property that makes the margin necessary. Seed 2 of this draw
+    overshoots by 1.14e-13 on numpy 2.4.6; the assertions below fail loudly rather than
+    passing vacuously if a release ever makes the two agree.
     """
-    # Whether the ranked cumsum lands above or below the pairwise sum depends on the
-    # numbers, so this example was searched for rather than picked: seed 0 of this
-    # construction overshoots by 1.14e-13 on numpy 2.4.6. The assertions below fail
-    # loudly if a numpy release ever makes it undershoot, because then the example has
-    # stopped testing what it was built to test.
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(2)
     equity = np.round(rng.uniform(0.5, 40.0, 40), 2)
     priority = np.round(rng.random((1, equity.size)), 2)
     population = np.ones((1, equity.size), dtype=np.bool_)
-    budget = float(np.where(population[0], equity, 0.0).sum())
+
+    # What `_rows_to_repair` will compute for this row, and therefore the budget that
+    # puts the row exactly on its own mask boundary.
+    budget = float(np.einsum("mn,n->m", population, equity, optimize=False)[0])
+    ranked = np.argsort(np.where(population[0], priority[0], np.inf), kind="stable")
+    accumulated = float(np.cumsum(np.where(population[0][ranked], equity[ranked], 0.0))[-1])
+    assert accumulated > budget, "this example no longer exercises the artefact it was built for"
 
     expected = legacy_repair_to_budget(population, priority=priority, equity=equity, budget=budget)
-    ranked = np.argsort(np.where(population[0], priority[0], np.inf), kind="stable")
-    overshoot = float(np.cumsum(np.where(population[0][ranked], equity[ranked], 0.0))[-1]) - budget
-    assert overshoot > 0.0, "this example no longer exercises the artefact it was built for"
     assert int(expected.sum()) < equity.size, "the oracle should drop the last holding here"
 
     skipped = repair_to_budget(

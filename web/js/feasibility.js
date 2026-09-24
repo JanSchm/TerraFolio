@@ -99,10 +99,16 @@
      * Both ends go through `normaliseCountry`, so the screen is right however it is
      * called — the wire adapter has already normalised a project it built, and
      * normalising twice is the same as normalising once.
+     *
+     * `some` rather than `map(...).indexOf(...)`: this runs once per project per
+     * recompute, and building a throwaway array of normalised codes each time put
+     * hundreds of allocations inside the path §12 budgets at under 100 ms.
      */
     country: function (p, m) {
-      var eligible = (m.countries || []).map(normaliseCountry);
-      return eligible.indexOf(normaliseCountry(p.countryCode)) !== -1;
+      var wanted = normaliseCountry(p.countryCode);
+      return (m.countries || []).some(function (code) {
+        return normaliseCountry(code) === wanted;
+      });
     },
 
     /** 2. The project's development stage is in scope. */
@@ -223,7 +229,12 @@
   /** The two codes that disable the run — exactly the two POST /optimisations 422s. */
   var BLOCKING = ['NO_CANDIDATES', 'LOCKS_EXCEED_CAPITAL'];
 
-  function warnings(pool, agg, mandate, total, lockedIds, excludedIds, lockedEquity_m) {
+  /*
+   * `heldIds` is the locks net of exclusions — the ids `lockedEquity_m` is the equity
+   * of. It replaced a `total` parameter that was accepted and never read.
+   */
+
+  function warnings(pool, agg, mandate, heldIds, lockedIds, excludedIds, lockedEquity_m) {
     var out = [];
     var empty = pool.length === 0;
 
@@ -244,7 +255,11 @@
           lockedEquity_m: lockedEquity_m,
           availableCapital_m: mandate.availableCapital_m,
           excess_m: lockedEquity_m - mandate.availableCapital_m,
-          lockedIds: (lockedIds || []).slice(),
+          /* The locks this figure is the equity of — so an excluded id is absent,
+             because it commits nothing. §3.6 tells the user which lock to release,
+             and naming one that contributes nothing to the excess is worse than
+             naming none. */
+          lockedIds: heldIds.slice(),
         },
       });
     }
@@ -338,7 +353,7 @@
       return held.indexOf(p.id) === -1 ? sum : sum + p.equity_m;
     }, 0);
 
-    var found = warnings(pool, agg, mandate, all.length, lockedIds, excludedIds, lockedEquity_m);
+    var found = warnings(pool, agg, mandate, held, lockedIds, excludedIds, lockedEquity_m);
     var blocking = found.some(function (w) { return BLOCKING.indexOf(w.code) !== -1; });
 
     return {

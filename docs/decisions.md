@@ -2877,11 +2877,11 @@ either the stable sort or the full-row ranking, and neither is worth a further 2
 
 *Raised by issue #12. Affects: `optimiser/repair.py`, `optimiser/ga.py`.*
 
-A row whose holdings total exactly the budget has a pairwise row sum of exactly the budget, so a
-bare `total > budget` test skips it — while the ranked `cumsum` the operator actually uses
-overshoots by a last-bit fraction and drops its final holding. Skipping such a row therefore
-keeps a holding the unmasked operator drops, and the masked and unmasked forms answer
-differently. Measured at 1.14e-13 on a 40-holding row totalling about 1,034.
+The mask sums a row all at once; the trimming accumulates along a ranked permutation. The two
+reduce the same numbers in different orders, so they can disagree in the last bit about whether a
+row exceeds its budget — and where the mask says "fits" and the accumulation says "does not", a
+bare `total > budget` test skips a row the unmasked operator would have trimmed, so the masked and
+unmasked forms answer differently. Measured at 1.14e-13 on a 40-holding row totalling about 1,000.
 
 This is not a corner case. Epic §6.2 introduced `equity_cap_tolerance_eur` precisely because
 "the utilisation reward actively pushes portfolios onto that boundary", so rows sitting exactly
@@ -2898,10 +2898,14 @@ introduced for the same artefact on the same boundary rather than a second one.
 default, so 2A's four direct callers stay green untouched, and it is also the escape hatch if the
 row mask is later dropped as 4B-1 suggests it could be.
 
-The row totals are a pairwise `sum`, deliberately not `population @ equity`: a GEMM's reduction
-order depends on BLAS blocking and thread count, and the one place in this system permitted to
-vary across machines is the fitness the GA quantises, not an operator that decides which holdings
-survive.
+The row totals come from `np.einsum(..., optimize=False)`, deliberately not from
+`population @ equity`: a GEMM's reduction order depends on BLAS blocking and thread count, and the
+one place in this system permitted to vary across machines is the fitness the GA quantises, not an
+operator that decides which holdings survive. einsum is also the form that builds no `(m, n)`
+temporary — `np.where(population, equity, 0.0).sum(-1)` materialises 2.6 MB at (158, 2000) once per
+generation, against 0.07 MB, and is slightly slower at that width. Its summation order differs from
+a pairwise sum by about 1e-15 relative, six orders of magnitude inside the €1 margin, so it cannot
+move a row across the mask boundary.
 
 ### 4B-3 · `deterministic_reduction` is a run control, not an assumption
 
@@ -2953,8 +2957,15 @@ narrower than its name. Both are 3A's to resolve.
   bytes. Asserted on what `GET /optimisations/{id}` actually serves, not on the optimiser in
   isolation, with four fields exempt — `runId`, `runRef`, `createdAt`, `durationMs` — and a test
   asserting that the exemption list is exactly those four.
-- **The search, across architectures, with `deterministic_reduction` on: bit-exact.** The
-  reduction order is then fixed by shape and dtype rather than by BLAS blocking and thread count.
+- **The search *and the aggregates it reports*, across architectures, with
+  `deterministic_reduction` on: bit-exact.** The reduction order is then fixed by shape and dtype
+  rather than by BLAS blocking and thread count. "And the aggregates" is not a flourish: the flag
+  originally reached only the two reductions inside `evolve`, so `build_result` aggregated the
+  winner into the twelve §8.1 tiles through a GEMM and a run was reproducible in which projects it
+  chose but not in the numbers it printed about them. `build_result` now takes the mode, `cli.py`
+  and `runner/worker.py` pass it from the run's own controls, and a test asserts that *every*
+  recorded reduction in a full run received it — so a call site added later is caught by the same
+  assertion rather than by the next architecture migration.
   Not a claim on paper: `tests/regression/deterministic_reduction_golden.json` was recorded on
   arm64 Darwin and reproduces on x86_64 Linux in CI — same winning rows, same fitness to the last
   bit, same 35-point convergence series.

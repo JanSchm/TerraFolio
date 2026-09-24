@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 from engine import NPV_CALLS_PER_SOLVE, Timeline
 
+from terrafolio.config.assumptions import AssumptionSet
 from terrafolio.domain.scalars import MandateScalars
 
 
@@ -92,7 +93,9 @@ def test_the_hot_path_is_float32_and_everything_reported_is_float64(
         )
 
 
-def test_no_operator_ever_sees_one_chromosome_at_a_time(timeline: Timeline) -> None:
+def test_no_operator_ever_sees_one_chromosome_at_a_time(
+    timeline: Timeline, assumptions: AssumptionSet
+) -> None:
     """What "no Python loop over the population" reduces to, as a shape assertion.
 
     A loop over the population would show up here as a stream of calls with a leading
@@ -101,7 +104,10 @@ def test_no_operator_ever_sees_one_chromosome_at_a_time(timeline: Timeline) -> N
     once per generation.
     """
     population = timeline.population_size
-    children = population - 2  # assumptions.ga.elite_count, and asserted below
+    # Read from the calibration, not restated. A hardcoded 2 here made the check below
+    # (`children == population_size - 2`) a tautology that could never fire, and an
+    # `elite_count` change would have surfaced as a confusing shape mismatch instead.
+    children = population - assumptions.ga.elite_count
 
     boundaries = {
         "initial_population": (population,),
@@ -124,7 +130,10 @@ def test_no_operator_ever_sees_one_chromosome_at_a_time(timeline: Timeline) -> N
     assert len(timeline.of("repair")) == timeline.generations, (
         "one repair at initialisation and one per breeding generation"
     )
-    assert children == timeline.population_size - 2, "the elite count moved; update this guard"
+    assert 0 < children < population, (
+        f"an elite count of {assumptions.ga.elite_count} leaves {children} children,"
+        " which is not a breeding population"
+    )
 
 
 def test_every_operator_call_spans_the_whole_candidate_width(timeline: Timeline) -> None:

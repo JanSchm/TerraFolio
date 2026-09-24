@@ -33,6 +33,7 @@ import json
 import math
 import shutil
 import subprocess
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,7 @@ import pytest
 from pool import GOLDEN_PIPELINE
 from wire import CONTINUOUS, JS_SCREEN_NAMES, parity_view, pipeline_payload
 
+from terrafolio.config.assumptions import AssumptionSet
 from terrafolio.config.loader import load_default
 from terrafolio.domain.mandate import Mandate
 from terrafolio.domain.reduce import mandate_to_scalars
@@ -92,7 +94,19 @@ def _payload(pair: dict[str, Any]) -> dict[str, Any]:
     return parsed
 
 
+@cache
+def _assumptions() -> AssumptionSet:
+    """The calibration, hashed once rather than once per pair."""
+    return load_default()
+
+
+@cache
 def _files_by_id() -> dict[str, Path]:
+    """Golden fixture files by project id, parsed once per session.
+
+    Parsing all 48 on every pair was about 1,440 reads for a mapping that cannot
+    change while the tests run.
+    """
     return {
         json.loads(path.read_text(encoding="utf-8"))["id"]: path
         for path in GOLDEN_PIPELINE.glob("*.json")
@@ -106,19 +120,35 @@ def _loaded_for(ids: list[str], tmp_path: Path) -> Any:
     because the loader is what derives `minDscr` from the statements and normalises the
     country codes — and a parity test that reimplemented either would be testing its own
     reimplementation.
+
+    Both branches are cached, but only the subset one can be keyed on ``tmp_path``:
+    pytest hands each test its own, so including it in the key for the whole-pipeline
+    case would have meant reloading all 48 files for each of the 28 pairs that share
+    them.
     """
+    wanted = frozenset(ids)
+    if wanted == frozenset(_files_by_id()):
+        return _load_golden()
+    return _load_subset(wanted, tmp_path)
+
+
+@cache
+def _load_golden() -> Any:
+    return load_pipeline(GOLDEN_PIPELINE, _assumptions())
+
+
+@cache
+def _load_subset(ids: frozenset[str], tmp_path: Path) -> Any:
     catalogue = _files_by_id()
-    if set(ids) == set(catalogue):
-        return load_pipeline(GOLDEN_PIPELINE, load_default())
     subset = tmp_path / "pipeline"
     subset.mkdir(parents=True, exist_ok=True)
-    for project_id in ids:
+    for project_id in sorted(ids):
         shutil.copyfile(catalogue[project_id], subset / catalogue[project_id].name)
-    return load_pipeline(subset, load_default())
+    return load_pipeline(subset, _assumptions())
 
 
 def _python_view(pair: dict[str, Any], tmp_path: Path) -> dict[str, Any]:
-    assumptions = load_default()
+    assumptions = _assumptions()
     payload = _payload(pair)
     ids = [project["id"] for project in payload["projects"]]
     loaded = _loaded_for(ids, tmp_path)
@@ -135,6 +165,13 @@ def _python_view(pair: dict[str, Any], tmp_path: Path) -> dict[str, Any]:
 
 
 def _node_view(path: Path) -> dict[str, Any]:
+    """The JavaScript side's answer for one pair. Parsed fresh so callers cannot
+    mutate a shared dict; the subprocess itself runs once per pair per session."""
+    return json.loads(_node_stdout(path))
+
+
+@cache
+def _node_stdout(path: Path) -> str:
     assert NODE is not None
     finished = subprocess.run(
         [NODE, str(HARNESS), str(path)],
@@ -144,8 +181,7 @@ def _node_view(path: Path) -> dict[str, Any]:
         timeout=60,
     )
     assert finished.returncode == 0, f"the harness failed:\n{finished.stderr}"
-    parsed: dict[str, Any] = json.loads(finished.stdout)
-    return parsed
+    return finished.stdout
 
 
 EMPTY_POOL_RATIOS = ("eligibleSolarShare", "eligibleGearing")

@@ -59,13 +59,14 @@ sys.path[:0] = [
     str(_ROOT / "tests" / "perf"),
     str(_ROOT / "tests" / "regression"),
     str(_ROOT / "tests" / "golden"),
+    str(_ROOT / "tests" / "parity"),
 ]
 
 from legacy_repair import legacy_repair_to_budget  # noqa: E402
 from pool import build_pool, describe_environment, load_shipped  # noqa: E402
 from reference_mandates import REFERENCE_MANDATES  # noqa: E402
+from searches import patched_repair  # noqa: E402
 
-import terrafolio.optimiser.ga as ga_module  # noqa: E402
 from terrafolio.config.assumptions import AssumptionSet  # noqa: E402
 from terrafolio.domain.enums import Effort  # noqa: E402
 from terrafolio.domain.scalars import MandateScalars  # noqa: E402
@@ -208,23 +209,9 @@ def _over_budget_census(case: Case, effort: Effort, *, seed: int) -> tuple[int, 
         return repair_to_budget(population, **kwargs)  # type: ignore[arg-type]
 
     controls = SearchControls(effort=effort, seed=seed)
-    with _patched_repair(counting):
+    with patched_repair(counting):
         run_search(case.pool, case.mandate, case.assumptions, controls)
     return seen[0], seen[1]
-
-
-class _patched_repair:  # noqa: N801 - a context manager, used as a statement
-    """Swap the operator ``ga.evolve`` calls, and always put it back."""
-
-    def __init__(self, replacement: RepairFn) -> None:
-        self._replacement = replacement
-        self._original = ga_module.repair_to_budget
-
-    def __enter__(self) -> None:
-        ga_module.repair_to_budget = self._replacement  # type: ignore[assignment]
-
-    def __exit__(self, *_: object) -> None:
-        ga_module.repair_to_budget = self._original  # type: ignore[assignment]
 
 
 def _cases(widths: Sequence[int]) -> list[Case]:
@@ -272,7 +259,7 @@ def _report_repair(
         for effort in efforts:
             results: dict[str, Timing] = {}
             for name, variant in variants.items():
-                with _patched_repair(variant):
+                with patched_repair(variant):
                     results[name] = _time_run(case, effort, seed=seed, repeats=repeats)
             answers = {timing.selection for timing in results.values()}
             cells = " | ".join(f"{results[name].seconds:.3f} s" for name in variants)

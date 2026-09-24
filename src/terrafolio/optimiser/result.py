@@ -363,14 +363,21 @@ class _ResultContext:
     annual_generation: Vector
 
 
-def build_result(
+def build_result(  # noqa: PLR0913 - four inputs, one outcome and the reduction mode
     arrays: ProjectArrays,
     features: Features,
     mandate: MandateScalars,
     assumptions: AssumptionSet,
     outcome: SelectionOutcome,
+    *,
+    deterministic: bool = False,
 ) -> RunResult:
     """Turn the winning chromosome into the twelve tiles, the series and the rows.
+
+    ``deterministic`` must match the :class:`~terrafolio.optimiser.ga.SearchControls`
+    the search ran under. A run that asked for a BLAS-free reduction and then reported
+    tiles reduced by a GEMM would be reproducible across architectures in its choice of
+    projects and not in the numbers it prints about them.
 
     ``winner`` is indexed against the **eligible** rows, as the chromosome is; it is
     scattered back onto the whole pipeline here so every column can be read by its
@@ -397,7 +404,14 @@ def build_result(
         annual_generation=annual_generation_gwh(arrays),
     )
 
-    totals_row = aggregate(features, winner[None, :].astype(np.float64))
+    # The same reduction the search ran under. Without this the winner's tiles, its
+    # term breakdown and its fitness would come back through BLAS on a run that asked
+    # for `SearchControls.deterministic_reduction` — so the trajectory would be
+    # reproducible across architectures and the answer it reports would not, which is
+    # the opposite of what the flag is for (#12).
+    totals_row = aggregate(
+        features, winner[None, :].astype(np.float64), deterministic=deterministic
+    )
     fitness = float(quantise(score(totals_row, mandate, assumptions), assumptions)[0])
     terms = _term_breakdown(totals_row, mandate, assumptions, fitness)
 

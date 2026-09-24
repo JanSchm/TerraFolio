@@ -6,17 +6,19 @@ which after a few generations are nothing like uniform: almost every chromosome 
 on the equity boundary, which is precisely the case where a mask could go wrong.
 
 So the equivalence tests run the whole search twice over the real 48-file golden
-pipeline and compare the winner. The pool is built once at import — loading and
-tying out 48 files costs about 40 ms, and every test here wants the same one.
+pipeline and compare the winner. The pool is built on first use and cached: loading and
+tying out 48 files is not work a test that never touches the pool should pay, and doing
+it at import turns a moved fixture or a tie-out regression into a collection error
+rather than a test failure.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from functools import cache
 from typing import Final
 
-import numpy as np
 from pool import GOLDEN_PIPELINE, build_pool
 from reference_mandates import REFERENCE_MANDATES
 
@@ -24,12 +26,12 @@ import terrafolio.optimiser.ga as ga_module
 from terrafolio.config.loader import load_default
 from terrafolio.domain.enums import Effort
 from terrafolio.domain.scalars import MandateScalars
-from terrafolio.optimiser.features import COLUMN, Features
+from terrafolio.optimiser.features import Features
 from terrafolio.optimiser.ga import GaOutcome, SearchControls, run_search
 from terrafolio.pipeline.arrays import BoolVector
 from terrafolio.pipeline.loader import load_pipeline
 
-__all__ = ["ASSUMPTIONS", "MANDATE", "POOL", "SEED", "patched_repair", "run_with_repair"]
+__all__ = ["ASSUMPTIONS", "MANDATE", "SEED", "patched_repair", "pool", "run_with_repair"]
 
 SEED: Final = 2024
 """The seed ``tests/api/test_runner.py`` uses to compare two engines. Reused so a
@@ -38,9 +40,16 @@ divergence here and a divergence there describe the same search."""
 ASSUMPTIONS: Final = load_default()
 MANDATE: Final[MandateScalars] = REFERENCE_MANDATES["M0-default"]
 
-_LOADED: Final = load_pipeline(GOLDEN_PIPELINE, ASSUMPTIONS)
-POOL: Final[Features] = build_pool(_LOADED, MANDATE, ASSUMPTIONS, candidates=_LOADED.arrays.count)
-"""All 48 golden projects — ``candidates`` equal to the pipeline, so nothing is tiled."""
+
+@cache
+def pool() -> Features:
+    """All 48 golden projects, loaded once per session on first use.
+
+    ``candidates`` equals the pipeline's own count, so nothing is tiled and every id is
+    real — a tiled pool is for cost measurements only (see ``pool.build_pool``).
+    """
+    loaded = load_pipeline(GOLDEN_PIPELINE, ASSUMPTIONS)
+    return build_pool(loaded, MANDATE, ASSUMPTIONS, candidates=loaded.arrays.count)
 
 
 def _without_tolerance(operator: Callable[..., BoolVector]) -> Callable[..., BoolVector]:
@@ -75,11 +84,6 @@ def run_with_repair(
     """Run the golden search, optionally with a different repair operator."""
     controls = SearchControls(effort=effort, seed=SEED)
     if replacement is None:
-        return run_search(POOL, MANDATE, ASSUMPTIONS, controls)
+        return run_search(pool(), MANDATE, ASSUMPTIONS, controls)
     with patched_repair(_without_tolerance(replacement)):
-        return run_search(POOL, MANDATE, ASSUMPTIONS, controls)
-
-
-def held_equity(selection: BoolVector) -> float:
-    """The equity a selection draws, in euros — for the never-over-budget assertions."""
-    return float(np.asarray(POOL.fit[:, COLUMN["equity"]])[selection].sum())
+        return run_search(pool(), MANDATE, ASSUMPTIONS, controls)

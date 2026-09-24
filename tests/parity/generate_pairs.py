@@ -26,71 +26,51 @@ _HERE = Path(__file__).resolve().parent
 sys.path[:0] = [str(_HERE), str(_HERE.parent / "perf")]
 
 from pool import GOLDEN_PIPELINE  # noqa: E402
-from wire import pipeline_payload  # noqa: E402
+from wire import DEFAULT_MANDATE, mandate, pipeline_payload  # noqa: E402
 
+from terrafolio.config.assumptions import AssumptionSet  # noqa: E402
 from terrafolio.config.loader import load_default  # noqa: E402
-from terrafolio.pipeline.loader import load_pipeline  # noqa: E402
+from terrafolio.domain.mandate import Mandate  # noqa: E402
+from terrafolio.domain.reduce import mandate_to_scalars  # noqa: E402
+from terrafolio.optimiser.feasibility import preview_feasibility  # noqa: E402
+from terrafolio.pipeline.loader import LoadResult, load_pipeline  # noqa: E402
 
 HOLD_YEARS: Final = 10
 PAIRS_DIR: Final = _HERE / "pairs"
 
-ALL_COUNTRIES: Final = (
-    "ES", "PT", "IT", "GR", "FR", "DE", "PL", "RO", "NL", "DK", "IE", "SE", "FI", "GB",
-)  # fmt: skip
-ALL_STAGES: Final = ("greenfield", "ready_to_build", "construction")
-
-BASE: Final[dict[str, Any]] = {
-    "availableCapital_m": 1200.0,
-    "capacityTargetMw": 1500.0,
-    "solarShare": 0.45,
-    "targetIrr": 0.11,
-    "holdYears": HOLD_YEARS,
-    "countries": list(ALL_COUNTRIES),
-    "stages": list(ALL_STAGES),
-    "minLeverage": 0.6,
-    "minDscr": 1.25,
-    "maxMerchantShare": 0.35,
-    "maxCountryShare": 0.35,
-    "maxProjectShare": 0.15,
-    "codFrom": 2027,
-    "codTo": 2032,
-    "riskAppetite": "balanced",
-    "gridSecuredOnly": False,
-    "eurRevenueOnly": False,
-    "omContractedOnly": False,
-}
+BASE: Final = DEFAULT_MANDATE
 
 
-def mandate(**overrides: Any) -> dict[str, Any]:
-    return {**BASE, **overrides}
+def _eligible(
+    payload: dict, mandate_json: dict, loaded: LoadResult, assumptions: AssumptionSet
+) -> list[dict]:
+    """The projects ``mandate_json`` admits, screened by the engine itself.
 
+    This used to apply five of the nine screens inline, which made it a third
+    implementation of the very logic this suite exists to prove there are only two of —
+    and a dangerous one, because the three boundary pairs are *solved from its output*.
+    A divergence between it and ``apply_screens`` would move those pairs off the
+    boundaries they are named for while every assertion still passed: the suite would
+    report green having stopped testing any boundary.
 
-def _eligible(payload: dict, mandate_json: dict) -> list[dict]:
-    """Everything the mandate admits, screened from the payload.
-
-    A deliberate second implementation of the screens, and a small one: it exists to
-    *construct* boundaries in the units the mandate is written in, and the pairs it
-    builds are then checked by two other implementations. If this one were wrong, the
-    pairs would sit off their boundaries and the coverage assertions would say so.
+    So it calls ``preview_feasibility`` and maps the eligible ids back onto the payload
+    records, which are what the boundaries have to be expressed in (€m, not euros).
     """
-    countries = set(mandate_json["countries"])
-    stages = set(mandate_json["stages"])
-    cap = payload["assumptions"]["riskCaps"][mandate_json["riskAppetite"]]
-    pool = [
-        project
-        for project in payload["projects"]
-        if project["countryCode"] in countries
-        and project["stage"] in stages
-        and mandate_json["codFrom"] <= project["codYear"] <= mandate_json["codTo"]
-        and (project["minDscr"] is None or project["minDscr"] >= mandate_json["minDscr"])
-        and project["developmentRiskScore"] <= cap
-    ]
-    return pool
+    scalars = mandate_to_scalars(Mandate.model_validate(mandate_json))
+    preview = preview_feasibility(loaded.arrays, scalars, assumptions)
+    eligible = {
+        project_id
+        for index, project_id in enumerate(loaded.arrays.ids)
+        if bool(preview.screens.eligible[index])
+    }
+    return [row for row in payload["projects"] if row["id"] in eligible]
 
 
-def _pool_figures(payload: dict, mandate_json: dict) -> dict[str, float]:
-    """The footer figures for whatever ``mandate_json`` admits."""
-    pool = _eligible(payload, mandate_json)
+def _pool_figures(
+    payload: dict, mandate_json: dict, loaded: LoadResult, assumptions: AssumptionSet
+) -> dict[str, float]:
+    """The footer figures for whatever ``mandate_json`` admits, in the mandate's units."""
+    pool = _eligible(payload, mandate_json, loaded, assumptions)
     capacity = sum(project["capacityMw"] for project in pool)
     solar = sum(row["capacityMw"] for row in pool if row["technology"] == "solar")
     return {
@@ -118,13 +98,14 @@ def main() -> int:
 
     ids = sorted(project["id"] for project in payload["projects"])
     by_id = {project["id"]: project for project in payload["projects"]}
-    figures = _pool_figures(payload, BASE)
+    figures = _pool_figures(payload, BASE, golden, assumptions)
 
     # A three-project subset, written as its own pipeline so that the pairs below vary
     # the pipeline and not only the mandate.
     # The three largest projects that the base mandate actually admits, so the trio's
     # own capacity target lands inside §5.2's 200-4,000 MW range.
-    biggest = sorted(_eligible(payload, BASE), key=lambda row: -row["capacityMw"])[:3]
+    admitted = _eligible(payload, BASE, golden, assumptions)
+    biggest = sorted(admitted, key=lambda row: -row["capacityMw"])[:3]
     trio_ids = sorted(row["id"] for row in biggest)
     trio = dict(payload)
     trio["projects"] = [by_id[project_id] for project_id in trio_ids]
@@ -132,7 +113,7 @@ def main() -> int:
     (PAIRS_DIR / "payload-trio.json").write_text(
         json.dumps(trio, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
-    trio_figures = _pool_figures(trio, BASE)
+    trio_figures = _pool_figures(trio, BASE, golden, assumptions)
 
     # "Exactly one candidate passes" has to be solved for, not typed. No COD year and
     # no country in the golden 48 is held by a single project, but the highest minimum
