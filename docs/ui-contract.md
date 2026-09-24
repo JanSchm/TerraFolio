@@ -141,7 +141,10 @@ Three panels side by side, each a `.blueprint`.
 
 The split bar is a 30px track: solar fills from the left in `--color-accent` labelled `SOLAR`, wind
 fills the remainder in `--color-accent-300` labelled `WIND`, with a 9px `--color-text` handle at the
-boundary. A transparent range input overlays it and carries `aria-label="Solar share"`. Readout:
+boundary. A transparent range input overlays it. Amended by #10: it carries a real `<label>` reading
+`Technology split` rather than the `aria-label="Solar share"` this specified, because #5 shipped
+a labelled control and overriding a visible label with a different accessible name breaks WCAG
+2.5.3 Label in Name. The share is announced through `aria-valuetext`. See [3B-6](decisions.md). Readout:
 `{s}% solar / {w}% wind`.
 
 ### 3.2 Panel — Hard constraints
@@ -388,7 +391,9 @@ Sorting: clicking a header sorts descending, clicking again reverses; the active
 or `↓`. Default sort is `equityIrr` descending.
 
 **Sort keys are the field names in the run's `holdings` array**, not the design mockup's internal
-state names (`lev`, `cf`, `gwh`, `offtake`). #12 asserts client and server produce the same order,
+state names (`lev`, `cf`, `gwh`, `offtake`). As of #10 the markup carries these names in its
+`data-sort` and `data-column` attributes, and a test reads the fifteen keys out of the table
+below rather than transcribing them, so the two cannot drift apart. #12 asserts client and server produce the same order,
 which needs one agreed name per column. A null `equityIrr` or `minDscr` sorts last in both
 directions — an em dash is absent, not small.
 
@@ -484,19 +489,31 @@ if colour is an *additional* channel (A-10). Every status carries a mark or a wo
 
 - Every control is reachable and operable by keyboard, including the split bar (it is a real range
   input) and each FCFE bar.
-- `:focus-visible` is a 2px `--color-accent` outline at 2px offset. It is never removed.
+- `:focus-visible` is a 2px `--color-accent-700` outline at 2px offset. It is never removed.
+  Corrected by #10: this said `--color-accent`, which [A-20](decisions.md) removed from the
+  ported palette as anything but a fill. The ring is offset, so it is drawn *outside* its
+  control and has to stand out against what is behind it, not against the control's own
+  surface — measured at 5.78:1 on the page ground. The split bar and the segmented control
+  draw their own; see [3B-5](decisions.md).
 - The drawer and the export dialog trap focus, close on `Esc`, and restore focus to what opened
   them.
 - Table headers are `<th>` with `aria-sort`; the sort arrow is decorative and mirrored in
   `aria-sort`.
-- Live regions: the search screen's round counter and the mandate footer's figures are polite live
-  regions, so a screen-reader user hears progress and feasibility without polling.
+- Live regions: a screen-reader user hears progress and feasibility without polling. Amended
+  by #10: the counter and the figures are **not** themselves live regions, because feasibility
+  recomputes on every keystroke (A-18) and a round arrives at least every 100 ms, so either
+  would interrupt the reader continuously. Each page carries one `sr-only` `role="status"`
+  region instead, composed from those figures by observing them and announced once they
+  settle. See [3B-3](decisions.md).
 
 ### 7.3 Contrast
 
-Body text is `--color-text` on `--color-bg`, which clears 4.5:1. Muted text at 55% does **not**, so
-it is used only for labels that repeat information available elsewhere — never for a value, a
-warning or a status. `--color-accent-700` and `--color-accent-800` on `--color-bg` clear 4.5:1 and
+Body text is `--color-text` on `--color-bg`, which clears 4.5:1 (14.79:1 measured). Muted text is
+`--color-neutral-700` and clears it too, at 5.87:1. Corrected by #10: this said muted was
+`--color-text` at 55% and did **not** clear 4.5:1, which was the mockup's value —
+[A-20](decisions.md) moved the role to `neutral-700` precisely because 55% ink measures 3.64:1.
+The habit that wording enforced is still worth keeping, and muted is still used for labels
+rather than for values, but it is no longer a contrast obligation. `--color-accent-700` and `--color-accent-800` on `--color-bg` clear 4.5:1 and
 are what compliance tones use; `--color-accent` itself is reserved for fills, not text.
 
 ---

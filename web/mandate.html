@@ -11,6 +11,8 @@
 <script defer src="vendor/alpine.min.js"></script>
 </head>
 <body class="min-h-screen bg-bg text-text">
+<a href="#main"
+   class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-dialog focus:border focus:border-accent-700 focus:bg-bg focus:px-4 focus:py-2 focus:font-condensed focus:text-label focus:font-semibold focus:text-text focus:no-underline">Skip to main content</a>
     <!--NAV:mandate-->
     <!-- nav:start — identical on all four pages except which step carries aria-current.
          tools/splice-nav.mjs writes this block; tests/nav.test.js guards it. -->
@@ -29,7 +31,7 @@
     </header>
     <!-- nav:end -->
 
-<main class="mx-auto max-w-mandate px-7 pb-[140px] pt-8">
+<main id="main" class="mx-auto max-w-mandate px-7 pb-[140px] pt-8">
 
   <div class="mb-[22px] flex flex-wrap items-end justify-between gap-7">
     <div class="max-w-[640px]">
@@ -309,6 +311,15 @@
         <dd class="num m-0 text-num-xl" data-field="eligibleEquity_m">&#8212;</dd>
       </div>
     </dl>
+
+    <!-- The figures above recompute on every keystroke and every slider tick (A-18),
+         so making them a live region directly would announce dozens of times during
+         one drag. This carries one composed sentence once they settle, derived by
+         observing them so it cannot fall out of step. ui-contract.md §7.2. -->
+    <p class="sr-only" role="status" aria-live="polite" aria-atomic="true"
+       data-region="feasibility-announcer"
+       x-data="liveRegion({ watch: ['[data-region=&quot;feasibility-figures&quot;]'], quiet: 700 })"
+       x-text="message"></p>
 
     <div class="flex items-center gap-4">
       <ul class="flex max-w-[460px] flex-col gap-1" data-region="feasibility-warnings"
