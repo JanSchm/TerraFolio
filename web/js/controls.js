@@ -279,6 +279,12 @@
     },
   };
 
+  /** ui-contract.md §5.4's display labels. Wire values in, investor English out. */
+  var TECHNOLOGY = { solar: 'Solar', onshore_wind: 'Wind', offshore_wind: 'Offshore wind' };
+  var STAGE = {
+    greenfield: 'Greenfield', ready_to_build: 'Ready-to-build', construction: 'Construction',
+  };
+
   /**
    * A KPI tile's compliance state.
    *
@@ -305,6 +311,103 @@
     };
   }
 
+  /**
+   * The holdings table's sort state and row presentation.
+   *
+   * It deliberately does **not** sort `rows`. §12 budgets sort and filter at under
+   * 50 ms over 500 rows and issue #11 owns that; what lives here is the part that
+   * keeps going wrong when sorting is written first — `aria-sort` and the arrow
+   * drifting apart from each other and from the data. Both are derived from one
+   * piece of state, so they cannot disagree, and `sortBy` emits `tf:change` for
+   * whoever is holding the array.
+   *
+   * `direction` is spelled in the `aria-sort` vocabulary rather than asc/desc, so
+   * nothing has to translate between the attribute and the state.
+   *
+   * The row helpers are here for the same reason: ui-contract.md §7.1 owes four of
+   * its eight second signals to this table — the lock column's mark, `Locked` and
+   * `Not selected` in a row's accessible name, and a Min DSCR under the floor —
+   * and a row rendered without them is a row whose status is colour alone.
+   */
+  function holdingsTable(options) {
+    var o = options || {};
+    return {
+      /* #11 assigns the run's holdings array. Empty until then, and never seeded
+         with specimen data: a table that shows figures nobody computed is worse
+         than one that shows none. */
+      rows: [],
+      name: o.name || 'holdingsSort',
+      field: o.field || 'equityIrr',
+      direction: o.direction || 'descending',
+      /* The mandate's Min DSCR floor. Null until #11 supplies it, and a null floor
+         breaches nothing — the cell cannot claim a breach it cannot measure. */
+      dscrFloor: typeof o.dscrFloor === 'number' ? o.dscrFloor : null,
+      fmt: fmt,
+
+      /** §5.4: a new column sorts descending; the same column reverses. */
+      sortBy: function (key, $event) {
+        if (this.field === key) {
+          this.direction = this.direction === 'descending' ? 'ascending' : 'descending';
+        } else {
+          this.field = key;
+          this.direction = 'descending';
+        }
+        emit($event && $event.target, this.name,
+          { field: this.field, direction: this.direction });
+      },
+
+      ariaSort: function (key) {
+        return this.field === key ? this.direction : 'none';
+      },
+      /** Decorative, and mirrored from the same state aria-sort reads (§7.2). */
+      arrow: function (key) {
+        return this.field === key ? STATUS.MARK[this.direction] : STATUS.MARK.none;
+      },
+
+      /** §5.4's display labels for wire values. The row carries the wire value. */
+      technologyLabel: function (row) {
+        return TECHNOLOGY[row.technology] || row.technology;
+      },
+      stageLabel: function (row) {
+        return STAGE[row.stage] || row.stage;
+      },
+
+      lockMark: function (row) {
+        return row.locked ? STATUS.MARK.locked : STATUS.MARK.unlocked;
+      },
+      /**
+       * What a screen reader hears on entering the row. §7.1 wants `Locked` on a
+       * locked row and `Not selected` on a shaded one; both grounds are colours,
+       * and this is the channel that is not.
+       */
+      lockName: function (row) {
+        var parts = [row.locked ? STATUS.WORD.locked : STATUS.WORD.unlocked];
+        if (row.selected === false) parts.push(STATUS.WORD.notSelected);
+        return parts.join('. ');
+      },
+      rowClass: function (row) {
+        if (row.locked) return 'bg-highlight';
+        return row.selected === false ? 'bg-deemph' : '';
+      },
+
+      dscrBreached: function (row) {
+        return this.dscrFloor !== null
+          && typeof row.minDscr === 'number'
+          && row.minDscr < this.dscrFloor;
+      },
+      dscrClass: function (row) {
+        return this.dscrBreached(row) ? 'text-breach' : '';
+      },
+      dscrMark: function (row) {
+        return this.dscrBreached(row) ? STATUS.MARK.breach : STATUS.MARK.none;
+      },
+      /** Read after the value, so the cell announces "1.18×, below the 1.25× floor". */
+      dscrNote: function (row) {
+        return this.dscrBreached(row) ? ', ' + STATUS.dscrFloor(this.dscrFloor) : '';
+      },
+    };
+  }
+
   var factories = {
     rangeField: rangeField,
     numberField: numberField,
@@ -313,6 +416,7 @@
     segmented: segmented,
     splitBar: splitBar,
     kpiTile: kpiTile,
+    holdingsTable: holdingsTable,
   };
 
   factories.status = STATUS;
