@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import datetime as dt
 import sqlite3
+import threading
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -100,6 +101,17 @@ class Snapshot:
 
     returns_cache: OrderedDict[int, ProjectReturns] = field(default_factory=OrderedDict)
     rendered_cache: OrderedDict[int, RenderedPipeline] = field(default_factory=OrderedDict)
+    lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    """Guards the two caches.
+
+    FastAPI runs sync handlers in a threadpool, so two requests for different
+    hold periods touch these concurrently. ``OrderedDict`` is not the problem —
+    the *sequence* is: one thread reads an entry, another evicts it while the
+    first is between the ``get`` and the ``move_to_end``, and the first then
+    raises ``KeyError`` on a key it had just seen. Cheap to hold, because
+    everything inside is a dictionary operation; the expensive work is done
+    outside it.
+    """
 
     @property
     def pipeline_hash(self) -> str:
@@ -111,13 +123,19 @@ class Snapshot:
         ``ProjectReturns`` carries ``hold_years`` itself, which is what makes
         this key checkable rather than merely conventional.
         """
-        cached = self.returns_cache.get(hold_years)
+        with self.lock:
+            cached = _touch(self.returns_cache, hold_years)
         if cached is not None:
-            self.returns_cache.move_to_end(hold_years)
             return cached
+        # Computed outside the lock: two threads asking for the same new hold
+        # period both do the work, and the second's answer replaces the first's.
+        # They are equal — this is a pure function of the snapshot — so the only
+        # cost is a duplicated computation, which is much cheaper than holding a
+        # lock across it.
         computed = project_returns(self.candidates.arrays, self.assumptions, hold_years)
-        self.returns_cache[hold_years] = computed
-        _trim(self.returns_cache)
+        with self.lock:
+            self.returns_cache[hold_years] = computed
+            _trim(self.returns_cache)
         return computed
 
     def projects(self, hold_years: int) -> tuple[ProjectScalars, ...]:
@@ -134,13 +152,14 @@ class Snapshot:
 
     def rendered(self, hold_years: int) -> RenderedPipeline:
         """§2's body and ETag for one hold period, built at most once."""
-        cached = self.rendered_cache.get(hold_years)
+        with self.lock:
+            cached = _touch(self.rendered_cache, hold_years)
         if cached is not None:
-            self.rendered_cache.move_to_end(hold_years)
             return cached
         built = self._render(hold_years)
-        self.rendered_cache[hold_years] = built
-        _trim(self.rendered_cache)
+        with self.lock:
+            self.rendered_cache[hold_years] = built
+            _trim(self.rendered_cache)
         return built
 
     def _render(self, hold_years: int) -> RenderedPipeline:
@@ -174,7 +193,7 @@ class Snapshot:
             loaded_at=self.loaded_at,
             file_hashes=dict(self.result.file_hashes),
             validation_status=_status(self.result),
-            validation_json=_validation_json(self.result, self.loaded_at),
+            validation_json=_validation_json(self.result),
         )
 
 
@@ -197,6 +216,7 @@ class PipelineSource:
         self._directory = directory
         self._assumptions = assumptions
         self._engine_version = engine_version
+        self._reloading = threading.Lock()
         self._snapshot = self._load()
 
     def _load(self) -> Snapshot:
@@ -229,9 +249,16 @@ class PipelineSource:
         alongside the old projects. The previous snapshot's caches go with it,
         which is why nothing has to be invalidated selectively — selective
         invalidation is how a stale IRR survives a reload.
+
+        Serialised, because two overlapping reloads across a directory that is
+        still being edited can finish out of order: the slower, *older* load
+        would assign last and leave the server serving data that has already
+        been superseded, with no event to correct it. Readers are never blocked
+        — they take the current snapshot without the lock.
         """
-        self._snapshot = self._load()
-        return self._snapshot.result
+        with self._reloading:
+            self._snapshot = self._load()
+            return self._snapshot.result
 
     # -- convenience, each a single read of the current snapshot --------------
 
@@ -278,15 +305,49 @@ def _status(result: LoadResult) -> ValidationStatus:
     return ValidationStatus.WARNINGS if result.warnings else ValidationStatus.VALID
 
 
-def _validation_json(result: LoadResult, loaded_at: dt.datetime) -> str:
-    """The report exactly as ``GET /pipeline/status`` serves it.
+LOAD_EVENT_FIELDS: Final[set[str]] = {"loaded_at", "duration_ms"}
+"""What describes the *act* of loading rather than what was loaded.
 
-    Stamped with the load's **own** time rather than the moment it is recorded.
-    ``record_pipeline_snapshot`` is content-addressed and compares the stored
-    report against the one offered, so a fresh timestamp here would make the
-    second record of an unchanged pipeline look like a conflicting one.
+Both are excluded from the stored validation report. ``pipeline_snapshot`` is
+content-addressed, and ``record_pipeline_snapshot`` compares the stored report
+against the one offered — deliberately ignoring ``loaded_at`` and
+``source_label`` on the row, because "the same pipeline read twice, or read from
+a copy of the directory, is the same snapshot". Embedding the timestamp and the
+elapsed milliseconds *inside* the report smuggled them straight back past that
+check: a server restarted against an existing database offered a report that
+differed in two fields, and every subsequent run answered 409 PIPELINE_MOVED for
+a pipeline that had not moved.
+"""
+
+
+def _validation_json(result: LoadResult) -> str:
+    """The report as stored: everything the load *found*, and nothing about when.
+
+    ``GET /pipeline/status`` still serves ``loadedAt`` and ``durationMs`` — they
+    are exactly what a reader of a live server wants. They simply cannot be part
+    of an identity.
     """
-    return pipeline_status(result, loaded_at=loaded_at).model_dump_json(by_alias=True)
+    return pipeline_status(result, loaded_at=_EPOCH).model_dump_json(
+        by_alias=True, exclude=LOAD_EVENT_FIELDS
+    )
+
+
+_EPOCH: Final = dt.datetime(dt.MINYEAR, 1, 1, tzinfo=dt.UTC)
+"""A placeholder for the excluded timestamp; it never reaches the output."""
+
+
+def _touch[K, V](cache: OrderedDict[K, V], key: K) -> V | None:
+    """Read an entry and mark it most-recently-used, or report a miss.
+
+    ``get`` then ``move_to_end`` as one step: split apart, another thread can
+    evict the key in between and the ``move_to_end`` raises ``KeyError`` on an
+    entry this thread had just been handed.
+    """
+    cached = cache.get(key)
+    if cached is None:
+        return None
+    cache.move_to_end(key)
+    return cached
 
 
 def _trim[K, V](cache: OrderedDict[K, V]) -> None:

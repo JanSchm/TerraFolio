@@ -31,6 +31,7 @@ from terrafolio.domain.enums import Effort, RunStatus
 from terrafolio.domain.mandate import Mandate
 from terrafolio.domain.results import (
     ConvergencePoint,
+    FeasibilityWarning,
     PortfolioAggregates,
     RunProvenance,
     RunRecord,
@@ -74,6 +75,15 @@ class PendingRun:
     candidates: Candidates
     returns: ProjectReturns
     total_generations: int
+
+    warnings: tuple[FeasibilityWarning, ...] = ()
+    """The §5.4 warnings this mandate was accepted under.
+
+    2B stores these on the run so a reader can see the advisory conditions that
+    applied at submission — a capacity target the eligible pool could not reach,
+    a budget it could not absorb — without re-deriving them against a pipeline
+    that has since moved.
+    """
 
 
 def _m(euros: float) -> float:

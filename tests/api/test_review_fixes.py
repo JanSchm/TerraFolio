@@ -23,8 +23,8 @@ from conftest import GOLDEN_PIPELINE, mandate, settings_for
 from test_sse import queued_run
 
 from terrafolio.api.app import ASSET_DIRECTORIES, PAGES, create_app
+from terrafolio.api.messages import FAILED_MESSAGE
 from terrafolio.api.pipeline_source import PipelineSource
-from terrafolio.api.routes_runs import FAILED_MESSAGE
 from terrafolio.api.service import build_service
 from terrafolio.api.sse import RunPulse, _generation_frame, _number, _terminal_frame
 from terrafolio.config.loader import load_default

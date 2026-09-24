@@ -34,6 +34,7 @@ from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass
 from typing import Final
 
+from terrafolio.api.messages import terminal_error
 from terrafolio.domain.enums import RunStatus
 from terrafolio.store.db import from_db_time
 from terrafolio.store.events import read_events
@@ -153,18 +154,6 @@ def _status_frame(pulse: RunPulse) -> bytes:
     )
 
 
-FAILED_MESSAGE: Final = "The search did not complete. The failure is recorded against this run."
-CANCELLED_MESSAGE: Final = "The search was cancelled before it finished."
-"""What a run that did not succeed says on the wire.
-
-**Not ``run.error_message``**, which holds the worker's whole traceback for the
-audit trail. §1.7 says ``message`` is "one sentence fit to show a user", and a
-traceback is neither: it carries the server's absolute paths and its internal
-structure to a caller that is not authenticated at all in this backlog
-(epic §12 Q7).
-"""
-
-
 def _terminal_frame(run_id: str, pulse: RunPulse) -> bytes:
     if pulse.status is RunStatus.SUCCEEDED:
         return _frame(
@@ -179,22 +168,15 @@ def _terminal_frame(run_id: str, pulse: RunPulse) -> bytes:
                 separators=(",", ":"),
             ),
         )
-    # A cancellation is not an engine failure, and `error_code` is optional for
-    # one (the schema only requires it for `failed`) — so defaulting to
-    # ENGINE_ERROR would report a run someone deliberately stopped as a crash,
-    # and any retry keyed on that code would retry it.
-    cancelled = pulse.status is RunStatus.CANCELLED
-    code = pulse.error_code or ("RUN_CANCELLED" if cancelled else "ENGINE_ERROR")
     return _frame(
         "failed",
         json.dumps(
             {
                 "runId": run_id,
                 "status": pulse.status.value,
-                "error": {
-                    "code": code,
-                    "message": CANCELLED_MESSAGE if cancelled else FAILED_MESSAGE,
-                },
+                # Shared with `GET /optimisations/{id}`: a subscriber and a
+                # reader must not be told different stories about one run.
+                "error": dict(terminal_error(pulse.status, pulse.error_code)),
             },
             separators=(",", ":"),
         ),

@@ -25,10 +25,21 @@ from collections.abc import Callable, Mapping
 from typing import Final
 
 from terrafolio.domain.conventions import EUR_PER_EUR_MILLION
-from terrafolio.domain.enums import WarningCode
+from terrafolio.domain.enums import RunStatus, WarningCode
+from terrafolio.domain.results import FeasibilityWarning
 from terrafolio.export.csv import money_m, percent, quantity
+from terrafolio.optimiser.feasibility import FeasibilityPreview
 
-__all__ = ["TEMPLATES", "render"]
+__all__ = [
+    "CANCELLED_CODE",
+    "CANCELLED_MESSAGE",
+    "ENGINE_ERROR_CODE",
+    "FAILED_MESSAGE",
+    "TEMPLATES",
+    "render",
+    "terminal_error",
+    "warnings_for",
+]
 
 TEMPLATES: Final[Mapping[WarningCode, str]] = {
     WarningCode.NO_CANDIDATES: (
@@ -123,3 +134,59 @@ def render(code: WarningCode, detail: Mapping[str, float]) -> str:
     it is the only place in the API that formats a number into a sentence.
     """
     return TEMPLATES[code].format(**_VALUES[code](detail))
+
+
+# --------------------------------------------------------------------------
+# What a run that did not succeed says, and what a preview's warnings look like
+# --------------------------------------------------------------------------
+
+ENGINE_ERROR_CODE: Final = "ENGINE_ERROR"
+CANCELLED_CODE: Final = "RUN_CANCELLED"
+
+FAILED_MESSAGE: Final = "The search did not complete. The failure is recorded against this run."
+CANCELLED_MESSAGE: Final = "The search was cancelled before it finished."
+"""One sentence each, as §1.7 requires.
+
+**Never ``run.error_message``**, which holds the worker's whole traceback for
+the audit trail. A traceback is neither one sentence nor fit to show: it carries
+the server's absolute paths and its internal structure to a caller that, in this
+backlog, is not authenticated at all (epic §12 Q7). It stays in the store and in
+the server log, where an operator reads it.
+"""
+
+
+def terminal_error(status: RunStatus, error_code: str | None) -> Mapping[str, str]:
+    """The ``error`` block for a run that ended without a portfolio.
+
+    One definition, used by both the HTTP body and the SSE terminal frame, so a
+    client watching a run and a client reading it afterwards cannot be told two
+    different stories about why it stopped.
+
+    A cancellation is **not** an engine failure. ``error_code`` is mandatory for
+    ``failed`` and optional for ``cancelled``, so defaulting the missing case to
+    ``ENGINE_ERROR`` reported a run someone deliberately stopped as a crash —
+    and any retry keyed on that code would have retried it.
+    """
+    cancelled = status is RunStatus.CANCELLED
+    fallback = CANCELLED_CODE if cancelled else ENGINE_ERROR_CODE
+    return {
+        "code": error_code or fallback,
+        "message": CANCELLED_MESSAGE if cancelled else FAILED_MESSAGE,
+    }
+
+
+def warnings_for(preview: FeasibilityPreview) -> tuple[FeasibilityWarning, ...]:
+    """§5's warnings, ordered by severity, each with its pinned sentence.
+
+    ``severity`` is ``alert`` or ``info``, as 1A's enum defines it. Whether a
+    warning *blocks* is not a severity — it is a property of the code, and
+    ``runnable`` is the signal a client acts on.
+    """
+    return tuple(
+        FeasibilityWarning(
+            code=signal.code,
+            severity=signal.code.severity,
+            message=render(signal.code, signal.detail),
+        )
+        for signal in preview.signals
+    )

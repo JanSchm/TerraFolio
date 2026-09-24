@@ -118,8 +118,14 @@ class WorkerOutcome:
     threads_pinned: bool
 
 
-_PIPELINES: dict[tuple[str, str], LoadResult] = {}
-"""The **one** loaded pipeline this process is holding, keyed by directory and hash.
+_PIPELINES: dict[tuple[str, str, str], LoadResult] = {}
+"""The **one** loaded pipeline this process is holding.
+
+Keyed by directory, pipeline hash **and assumption-set digest**. The hash covers
+the files' bytes and nothing else, while which files are rejected and which carry
+a plausibility warning depend on the calibration — so two services in one
+process running different assumption sets over the same directory would
+otherwise have shared a load neither of them validated.
 
 A pool worker handles many runs. Re-reading, validating and tying out 300 files
 takes about a quarter of a second and retains roughly 15 MB, which would be pure
@@ -151,7 +157,7 @@ def _pipeline_for(directory: Path, expected_hash: str, assumptions: AssumptionSe
     someone edited between acceptance and execution would produce a result whose
     provenance is a lie, and 409 at the front door cannot see that race.
     """
-    key = (str(directory), expected_hash)
+    key = (str(directory), expected_hash, assumptions.content_hash)
     cached = _PIPELINES.get(key)
     if cached is not None:
         return cached

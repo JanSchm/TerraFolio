@@ -2531,6 +2531,41 @@ the convention reports `null` rather than a guess. Worth folding into 2A's own r
 is revisited.
 
 
+### 3A-14 · A snapshot's validation report describes the pipeline, not the load
+
+`pipeline_snapshot` is content-addressed, and `record_pipeline_snapshot` compares the stored
+validation report against the one offered — deliberately ignoring `loaded_at` and `source_label` on
+the row, because "the same pipeline read twice, or read from a copy of the directory, is the same
+snapshot" (2B-12).
+
+Serialising `GET /pipeline/status`'s body into `validation_json` smuggled both straight back past
+that check: the report embeds `loadedAt` and `durationMs`, which differ between any two loads of
+identical files. A server **restarted against an existing database** therefore offered a report
+differing in two fields, and every run it accepted afterwards answered **409 `PIPELINE_MOVED`** for
+a pipeline that had not moved. Found by a test that started a second service over one database, not
+by reading the code — the first symptom is a 409 three layers away from the cause.
+
+So the stored report carries what the load *found* — the rejections, the warnings, the dispersion —
+and nothing about **when** it ran. `GET /pipeline/status` still serves `loadedAt` and `durationMs`,
+which are exactly what a reader of a live server wants; they simply cannot be part of an identity.
+
+The general rule, worth stating because it will come up again: **anything that varies between two
+loads of identical content must not reach a content-addressed row.** A timestamp, an elapsed
+duration and a source path all qualify.
+
+### 3A-15 · One sentence on the wire, the whole traceback in the store and the log
+
+`run.error_message` holds the worker's traceback, which is what an operator needs. §1.7 says
+`message` is "one sentence fit to show a user", which is what a client gets. `api/messages.py` owns
+both sentences and `terminal_error` derives the pair once, so the HTTP body and the SSE frame cannot
+tell a client two different stories about why one run stopped.
+
+A cancellation is not an engine failure. `error_code` is mandatory for `failed` and optional for
+`cancelled`, so the missing case resolves to `RUN_CANCELLED` rather than `ENGINE_ERROR` — and
+`Service._failed` records `RunStatus.CANCELLED` when the cause is a `CancelledError`, which is what
+`Runner.shutdown` produces for every queued run on an orderly shutdown.
+
+
 ## Log
 
 | Date | Issue | Entry |
@@ -2650,3 +2685,5 @@ is revisited.
 | 2026-09-24 | #9 | 3A-11 — §5.4's sentences live in `api/messages.py`, pinned to `ui-contract.md` §3.5 and §3.6. |
 | 2026-09-24 | #9 | 3A-12 — the snapshot's validation report is stamped with the load's own time. |
 | 2026-09-24 | #9 | 3A-13 — `assumptionSetId` must name the loaded set; a warning's id is recovered and checked, never guessed. |
+| 2026-09-24 | #9 | 3A-14 — a snapshot's validation report excludes `loadedAt` and `durationMs`; a restart used to 409 every run. |
+| 2026-09-24 | #9 | 3A-15 — one sentence on the wire, the traceback in the store and the log; a cancellation is recorded as one. |

@@ -21,8 +21,8 @@ from pydantic import ValidationError
 from test_sse import queued_run
 
 from terrafolio.api.app import create_app
+from terrafolio.api.messages import FAILED_MESSAGE
 from terrafolio.api.records import PendingRun, failed_record
-from terrafolio.api.routes_runs import FAILED_MESSAGE
 from terrafolio.api.service import Service, build_service
 from terrafolio.api.wire import OptimisationRequest
 from terrafolio.domain.enums import Effort, RunStatus

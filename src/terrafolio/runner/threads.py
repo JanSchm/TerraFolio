@@ -95,21 +95,23 @@ def observed_threads() -> int:
     exactly that case — and recording a 1 that never took effect would make the
     run record claim a determinism it does not have.
 
-    Where the inherited variables disagree, the **largest** wins: reduction
-    order is non-deterministic if *any* library threads, so the honest figure is
-    the worst case rather than the first one read.
+    Where the inherited variables disagree, the **largest** wins, and a variable
+    nobody set counts as the whole machine: reduction order is non-deterministic
+    if *any* library threads, so the honest figure is the worst case rather than
+    the most flattering one.
     """
     if threads_are_pinned():
         return 1
     # The pin either did not happen or came too late, so what the libraries
     # actually sized their pools from is what this process inherited.
-    counts = [_positive_int(_INHERITED[name]) for name in THREAD_VARIABLES]
-    present = [count for count in counts if count is not None]
-    if not present:
-        # Nothing is capped, so the libraries size their own pools from the
-        # machine. `os.cpu_count()` is what they will have seen.
-        return os.cpu_count() or 1
-    return max(present)
+    #
+    # **A variable that is unset counts as the whole machine**, not as absent.
+    # Taking the maximum over only the variables that *were* set reported one
+    # thread for a process where `OMP_NUM_THREADS=1` but OpenBLAS was left
+    # uncapped — which is precisely the case where the reduction order is not
+    # fixed, and precisely the claim the run record must not make.
+    machine = os.cpu_count() or 1
+    return max(_positive_int(_INHERITED[name]) or machine for name in THREAD_VARIABLES)
 
 
 def _positive_int(raw: str | None) -> int | None:

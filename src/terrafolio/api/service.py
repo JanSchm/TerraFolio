@@ -18,10 +18,12 @@ import logging
 import secrets
 import sqlite3
 import traceback
+from concurrent.futures import CancelledError
 from contextlib import closing
 from typing import Final
 
 import terrafolio
+from terrafolio.api.messages import CANCELLED_CODE, ENGINE_ERROR_CODE, warnings_for
 from terrafolio.api.pipeline_source import PipelineSource, Snapshot
 from terrafolio.api.records import (
     PendingRun,
@@ -34,6 +36,7 @@ from terrafolio.api.settings import Settings
 from terrafolio.api.wire import SEED_BITS, OptimisationRequest
 from terrafolio.config.assumptions import AssumptionSet
 from terrafolio.config.loader import load_default
+from terrafolio.domain.enums import RunStatus
 from terrafolio.optimiser.feasibility import FeasibilityPreview
 from terrafolio.optimiser.ga import resolve_seed
 from terrafolio.runner.modes import RunnerMode
@@ -41,11 +44,11 @@ from terrafolio.runner.pool import Callbacks, Runner, build_runner
 from terrafolio.runner.threads import observed_threads
 from terrafolio.runner.worker import RunPayload, WorkerOutcome
 from terrafolio.store.db import open_store
-from terrafolio.store.errors import RunAlreadyFinishedError, StoreError
+from terrafolio.store.errors import RunAlreadyFinishedError
 from terrafolio.store.events import read_events
 from terrafolio.store.records import RunFailure, RunSubmission
 from terrafolio.store.runs import finish_run, open_run
-from terrafolio.store.snapshots import record_assumption_set
+from terrafolio.store.snapshots import load_assumption_snapshot, record_assumption_set
 
 __all__ = ["Service", "build_service"]
 
@@ -56,7 +59,6 @@ SUBMITTED_BY: Final = "terrafolio-api"
 every run is attributed to the service rather than to a person — which is an
 honest placeholder for an audit field, not a stand-in for a user model."""
 
-ENGINE_ERROR: Final = "ENGINE_ERROR"
 TRACEBACK_LIMIT: Final = 4000
 """How much of a traceback ``run.error_message`` keeps.
 
@@ -84,7 +86,15 @@ class Service:
             self.assumption_snapshot = record_assumption_set(
                 connection, assumptions, recorded_at=_now()
             )
-            self.assumptions_recorded_at = _now()
+            # Read back, not remembered. `record_assumption_set` is
+            # `ON CONFLICT DO NOTHING` over a content-addressed row, so on a
+            # restart against an existing database the stored timestamp is the
+            # one from the *first* time this calibration was seen. Keeping the
+            # value we just offered would make `GET /assumptions.createdAt`
+            # move on every restart and identify nothing.
+            self.assumptions_recorded_at = load_assumption_snapshot(
+                connection, self.assumption_snapshot
+            ).recorded_at
             self.source.record(connection)
 
     def connect(self) -> sqlite3.Connection:
@@ -201,6 +211,12 @@ class Service:
             candidates=snapshot.candidates,
             returns=snapshot.returns(mandate.hold_years),
             total_generations=params.generations,
+            # 2B keeps `warnings_raised` so a stored run records the advisory
+            # conditions it was accepted under — a capacity target the pool
+            # could not reach, an underused budget. Leaving it empty made every
+            # API-submitted run claim there had been none, while
+            # `/mandate/preview` had just listed them.
+            warnings=warnings_for(preview),
         )
         payload = RunPayload(
             run_id=pending.run_id,
@@ -242,18 +258,41 @@ class Service:
             return
         try:
             with closing(self.connect()) as connection:
-                finish_run(connection, record=record, finished_at=_now())
+                finish_run(
+                    connection,
+                    record=record,
+                    finished_at=_now(),
+                    warnings_raised=pending.warnings,
+                )
         except RunAlreadyFinishedError:  # pragma: no cover - idempotent retry
             pass
+        except Exception as error:
+            # Anything else — a divergent event log, a full disk — would
+            # otherwise escape into a `Future` done-callback, where
+            # `concurrent.futures` swallows it and the run stays `running` for
+            # ever with its stream open. Record the failure instead: a run that
+            # searched successfully and could not be stored is still a run that
+            # ended.
+            LOG.exception("could not store the result of run %s", pending.run_id)
+            self._failed(pending, error)
 
     def _failed(self, pending: PendingRun, error: BaseException) -> None:
-        """Record the failure, with whatever curve reached the log before it.
+        """Record the outcome of a run that produced no portfolio.
 
         The run row persists: a failed run is still audit trail (§12). Its
         convergence is read back from ``run_event`` rather than remembered,
         because ``finish_run`` reconciles the two and the in-memory list did not
         survive whatever went wrong.
+
+        **A cancellation is recorded as one.** ``Runner.shutdown`` cancels
+        queued futures, and writing those as ``failed`` with ``ENGINE_ERROR``
+        would turn an orderly shutdown into a database full of engine crashes
+        that never happened — and the store has a ``cancelled`` state precisely
+        for this.
         """
+        cancelled = isinstance(error, CancelledError)
+        status = RunStatus.CANCELLED if cancelled else RunStatus.FAILED
+        code = CANCELLED_CODE if cancelled else ENGINE_ERROR_CODE
         try:
             with closing(self.connect()) as connection:
                 events = read_events(connection, run_id=pending.run_id)
@@ -263,11 +302,18 @@ class Service:
                         pending,
                         duration_ms=_elapsed_ms(pending.created_at),
                         convergence=convergence_from_log(events),
+                        status=status,
                     ),
                     finished_at=_now(),
-                    failure=RunFailure(code=ENGINE_ERROR, message=_diagnosis(error)),
+                    warnings_raised=pending.warnings,
+                    failure=RunFailure(code=code, message=_diagnosis(error)),
                 )
-        except (StoreError, ValueError):  # pragma: no cover - the run is already terminal
+        except RunAlreadyFinishedError:  # pragma: no cover - already terminal
+            pass
+        except Exception:
+            # The last line of defence. Nothing above can be retried usefully
+            # from here, so it is logged rather than raised: this runs inside a
+            # done-callback, where raising reaches nobody.
             LOG.exception("could not record the failure of run %s", pending.run_id)
 
 

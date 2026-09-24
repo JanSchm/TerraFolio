@@ -31,10 +31,10 @@ from fastapi import APIRouter, Header, Request, Response
 from fastapi.responses import StreamingResponse
 
 from terrafolio.api.errors import ApiError, ErrorCode
-from terrafolio.api.messages import render
+from terrafolio.api.messages import render, terminal_error, warnings_for
 from terrafolio.api.pipeline_source import Snapshot
 from terrafolio.api.routes_pipeline import require_active_assumption_set, service_of
-from terrafolio.api.service import ENGINE_ERROR, Service
+from terrafolio.api.service import Service
 from terrafolio.api.sse import RunPulse, event_stream, read_pulse, resume_from
 from terrafolio.api.wire import (
     OptimisationAccepted,
@@ -46,7 +46,6 @@ from terrafolio.api.wire import (
 from terrafolio.domain.conventions import EUR_PER_EUR_MILLION
 from terrafolio.domain.enums import RunStatus, WarningCode
 from terrafolio.domain.reduce import mandate_to_scalars
-from terrafolio.domain.results import FeasibilityWarning
 from terrafolio.export.committee import CommitteePackUnavailableError, committee_pack
 from terrafolio.export.csv import cashflow_csv, holdings_csv
 from terrafolio.optimiser.feasibility import FeasibilityPreview, preview_feasibility
@@ -87,23 +86,6 @@ def _preview(
     )
 
 
-def _warnings(preview: FeasibilityPreview) -> tuple[FeasibilityWarning, ...]:
-    """§5's warnings, ordered by severity, each with its pinned sentence.
-
-    ``severity`` is ``alert`` or ``info``, as 1A's enum defines it. Whether a
-    warning *blocks* is not a severity — it is a property of the code, and
-    ``runnable`` is the signal a client acts on.
-    """
-    return tuple(
-        FeasibilityWarning(
-            code=signal.code,
-            severity=signal.code.severity,
-            message=render(signal.code, signal.detail),
-        )
-        for signal in preview.signals
-    )
-
-
 @router.post("/mandate/preview")
 def post_preview(request: Request, body: PreviewRequest) -> PreviewResponse:
     """§5. The §5.4 figures for a mandate, without starting a run.
@@ -124,7 +106,7 @@ def post_preview(request: Request, body: PreviewRequest) -> PreviewResponse:
             "eligible_solar_share": preview.eligible_solar_share,
             "eligible_gearing": preview.eligible_gearing,
             "locked_equity_m": preview.locked_equity / EUR_PER_EUR_MILLION,
-            "warnings": _warnings(preview),
+            "warnings": warnings_for(preview),
             "screens_to_widen": preview.screens_to_widen,
             "runnable": preview.runnable,
         }
@@ -209,18 +191,6 @@ def post_optimisation(request: Request, body: OptimisationRequest, response: Res
 # --------------------------------------------------------------------------
 
 
-FAILED_MESSAGE: Final = "The search did not complete. The failure is recorded against this run."
-"""What a failed run says on the wire.
-
-**Not the stored ``error_message``**, which holds the worker's whole traceback
-for the audit trail. §1.7 says ``message`` is "one sentence fit to show a user",
-and a traceback is neither one sentence nor fit to show: it carries the server's
-absolute filesystem paths and its internal structure to a caller that, in this
-backlog, is not authenticated at all (epic §12 Q7). The traceback stays in the
-store and in the server log, where an operator reads it.
-"""
-
-
 def _require_ulid(run_id: str) -> None:
     """A malformed id never reaches the store."""
     if not is_ulid(run_id):
@@ -291,7 +261,10 @@ def get_optimisation(request: Request, run_id: str) -> Response:
             )
         if pulse.status in TERMINAL_STATUSES:
             body: dict[str, Any] = json.loads(load_result_json(connection, run_id=run_id))
-            body["error"] = {"code": pulse.error_code or ENGINE_ERROR, "message": FAILED_MESSAGE}
+            # One definition of what a run that stopped says, shared with
+            # the stream — so a client watching a run and a client reading
+            # it afterwards are told the same story about why it ended.
+            body["error"] = dict(terminal_error(pulse.status, pulse.error_code))
             return Response(
                 content=json.dumps(body),
                 media_type="application/json",
