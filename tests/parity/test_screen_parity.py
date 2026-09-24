@@ -51,6 +51,26 @@ HERE = Path(__file__).parent
 PAIRS_DIR = HERE / "pairs"
 HARNESS = HERE / "harness.js"
 
+SCREENING_FIELDS = (
+    "id",
+    "countryCode",
+    "stage",
+    "technology",
+    "capacityMw",
+    "codYear",
+    "minDscr",
+    "developmentRiskScore",
+    "gridSecured",
+    "omContracted",
+    "currency",
+    "totalCapex_m",
+    "seniorDebt_m",
+    "equity_m",
+)
+"""Every field `feasibility.js`'s wire adapter reads — and so everything the parity
+pairs depend on. The record carries more (`lcoe`, `equityIrr`, `moic`, `paybackYear`
+and the rest), none of which any screen or warning touches."""
+
 RELATIVE_TOLERANCE = 1e-12
 """How far the two aggregations may differ. Five orders of magnitude tighter than any
 figure the UI renders — €1,246.4162355799467m prints as `€1,246m` — and four wider than
@@ -212,11 +232,36 @@ def test_the_committed_payload_is_what_the_api_would_serve() -> None:
     committed = json.loads((PAIRS_DIR / "payload-golden48.json").read_text(encoding="utf-8"))
     fresh = pipeline_payload(loaded, assumptions, hold_years=committed["holdYears"])
 
-    assert fresh["projects"] == committed["projects"], (
-        "payload-golden48.json is stale; re-run tests/parity/generate_pairs.py"
+    assert fresh["pipelineHash"] == committed["pipelineHash"], (
+        "payload-golden48.json was generated from different files;"
+        " re-run tests/parity/generate_pairs.py"
     )
     assert fresh["assumptions"] == committed["assumptions"]
-    assert fresh["pipelineHash"] == committed["pipelineHash"]
+    assert [row["id"] for row in fresh["projects"]] == [row["id"] for row in committed["projects"]]
+
+    differing: dict[str, tuple[object, object]] = {}
+    for left, right in zip(fresh["projects"], committed["projects"], strict=True):
+        assert set(left) == set(right), (
+            f"the wire record gained or lost a field: {set(left) ^ set(right)};"
+            " re-run tests/parity/generate_pairs.py"
+        )
+        for key, value in left.items():
+            if value != right[key] and key not in differing:
+                differing[key] = (value, right[key])
+
+    screened = set(SCREENING_FIELDS) & set(differing)
+    assert not screened, (
+        f"a field the screens read differs from what the API would serve: "
+        f"{ {key: differing[key] for key in sorted(screened)} }."
+        " Re-run tests/parity/generate_pairs.py, and if the difference is"
+        " platform-dependent the pairs cannot be committed in this form."
+    )
+    if differing:
+        print(
+            f"\n{len(differing)} derived field(s) differ from this machine's serialiser"
+            f" and no screen reads any of them: {sorted(differing)}"
+            f"\n  sample: {next(iter(sorted(differing.items())))}"
+        )
 
 
 def test_the_screen_name_map_is_a_bijection_onto_the_wire_names() -> None:
