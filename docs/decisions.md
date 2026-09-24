@@ -2469,6 +2469,15 @@ nothing to remember to update. Nothing is announced until a figure is known, bec
 ship showing em dashes and reading a row of those aloud on arrival is noise, and an unchanged
 sentence never interrupts twice.
 
+A region is announced only once **every** figure in it has arrived, not as soon as one has.
+The slots are found by `data-field`, which is what marks a figure as opposed to the words
+around it: the search screen's counter reads as the single string `ROUND — / —`, which is not
+the em dash and so looks like a value that has arrived when nothing has. It also learns its
+total from the `202` before the first round streams, so "at least one known" would read
+`ROUND — / 60. Mandate score —. Capacity —. …` aloud at the one moment the user is waiting to
+hear a number. A partly-known region stays silent; the next quiet window is a fraction of a
+second away.
+
 This meets §7.2's intent and not its letter. `ui-contract.md` §7.2 is amended to say so.
 
 ### 3B-4 · The holdings table's sort keys are the wire names, in the markup

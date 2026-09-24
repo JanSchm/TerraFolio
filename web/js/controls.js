@@ -43,6 +43,27 @@
   }
 
   /**
+   * The figures inside a region, as opposed to the words around them.
+   *
+   * `data-field` marks exactly the slots issue #11 fills, so it is what tells a
+   * value from the label beside it. Without that distinction the search screen's
+   * round counter reads as one string — "ROUND — / —" — which is not the em dash,
+   * and so looks like a figure that has arrived when nothing has.
+   *
+   * A definition list without `data-field` falls back to its `<dd>`s, and anything
+   * else to itself, so a region added later still has values rather than none.
+   */
+  function slots(node) {
+    var fields = node.querySelectorAll('[data-field]');
+    if (fields.length) return Array.prototype.slice.call(fields);
+    var terms = node.querySelectorAll('dt');
+    if (terms.length) {
+      return Array.prototype.map.call(terms, valueFor).filter(Boolean);
+    }
+    return [node];
+  }
+
+  /**
    * The `<dd>` belonging to a `<dt>`, for either shape a definition list takes.
    *
    * Walking forward to the next sibling `<dd>` is what the HTML actually means, and
@@ -411,36 +432,44 @@
       },
 
       flush: function () {
-        /* Nothing is known yet: the pages ship showing em dashes (§2) and reading a
-           row of them aloud on arrival is noise. Decided on the *values*, not on the
-           rendered sentence — a label that happens to contain a digit, like
-           "P50 GWh/y", says nothing about whether its figure has arrived. */
-        if (!this.values().some(function (v) { return v && v !== fmt.DASH; })) return;
-
         var text = this.compose();
-        /* Repeating what was just said says nothing either. */
+        /* Nothing worth saying, or nothing new to say. */
         if (!text || text === this.message) return;
         this.message = text;
       },
 
-      /**
-       * A source's `<dd>` values, or its whole text when it is not a definition
-       * list. What `flush` decides on.
-       */
+      /** A source's own value slots — see `slots()`. Kept for callers and tests. */
       values: function () {
         var out = [];
         this.sources.forEach(function (node) {
-          var terms = node.querySelectorAll('dt');
-          if (!terms.length) { out.push(collapse(node.textContent)); return; }
-          Array.prototype.forEach.call(terms, function (dt) {
-            out.push(collapse(valueFor(dt) && valueFor(dt).textContent));
-          });
+          slots(node).forEach(function (el) { out.push(collapse(el.textContent)); });
         });
         return out;
       },
 
+      /**
+       * A source is worth announcing once every figure in it has arrived.
+       *
+       * Not "at least one": the search screen learns its round total from the 202
+       * before the first round streams, and "ROUND — / 60. Mandate score —.
+       * Capacity —. …" is a sentence of em dashes read out at the one moment the
+       * user is waiting to hear a number. Partial is silence; the next quiet window
+       * is a fraction of a second away.
+       */
+      ready: function (node) {
+        var found = slots(node);
+        if (!found.length) return false;
+        return found.every(function (el) {
+          var value = collapse(el.textContent);
+          return value && value !== fmt.DASH;
+        });
+      },
+
       compose: function () {
-        var parts = this.sources.map(function (node) {
+        var self = this;
+        var parts = this.sources.filter(function (node) {
+          return self.ready(node);
+        }).map(function (node) {
           var terms = node.querySelectorAll('dt');
           if (!terms.length) return collapse(node.textContent);
           return Array.prototype.map.call(terms, function (dt) {

@@ -73,7 +73,7 @@ test('saying the same thing twice is not news', async () => {
   dom.window.close();
 });
 
-test('a row of em dashes is not announced, because nothing is known yet', async () => {
+test('a region is announced only once every figure in it has arrived', async () => {
   const { dom, dl } = figures(PAIR('Eligible capacity', '—') + PAIR('Equity required', '—'));
   const region = liveRegion({ quiet: 20 });
   region.observe([dl]);
@@ -83,9 +83,41 @@ test('a row of em dashes is not announced, because nothing is known yet', async 
   assert.equal(region.message, '',
     'the pages ship showing em dashes; reading them aloud on arrival is noise, not progress');
 
-  dl.querySelector('dd').textContent = '3,120 MW';
+  // One figure of two. "Eligible capacity 3,120 MW. Equity required —." is still
+  // mostly em dashes, and the rest is a fraction of a second away.
+  const [first, second] = dl.querySelectorAll('dd');
+  first.textContent = '3,120 MW';
   await after(dom.window, 50);
-  assert.match(region.message, /3,120 MW/, 'and it speaks as soon as a figure is real');
+  assert.equal(region.message, '', 'a partly-known region stays silent rather than half-reading');
+
+  second.textContent = '€1,154m';
+  await after(dom.window, 50);
+  assert.equal(region.message, 'Eligible capacity 3,120 MW. Equity required €1,154m.',
+    'and speaks once the whole region is real');
+  dom.window.close();
+});
+
+test('a labelled counter is not mistaken for a figure that has arrived', async () => {
+  // The search screen resets to "ROUND — / —", and learns its total from the 202
+  // before the first round streams. Neither is a figure. Comparing the whole
+  // labelled string to the em dash says both are.
+  const dom = new JSDOM('<p id="round">ROUND <span data-field="round">—</span> / '
+    + '<span data-field="roundTotal">—</span></p>');
+  const counter = dom.window.document.getElementById('round');
+  const region = liveRegion({ quiet: 10 });
+  region.observe([counter]);
+
+  counter.querySelector('[data-field="round"]').textContent = '—';
+  await after(dom.window, 40);
+  assert.equal(region.message, '', 'a reset counter has no progress to report');
+
+  counter.querySelector('[data-field="roundTotal"]').textContent = '60';
+  await after(dom.window, 40);
+  assert.equal(region.message, '', 'knowing the total is not knowing the round');
+
+  counter.querySelector('[data-field="round"]').textContent = '12';
+  await after(dom.window, 40);
+  assert.equal(region.message, 'ROUND 12 / 60.');
   dom.window.close();
 });
 
@@ -195,15 +227,23 @@ test('the mandate footer announces once the figures settle', async () => {
   const dom = await loadPage('mandate.html');
   const { window: w, window: { document: d } } = dom;
   const region = d.querySelector('[data-region="feasibility-announcer"]');
+  // Scoped to the footer: `totalCount` also appears in the page's own eyebrow.
+  const figuresRegion = d.querySelector('[data-region="feasibility-figures"]');
+  const set = (field, value) => {
+    figuresRegion.querySelector(`[data-field="${field}"]`).textContent = value;
+  };
 
+  set('totalCount', '300');
+  set('eligibleEquity_m', '€1,154m');
   for (let i = 0; i < 25; i += 1) {
-    d.querySelector('[data-field="eligibleCount"]').textContent = String(200 + i);
-    d.querySelector('[data-field="eligibleCapacityMw"]').textContent = `${3000 + i} MW`;
+    set('eligibleCount', String(200 + i));
+    set('eligibleCapacityMw', `${3000 + i} MW`);
   }
   assert.equal(region.textContent.trim(), '', 'still silent while the slider is moving');
 
   await after(w, 900);
-  assert.match(region.textContent, /Candidates passing screens 224/);
+  assert.match(region.textContent, /Candidates passing screens 224 of 300/);
   assert.match(region.textContent, /Eligible capacity 3024 MW/);
+  assert.match(region.textContent, /Equity required at full draw €1,154m/);
   dom.window.close();
 });
