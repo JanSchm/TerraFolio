@@ -1,0 +1,226 @@
+{
+  "pipelineHash": "sha256:36fe61be03c0ec64d0e604aec1624c74940b37c97256472290ce8ac35d9d96d9",
+  "assumptionSetId": "0e3fcf6de33d7fec",
+  "baseYear": 2027,
+  "holdYears": 10,
+  "projectCount": 3,
+  "projects": [
+    {
+      "id": "P01",
+      "name": "Almonte Solar",
+      "country": "Spain",
+      "countryCode": "ES",
+      "iso3": "ESP",
+      "lat": 39.25,
+      "lon": -6.52,
+      "technology": "solar",
+      "stage": "ready_to_build",
+      "capacityMw": 180.0,
+      "codYear": 2028,
+      "netCapacityFactor": 0.23032405956196597,
+      "annualGenerationGwh": 363.17497711730795,
+      "opexPerKwYear": 12.813182366080582,
+      "ppaShare": 0.55,
+      "ppaTenorYears": 10,
+      "ppaPrice": 34.0,
+      "countryBaseloadPrice": 58.0,
+      "captureFactor": 0.6724137931034483,
+      "capturePrice": 39.0,
+      "developmentRiskScore": 2.7,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 103.32256329012014,
+      "seniorDebt_m": 74.3922455688865,
+      "equity_m": 28.93031772123365,
+      "gearing": 0.7199999999999999,
+      "maxGearing": 0.72,
+      "capexPerKw": 574.0142405006675,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 31.018011741422427,
+      "minDscr": 1.649509529962943,
+      "thirtyYearFcfe_m": 204.2477477603765,
+      "equityIrr": 0.15064766814634456,
+      "moic": 2.8042820445698307,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P27",
+      "name": "Norrland Vind",
+      "country": "Sweden",
+      "countryCode": "SE",
+      "iso3": "SWE",
+      "lat": 64.2,
+      "lon": 19.8,
+      "technology": "onshore_wind",
+      "stage": "ready_to_build",
+      "capacityMw": 200.0,
+      "codYear": 2029,
+      "netCapacityFactor": 0.3334218340371921,
+      "annualGenerationGwh": 584.1550532331606,
+      "opexPerKwYear": 51.900836650282145,
+      "ppaShare": 0.73,
+      "ppaTenorYears": 12,
+      "ppaPrice": 35.0,
+      "countryBaseloadPrice": 42.0,
+      "captureFactor": 0.8809523809523809,
+      "capturePrice": 37.0,
+      "developmentRiskScore": 2.6,
+      "gridSecured": true,
+      "omContracted": false,
+      "currency": "SEK",
+      "totalCapex_m": 210.0,
+      "seniorDebt_m": 82.88340294571596,
+      "equity_m": 127.11659705428404,
+      "gearing": 0.394682871170076,
+      "maxGearing": 0.72,
+      "capexPerKw": 1050.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 50.47864936600651,
+      "minDscr": 1.2960676025021587,
+      "thirtyYearFcfe_m": 74.42185243775245,
+      "equityIrr": -0.12983973235065954,
+      "moic": 0.35743525407024623,
+      "paybackYear": null,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P47",
+      "name": "Borssele Extension",
+      "country": "Netherlands",
+      "countryCode": "NL",
+      "iso3": "NLD",
+      "lat": 51.7,
+      "lon": 3.0,
+      "technology": "offshore_wind",
+      "stage": "construction",
+      "capacityMw": 300.0,
+      "codYear": 2029,
+      "netCapacityFactor": 0.5068177721090614,
+      "annualGenerationGwh": 1331.9171051026135,
+      "opexPerKwYear": 86.11705061234534,
+      "ppaShare": 0.9,
+      "ppaTenorYears": 10,
+      "ppaPrice": 62.0,
+      "countryBaseloadPrice": 74.0,
+      "captureFactor": 0.8648648648648649,
+      "capturePrice": 64.0,
+      "developmentRiskScore": 3.4,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 661.3789100850872,
+      "seniorDebt_m": 456.6823121271731,
+      "equity_m": 204.69659795791412,
+      "gearing": 0.690500264165394,
+      "maxGearing": 0.75,
+      "capexPerKw": 2204.5963669502908,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 64.30021950574124,
+      "minDscr": 1.3615540334217537,
+      "thirtyYearFcfe_m": 860.9661760484324,
+      "equityIrr": 0.04935860614181198,
+      "moic": 1.4244552854193375,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "high"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    }
+  ],
+  "assumptions": {
+    "riskCaps": {
+      "low": 2.6,
+      "balanced": 3.6,
+      "high": 5.0
+    }
+  }
+}

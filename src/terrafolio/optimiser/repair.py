@@ -21,37 +21,110 @@ whole design: it timed out a 120 s benchmark where this form takes 2.5 s.
 anything else. If the locks alone exceed the budget there is nothing to repair, and
 that case never reaches the search — §5.4's ``LOCKS_EXCEED_CAPITAL`` is blocking and
 ``POST /optimisations`` answers 422.
+
+TWO MASKS, ONE OF WHICH PAYS (#12)
+==================================
+
+``cProfile`` puts this operator at 55% of an Exhaustive run at 2,000 candidates, spread
+across the argsort, the gather, the cumsum and the scatter — all of which run at the
+full ``(m, n)``. #12 narrows both axes.
+
+**By column, unconditionally.** No row holds more than ``width`` projects, so ranked
+positions beyond ``width`` are unheld in *every* row. ``held`` is ``False`` there and
+the scatter would write back the zeros it started from, which means the gather, the
+accumulation and the scatter can stop at ``width`` — about 22 of 2,000 in practice. The
+ranking itself still runs over the full row, so sort stability is untouched and the
+answer is bit-identical; ``tests/regression/test_repair_equivalence.py`` holds that
+against the pre-#12 implementation.
+
+**By row, only when asked.** ``tolerance`` skips rows already inside their budget,
+which is what epic §7 predicted would be the win. It is not: measured over real runs,
+95-99% of rows are over budget at every call, because the utilisation reward parks
+chromosomes on the budget boundary and mutation and crossover push nearly every child
+back over it. The mask ships because it costs almost nothing and protects the one case
+where it would matter — a mandate whose capital dwarfs its pipeline — but the numbers
+are in ``docs/decisions.md`` 4B-1 so nobody expects it to do more.
+
+``tolerance`` is a **margin below the budget**, not a margin above it. The mask sums a
+row all at once and the trimming accumulates along a ranked permutation, so the two can
+disagree in the last bit about whether a row exceeds its budget — and where the mask says
+"fits" and the accumulation says "does not", skipping the row would keep a holding the
+unmasked operator drops. Widening the mask by the tolerance puts every
+such row back on the full path. ``None`` means no row mask at all, which is the pre-#12
+behaviour exactly; ``ga.py`` passes ``objective.equity_cap_tolerance_eur``, the constant
+epic §6.2 introduced for this same rounding artefact on this same boundary.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-from terrafolio.pipeline.arrays import BoolVector, Matrix, Vector
+from terrafolio.pipeline.arrays import BoolVector, IntVector, Matrix, Vector
 
 __all__ = ["repair_to_budget"]
 
 
-def repair_to_budget(
+def _rows_to_repair(
+    population: BoolVector, equity: Vector, budget: float, tolerance: float | None
+) -> slice | IntVector:
+    """Which rows need the full treatment, or every row when ``tolerance`` is ``None``.
+
+    The row totals come from ``einsum``, deliberately not from ``population @ equity``:
+    a GEMM's reduction order depends on BLAS blocking and thread count, and the one
+    place that may vary across machines is the fitness the GA quantises, not an operator
+    that decides which holdings survive. ``optimize=False`` keeps einsum from handing
+    the contraction back to ``tensordot`` and so to the GEMM.
+
+    It is also the form that does not build an ``(m, n)`` temporary — ``np.where``
+    materialises one, 2.6 MB at (158, 2000), once per generation. einsum buffers
+    instead: 0.07 MB, and slightly faster at the width that matters.
+
+    Its summation order differs from a pairwise ``sum`` by about 1e-15 relative, which
+    is six orders of magnitude inside the €1 tolerance the caller passes, so it cannot
+    move a row across the mask boundary.
+    """
+    if tolerance is None:
+        return slice(None)
+    held = np.einsum("mn,n->m", population, equity, optimize=False)
+    return np.flatnonzero(held > budget - tolerance)
+
+
+def repair_to_budget(  # noqa: PLR0913 - one keyword per axis of the operator, by design
     population: BoolVector,
     *,
     priority: Matrix,
     equity: Vector,
     budget: float,
     locked: BoolVector | None = None,
+    tolerance: float | None = None,
 ) -> BoolVector:
     """Drop holdings from each row until its equity fits ``budget``.
 
     ``population`` is ``(m, n)`` boolean, ``priority`` is ``(m, n)`` of the same shape
     — one fresh draw per chromosome per generation, which is what keeps the operator
     deterministic under a seeded generator and unbiased across the population.
-    """
-    keep_first = np.where(locked, -np.inf, priority) if locked is not None else priority
-    ranked = np.argsort(np.where(population, keep_first, np.inf), axis=-1, kind="stable")
 
-    held = np.take_along_axis(population, ranked, axis=-1)
+    ``tolerance`` is how far below ``budget`` a row may total and still be left alone.
+    The answer does not depend on it; only the cost does.
+    """
+    rows = _rows_to_repair(population, equity, budget, tolerance)
+    over = population[rows]
+    priorities = priority[rows]
+    keep_first = np.where(locked, -np.inf, priorities) if locked is not None else priorities
+
+    width = int(over.sum(axis=-1).max(initial=0))
+    ranked = np.argsort(np.where(over, keep_first, np.inf), axis=-1, kind="stable")[:, :width]
+
+    held = np.take_along_axis(over, ranked, axis=-1)
     cumulative = np.cumsum(np.where(held, equity[ranked], 0.0), axis=-1)
 
-    repaired = np.zeros_like(population)
-    np.put_along_axis(repaired, ranked, held & (cumulative <= budget), axis=-1)
+    trimmed = np.zeros_like(over)
+    np.put_along_axis(trimmed, ranked, held & (cumulative <= budget), axis=-1)
+
+    if isinstance(rows, slice):
+        # Every row was repaired, so `trimmed` is already the whole answer. Copying the
+        # population only to overwrite all of it is a (m, n) allocation for nothing.
+        return trimmed
+    repaired = population.copy()
+    repaired[rows] = trimmed
     return repaired

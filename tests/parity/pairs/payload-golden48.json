@@ -1,0 +1,3376 @@
+{
+  "pipelineHash": "sha256:36fe61be03c0ec64d0e604aec1624c74940b37c97256472290ce8ac35d9d96d9",
+  "assumptionSetId": "0e3fcf6de33d7fec",
+  "baseYear": 2027,
+  "holdYears": 10,
+  "projectCount": 48,
+  "projects": [
+    {
+      "id": "P01",
+      "name": "Almonte Solar",
+      "country": "Spain",
+      "countryCode": "ES",
+      "iso3": "ESP",
+      "lat": 39.25,
+      "lon": -6.52,
+      "technology": "solar",
+      "stage": "ready_to_build",
+      "capacityMw": 180.0,
+      "codYear": 2028,
+      "netCapacityFactor": 0.23032405956196597,
+      "annualGenerationGwh": 363.17497711730795,
+      "opexPerKwYear": 12.813182366080582,
+      "ppaShare": 0.55,
+      "ppaTenorYears": 10,
+      "ppaPrice": 34.0,
+      "countryBaseloadPrice": 58.0,
+      "captureFactor": 0.6724137931034483,
+      "capturePrice": 39.0,
+      "developmentRiskScore": 2.7,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 103.32256329012014,
+      "seniorDebt_m": 74.3922455688865,
+      "equity_m": 28.93031772123365,
+      "gearing": 0.7199999999999999,
+      "maxGearing": 0.72,
+      "capexPerKw": 574.0142405006675,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 31.018011741422427,
+      "minDscr": 1.649509529962943,
+      "thirtyYearFcfe_m": 204.2477477603765,
+      "equityIrr": 0.15064766814634456,
+      "moic": 2.8042820445698307,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P02",
+      "name": "Tierra Llana PV",
+      "country": "Spain",
+      "countryCode": "ES",
+      "iso3": "ESP",
+      "lat": 38.6,
+      "lon": -5.9,
+      "technology": "solar",
+      "stage": "greenfield",
+      "capacityMw": 240.0,
+      "codYear": 2030,
+      "netCapacityFactor": 0.23049640181921421,
+      "annualGenerationGwh": 484.59563518471606,
+      "opexPerKwYear": 14.922530625015497,
+      "ppaShare": 0.3,
+      "ppaTenorYears": 10,
+      "ppaPrice": 37.0,
+      "countryBaseloadPrice": 58.0,
+      "captureFactor": 0.6724137931034483,
+      "capturePrice": 39.0,
+      "developmentRiskScore": 4.0,
+      "gridSecured": false,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 134.4,
+      "seniorDebt_m": 87.36000000000001,
+      "equity_m": 47.039999999999985,
+      "gearing": 0.6500000000000001,
+      "maxGearing": 0.65,
+      "capexPerKw": 560.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 35.154201275827866,
+      "minDscr": 1.9518431554402877,
+      "thirtyYearFcfe_m": 239.59771227492928,
+      "equityIrr": 0.13779716626280736,
+      "moic": 2.4756284483209496,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "generation": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "grid": {
+          "estimateBasis": "placeholder",
+          "confidence": "low"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "medium"
+        }
+      }
+    },
+    {
+      "id": "P03",
+      "name": "Ebro Valley PV",
+      "country": "Spain",
+      "countryCode": "ES",
+      "iso3": "ESP",
+      "lat": 41.6,
+      "lon": -0.9,
+      "technology": "solar",
+      "stage": "construction",
+      "capacityMw": 150.0,
+      "codYear": 2027,
+      "netCapacityFactor": 0.23066156546589917,
+      "annualGenerationGwh": 303.08929702219154,
+      "opexPerKwYear": 12.906803573481739,
+      "ppaShare": 0.8,
+      "ppaTenorYears": 15,
+      "ppaPrice": 35.0,
+      "countryBaseloadPrice": 58.0,
+      "captureFactor": 0.6724137931034483,
+      "capturePrice": 39.0,
+      "developmentRiskScore": 1.6,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 98.22465637859051,
+      "seniorDebt_m": 71.58355349351771,
+      "equity_m": 26.641102885072797,
+      "gearing": 0.7287737736400001,
+      "maxGearing": 0.75,
+      "capexPerKw": 654.8310425239367,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 32.55537657472042,
+      "minDscr": 1.3890914924873556,
+      "thirtyYearFcfe_m": 153.24288553127832,
+      "equityIrr": 0.10230052696388559,
+      "moic": 2.0386964186392165,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "high"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P04",
+      "name": "Sierra Norte PV",
+      "country": "Spain",
+      "countryCode": "ES",
+      "iso3": "ESP",
+      "lat": 37.9,
+      "lon": -4.8,
+      "technology": "solar",
+      "stage": "ready_to_build",
+      "capacityMw": 110.0,
+      "codYear": 2029,
+      "netCapacityFactor": 0.230862620228203,
+      "annualGenerationGwh": 222.45922085189642,
+      "opexPerKwYear": 15.149080727249384,
+      "ppaShare": 0.45,
+      "ppaTenorYears": 12,
+      "ppaPrice": 37.0,
+      "countryBaseloadPrice": 58.0,
+      "captureFactor": 0.6724137931034483,
+      "capturePrice": 39.0,
+      "developmentRiskScore": 2.9,
+      "gridSecured": true,
+      "omContracted": false,
+      "currency": "EUR",
+      "totalCapex_m": 65.46151777554721,
+      "seniorDebt_m": 47.13229279839399,
+      "equity_m": 18.32922497715322,
+      "gearing": 0.72,
+      "maxGearing": 0.72,
+      "capexPerKw": 595.1047070504292,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 34.91893370956493,
+      "minDscr": 1.634468670565817,
+      "thirtyYearFcfe_m": 108.3964937395652,
+      "equityIrr": 0.1360432741131291,
+      "moic": 2.500664936969019,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "medium"
+        }
+      }
+    },
+    {
+      "id": "P05",
+      "name": "Castilla Fields",
+      "country": "Spain",
+      "countryCode": "ES",
+      "iso3": "ESP",
+      "lat": 41.0,
+      "lon": -4.5,
+      "technology": "solar",
+      "stage": "greenfield",
+      "capacityMw": 300.0,
+      "codYear": 2031,
+      "netCapacityFactor": 0.23104202725999054,
+      "annualGenerationGwh": 607.1784476392553,
+      "opexPerKwYear": 13.13337084185332,
+      "ppaShare": 0.29,
+      "ppaTenorYears": 12,
+      "ppaPrice": 38.0,
+      "countryBaseloadPrice": 58.0,
+      "captureFactor": 0.6724137931034483,
+      "capturePrice": 39.0,
+      "developmentRiskScore": 4.5,
+      "gridSecured": false,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 175.36757163823034,
+      "seniorDebt_m": 113.98892156484973,
+      "equity_m": 61.37865007338062,
+      "gearing": 0.65,
+      "maxGearing": 0.65,
+      "capexPerKw": 584.5585721274346,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 37.44382080887593,
+      "minDscr": 1.948344642095565,
+      "thirtyYearFcfe_m": 284.3527711099175,
+      "equityIrr": 0.12466391799881482,
+      "moic": 2.2337090661567243,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "generation": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "grid": {
+          "estimateBasis": "placeholder",
+          "confidence": "low"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "medium"
+        }
+      }
+    },
+    {
+      "id": "P06",
+      "name": "Alqueva Solar",
+      "country": "Portugal",
+      "countryCode": "PT",
+      "iso3": "PRT",
+      "lat": 38.2,
+      "lon": -7.5,
+      "technology": "solar",
+      "stage": "ready_to_build",
+      "capacityMw": 95.0,
+      "codYear": 2028,
+      "netCapacityFactor": 0.22177715595257466,
+      "annualGenerationGwh": 184.56294918373266,
+      "opexPerKwYear": 15.117719219997525,
+      "ppaShare": 0.49,
+      "ppaTenorYears": 12,
+      "ppaPrice": 33.0,
+      "countryBaseloadPrice": 56.0,
+      "captureFactor": 0.6785714285714286,
+      "capturePrice": 38.0,
+      "developmentRiskScore": 3.4,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 53.2,
+      "seniorDebt_m": 38.304,
+      "equity_m": 14.896,
+      "gearing": 0.72,
+      "maxGearing": 0.72,
+      "capexPerKw": 560.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 32.89113727300627,
+      "minDscr": 1.51252677761691,
+      "thirtyYearFcfe_m": 88.30558447473383,
+      "equityIrr": 0.11749576916497528,
+      "moic": 2.2913177686570534,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "medium"
+        }
+      }
+    },
+    {
+      "id": "P07",
+      "name": "Algarve Sol",
+      "country": "Portugal",
+      "countryCode": "PT",
+      "iso3": "PRT",
+      "lat": 37.2,
+      "lon": -8.0,
+      "technology": "solar",
+      "stage": "greenfield",
+      "capacityMw": 130.0,
+      "codYear": 2030,
+      "netCapacityFactor": 0.22189406318953256,
+      "annualGenerationGwh": 252.6929591602397,
+      "opexPerKwYear": 13.476674376055598,
+      "ppaShare": 0.26,
+      "ppaTenorYears": 20,
+      "ppaPrice": 36.0,
+      "countryBaseloadPrice": 56.0,
+      "captureFactor": 0.6785714285714286,
+      "capturePrice": 38.0,
+      "developmentRiskScore": 4.5,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 72.8,
+      "seniorDebt_m": 47.32,
+      "equity_m": 25.48,
+      "gearing": 0.65,
+      "maxGearing": 0.65,
+      "capexPerKw": 560.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 35.7098620537967,
+      "minDscr": 1.8525743796599168,
+      "thirtyYearFcfe_m": 112.74066924164941,
+      "equityIrr": 0.12211309084054556,
+      "moic": 2.2489840699603563,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "generation": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "medium"
+        }
+      }
+    },
+    {
+      "id": "P08",
+      "name": "Guadiana Sol",
+      "country": "Portugal",
+      "countryCode": "PT",
+      "iso3": "PRT",
+      "lat": 38.0,
+      "lon": -7.9,
+      "technology": "solar",
+      "stage": "construction",
+      "capacityMw": 85.0,
+      "codYear": 2027,
+      "netCapacityFactor": 0.2220595745438244,
+      "annualGenerationGwh": 165.34555920533168,
+      "opexPerKwYear": 15.086089204065502,
+      "ppaShare": 0.78,
+      "ppaTenorYears": 20,
+      "ppaPrice": 33.0,
+      "countryBaseloadPrice": 56.0,
+      "captureFactor": 0.6785714285714286,
+      "capturePrice": 38.0,
+      "developmentRiskScore": 2.5,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 47.6,
+      "seniorDebt_m": 34.9504088369859,
+      "equity_m": 12.6495911630141,
+      "gearing": 0.7342522864913005,
+      "maxGearing": 0.75,
+      "capexPerKw": 560.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 31.182891327676543,
+      "minDscr": 1.3629517363861001,
+      "thirtyYearFcfe_m": 68.34611322561042,
+      "equityIrr": 0.10250082568337204,
+      "moic": 2.039386807498406,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "high"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P09",
+      "name": "Puglia Sole",
+      "country": "Italy",
+      "countryCode": "IT",
+      "iso3": "ITA",
+      "lat": 40.9,
+      "lon": 16.9,
+      "technology": "solar",
+      "stage": "ready_to_build",
+      "capacityMw": 85.0,
+      "codYear": 2028,
+      "netCapacityFactor": 0.2033309405522421,
+      "annualGenerationGwh": 151.4002183351995,
+      "opexPerKwYear": 13.195775364525616,
+      "ppaShare": 0.59,
+      "ppaTenorYears": 12,
+      "ppaPrice": 63.0,
+      "countryBaseloadPrice": 92.0,
+      "captureFactor": 0.6847826086956522,
+      "capturePrice": 63.00000000000001,
+      "developmentRiskScore": 2.8,
+      "gridSecured": true,
+      "omContracted": false,
+      "currency": "EUR",
+      "totalCapex_m": 80.75,
+      "seniorDebt_m": 58.14,
+      "equity_m": 22.61,
+      "gearing": 0.72,
+      "maxGearing": 0.72,
+      "capexPerKw": 950.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 53.26251478716014,
+      "minDscr": 1.635465846166176,
+      "thirtyYearFcfe_m": 141.60757579377076,
+      "equityIrr": 0.14889910970428144,
+      "moic": 2.779391848244061,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P10",
+      "name": "Sicilia Solare",
+      "country": "Italy",
+      "countryCode": "IT",
+      "iso3": "ITA",
+      "lat": 37.5,
+      "lon": 14.3,
+      "technology": "solar",
+      "stage": "construction",
+      "capacityMw": 120.0,
+      "codYear": 2027,
+      "netCapacityFactor": 0.20348206896637566,
+      "annualGenerationGwh": 213.9003508974541,
+      "opexPerKwYear": 15.055055271834135,
+      "ppaShare": 0.72,
+      "ppaTenorYears": 15,
+      "ppaPrice": 59.0,
+      "countryBaseloadPrice": 92.0,
+      "captureFactor": 0.6847826086956522,
+      "capturePrice": 63.00000000000001,
+      "developmentRiskScore": 2.0,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 110.90954878427885,
+      "seniorDebt_m": 83.18216158820914,
+      "equity_m": 27.727387196069717,
+      "gearing": 0.75,
+      "maxGearing": 0.75,
+      "capexPerKw": 924.2462398689904,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 50.15772273295681,
+      "minDscr": 1.4973048712694013,
+      "thirtyYearFcfe_m": 195.37463406624107,
+      "equityIrr": 0.15450674967729483,
+      "moic": 2.774854265560116,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "high"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P11",
+      "name": "Maremma PV",
+      "country": "Italy",
+      "countryCode": "IT",
+      "iso3": "ITA",
+      "lat": 42.8,
+      "lon": 11.1,
+      "technology": "solar",
+      "stage": "greenfield",
+      "capacityMw": 70.0,
+      "codYear": 2030,
+      "netCapacityFactor": 0.203626922460366,
+      "annualGenerationGwh": 124.86402885269642,
+      "opexPerKwYear": 13.039408373646438,
+      "ppaShare": 0.33,
+      "ppaTenorYears": 10,
+      "ppaPrice": 58.0,
+      "countryBaseloadPrice": 92.0,
+      "captureFactor": 0.6847826086956522,
+      "capturePrice": 63.00000000000001,
+      "developmentRiskScore": 3.5,
+      "gridSecured": false,
+      "omContracted": false,
+      "currency": "EUR",
+      "totalCapex_m": 57.92865469321563,
+      "seniorDebt_m": 37.65362555059016,
+      "equity_m": 20.275029142625467,
+      "gearing": 0.65,
+      "maxGearing": 0.65,
+      "capexPerKw": 827.5522099030803,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 53.32194690080848,
+      "minDscr": 2.034610742998187,
+      "thirtyYearFcfe_m": 113.37371740318167,
+      "equityIrr": 0.15358215379480533,
+      "moic": 2.7358382392602816,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "generation": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "grid": {
+          "estimateBasis": "placeholder",
+          "confidence": "low"
+        },
+        "om": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "medium"
+        }
+      }
+    },
+    {
+      "id": "P12",
+      "name": "Thessaly Solar",
+      "country": "Greece",
+      "countryCode": "GR",
+      "iso3": "GRC",
+      "lat": 39.5,
+      "lon": 22.3,
+      "technology": "solar",
+      "stage": "ready_to_build",
+      "capacityMw": 105.0,
+      "codYear": 2029,
+      "netCapacityFactor": 0.2103870897775702,
+      "annualGenerationGwh": 193.51404517740906,
+      "opexPerKwYear": 15.024896793998778,
+      "ppaShare": 0.76,
+      "ppaTenorYears": 10,
+      "ppaPrice": 51.0,
+      "countryBaseloadPrice": 84.0,
+      "captureFactor": 0.6785714285714286,
+      "capturePrice": 57.0,
+      "developmentRiskScore": 3.0,
+      "gridSecured": true,
+      "omContracted": false,
+      "currency": "EUR",
+      "totalCapex_m": 88.08151083820192,
+      "seniorDebt_m": 63.41868780350538,
+      "equity_m": 24.66282303469655,
+      "gearing": 0.7199999999999999,
+      "maxGearing": 0.72,
+      "capexPerKw": 838.8715317923993,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 50.283152340193986,
+      "minDscr": 1.5213234254080878,
+      "thirtyYearFcfe_m": 143.47832504529816,
+      "equityIrr": 0.1017513658444752,
+      "moic": 2.0138564973942414,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P13",
+      "name": "Peloponnese PV",
+      "country": "Greece",
+      "countryCode": "GR",
+      "iso3": "GRC",
+      "lat": 37.5,
+      "lon": 22.2,
+      "technology": "solar",
+      "stage": "greenfield",
+      "capacityMw": 90.0,
+      "codYear": 2030,
+      "netCapacityFactor": 0.2106538320377469,
+      "annualGenerationGwh": 166.0794811785597,
+      "opexPerKwYear": 13.009049540385604,
+      "ppaShare": 0.51,
+      "ppaTenorYears": 15,
+      "ppaPrice": 53.0,
+      "countryBaseloadPrice": 84.0,
+      "captureFactor": 0.6785714285714286,
+      "capturePrice": 57.0,
+      "developmentRiskScore": 4.3,
+      "gridSecured": false,
+      "omContracted": false,
+      "currency": "EUR",
+      "totalCapex_m": 66.94237881398101,
+      "seniorDebt_m": 43.512546229087654,
+      "equity_m": 23.42983258489336,
+      "gearing": 0.6499999999999999,
+      "maxGearing": 0.65,
+      "capexPerKw": 743.8042090442335,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 47.08524443230241,
+      "minDscr": 2.0691837618097444,
+      "thirtyYearFcfe_m": 130.35419591175733,
+      "equityIrr": 0.1550151589394274,
+      "moic": 2.7535958256242568,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "generation": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "grid": {
+          "estimateBasis": "placeholder",
+          "confidence": "low"
+        },
+        "om": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P14",
+      "name": "Attica Fields",
+      "country": "Greece",
+      "countryCode": "GR",
+      "iso3": "GRC",
+      "lat": 38.1,
+      "lon": 23.6,
+      "technology": "solar",
+      "stage": "construction",
+      "capacityMw": 65.0,
+      "codYear": 2027,
+      "netCapacityFactor": 0.21070589388521388,
+      "annualGenerationGwh": 119.97593597824078,
+      "opexPerKwYear": 15.243520601652563,
+      "ppaShare": 0.8,
+      "ppaTenorYears": 20,
+      "ppaPrice": 56.0,
+      "countryBaseloadPrice": 84.0,
+      "captureFactor": 0.6785714285714286,
+      "capturePrice": 57.0,
+      "developmentRiskScore": 2.5,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 61.75,
+      "seniorDebt_m": 46.21025640662352,
+      "equity_m": 15.53974359337648,
+      "gearing": 0.748344233305644,
+      "maxGearing": 0.75,
+      "capexPerKw": 950.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 49.65168525324313,
+      "minDscr": 1.3994083745541503,
+      "thirtyYearFcfe_m": 84.94456464762354,
+      "equityIrr": 0.1189268266034661,
+      "moic": 2.264493275724275,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "high"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P15",
+      "name": "Occitanie Solaire",
+      "country": "France",
+      "countryCode": "FR",
+      "iso3": "FRA",
+      "lat": 43.6,
+      "lon": 1.4,
+      "technology": "solar",
+      "stage": "ready_to_build",
+      "capacityMw": 75.0,
+      "codYear": 2029,
+      "netCapacityFactor": 0.16343604045681653,
+      "annualGenerationGwh": 107.37747858012848,
+      "opexPerKwYear": 13.102553904987872,
+      "ppaShare": 0.71,
+      "ppaTenorYears": 20,
+      "ppaPrice": 46.0,
+      "countryBaseloadPrice": 67.0,
+      "captureFactor": 0.6865671641791045,
+      "capturePrice": 46.0,
+      "developmentRiskScore": 2.7,
+      "gridSecured": true,
+      "omContracted": false,
+      "currency": "EUR",
+      "totalCapex_m": 42.0,
+      "seniorDebt_m": 30.24,
+      "equity_m": 11.76,
+      "gearing": 0.72,
+      "maxGearing": 0.72,
+      "capexPerKw": 560.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 45.540807259585456,
+      "minDscr": 1.4722229094969366,
+      "thirtyYearFcfe_m": 48.87096167033144,
+      "equityIrr": 0.08637397436626981,
+      "moic": 1.8215143664990285,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P16",
+      "name": "Aquitaine PV",
+      "country": "France",
+      "countryCode": "FR",
+      "iso3": "FRA",
+      "lat": 44.8,
+      "lon": -0.6,
+      "technology": "solar",
+      "stage": "construction",
+      "capacityMw": 60.0,
+      "codYear": 2027,
+      "netCapacityFactor": 0.16347618099715558,
+      "annualGenerationGwh": 85.92308073210498,
+      "opexPerKwYear": 15.462133217602968,
+      "ppaShare": 0.83,
+      "ppaTenorYears": 10,
+      "ppaPrice": 46.0,
+      "countryBaseloadPrice": 67.0,
+      "captureFactor": 0.6865671641791045,
+      "capturePrice": 46.0,
+      "developmentRiskScore": 1.8,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 33.6,
+      "seniorDebt_m": 24.226049120294274,
+      "equity_m": 9.373950879705728,
+      "gearing": 0.7210133666754248,
+      "maxGearing": 0.75,
+      "capexPerKw": 560.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 42.64321553928823,
+      "minDscr": 1.3627685561221423,
+      "thirtyYearFcfe_m": 47.568894106122144,
+      "equityIrr": 0.08884721181474597,
+      "moic": 1.8641018986365008,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "high"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P17",
+      "name": "Lausitz Solarpark",
+      "country": "Germany",
+      "countryCode": "DE",
+      "iso3": "DEU",
+      "lat": 51.6,
+      "lon": 14.3,
+      "technology": "solar",
+      "stage": "ready_to_build",
+      "capacityMw": 140.0,
+      "codYear": 2028,
+      "netCapacityFactor": 0.12180298765659332,
+      "annualGenerationGwh": 149.37918406204602,
+      "opexPerKwYear": 13.071957640349865,
+      "ppaShare": 0.7,
+      "ppaTenorYears": 10,
+      "ppaPrice": 43.0,
+      "countryBaseloadPrice": 73.0,
+      "captureFactor": 0.684931506849315,
+      "capturePrice": 50.0,
+      "developmentRiskScore": 2.6,
+      "gridSecured": true,
+      "omContracted": false,
+      "currency": "EUR",
+      "totalCapex_m": 78.4,
+      "seniorDebt_m": 39.393383435325774,
+      "equity_m": 39.006616564674225,
+      "gearing": 0.5024666254505838,
+      "maxGearing": 0.72,
+      "capexPerKw": 560.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 57.80391976832153,
+      "minDscr": 1.390637567119074,
+      "thirtyYearFcfe_m": 66.4086710423022,
+      "equityIrr": -0.036150111330586376,
+      "moic": 0.7512719835691241,
+      "paybackYear": null,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P18",
+      "name": "Bayern Süd PV",
+      "country": "Germany",
+      "countryCode": "DE",
+      "iso3": "DEU",
+      "lat": 48.4,
+      "lon": 11.6,
+      "technology": "solar",
+      "stage": "greenfield",
+      "capacityMw": 95.0,
+      "codYear": 2030,
+      "netCapacityFactor": 0.12183289540648459,
+      "annualGenerationGwh": 101.38933555727648,
+      "opexPerKwYear": 15.181360200978816,
+      "ppaShare": 0.33,
+      "ppaTenorYears": 12,
+      "ppaPrice": 47.0,
+      "countryBaseloadPrice": 73.0,
+      "captureFactor": 0.684931506849315,
+      "capturePrice": 50.0,
+      "developmentRiskScore": 3.8,
+      "gridSecured": false,
+      "omContracted": false,
+      "currency": "EUR",
+      "totalCapex_m": 53.2,
+      "seniorDebt_m": 28.521041215032255,
+      "equity_m": 24.678958784967744,
+      "gearing": 0.5361097972750424,
+      "maxGearing": 0.65,
+      "capexPerKw": 560.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 66.77162434358566,
+      "minDscr": 1.4,
+      "thirtyYearFcfe_m": 33.0792315609809,
+      "equityIrr": -0.04410257384847588,
+      "moic": 0.7256515385537944,
+      "paybackYear": null,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "generation": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "grid": {
+          "estimateBasis": "placeholder",
+          "confidence": "low"
+        },
+        "om": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "medium"
+        }
+      }
+    },
+    {
+      "id": "P19",
+      "name": "Wielkopolska PV",
+      "country": "Poland",
+      "countryCode": "PL",
+      "iso3": "POL",
+      "lat": 52.2,
+      "lon": 17.1,
+      "technology": "solar",
+      "stage": "ready_to_build",
+      "capacityMw": 80.0,
+      "codYear": 2029,
+      "netCapacityFactor": 0.11244956157360225,
+      "annualGenerationGwh": 78.80465275078046,
+      "opexPerKwYear": 13.16557596437633,
+      "ppaShare": 0.66,
+      "ppaTenorYears": 12,
+      "ppaPrice": 51.0,
+      "countryBaseloadPrice": 80.0,
+      "captureFactor": 0.675,
+      "capturePrice": 54.0,
+      "developmentRiskScore": 2.4,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "PLN",
+      "totalCapex_m": 44.8,
+      "seniorDebt_m": 24.4761589951399,
+      "equity_m": 20.3238410048601,
+      "gearing": 0.5463428347129442,
+      "maxGearing": 0.72,
+      "capexPerKw": 560.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 66.25923784828639,
+      "minDscr": 1.3999999999999997,
+      "thirtyYearFcfe_m": 33.76136398093682,
+      "equityIrr": -0.03012582607440223,
+      "moic": 0.7971084519659263,
+      "paybackYear": null,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P20",
+      "name": "Dobrogea Solar",
+      "country": "Romania",
+      "countryCode": "RO",
+      "iso3": "ROU",
+      "lat": 44.4,
+      "lon": 28.3,
+      "technology": "solar",
+      "stage": "greenfield",
+      "capacityMw": 115.0,
+      "codYear": 2030,
+      "netCapacityFactor": 0.15073518670864403,
+      "annualGenerationGwh": 151.85062709028801,
+      "opexPerKwYear": 12.907366330735385,
+      "ppaShare": 0.61,
+      "ppaTenorYears": 10,
+      "ppaPrice": 48.0,
+      "countryBaseloadPrice": 80.0,
+      "captureFactor": 0.675,
+      "capturePrice": 54.0,
+      "developmentRiskScore": 3.5,
+      "gridSecured": false,
+      "omContracted": true,
+      "currency": "RON",
+      "totalCapex_m": 64.4,
+      "seniorDebt_m": 41.86000000000001,
+      "equity_m": 22.54,
+      "gearing": 0.65,
+      "maxGearing": 0.65,
+      "capexPerKw": 560.0000000000001,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 52.099854897278476,
+      "minDscr": 1.6601427172621384,
+      "thirtyYearFcfe_m": 94.25153543750763,
+      "equityIrr": 0.07628348800082996,
+      "moic": 1.675857254370387,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "generation": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "grid": {
+          "estimateBasis": "placeholder",
+          "confidence": "low"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P21",
+      "name": "Banat Solar",
+      "country": "Romania",
+      "countryCode": "RO",
+      "iso3": "ROU",
+      "lat": 45.8,
+      "lon": 21.2,
+      "technology": "solar",
+      "stage": "ready_to_build",
+      "capacityMw": 70.0,
+      "codYear": 2029,
+      "netCapacityFactor": 0.15077452679215,
+      "annualGenerationGwh": 92.45493982894638,
+      "opexPerKwYear": 14.891630001366138,
+      "ppaShare": 0.45,
+      "ppaTenorYears": 10,
+      "ppaPrice": 50.0,
+      "countryBaseloadPrice": 80.0,
+      "captureFactor": 0.675,
+      "capturePrice": 54.0,
+      "developmentRiskScore": 2.5,
+      "gridSecured": true,
+      "omContracted": false,
+      "currency": "RON",
+      "totalCapex_m": 39.45404917775753,
+      "seniorDebt_m": 28.406915407985423,
+      "equity_m": 11.047133769772108,
+      "gearing": 0.72,
+      "maxGearing": 0.72,
+      "capexPerKw": 563.6292739679648,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 51.086321565923555,
+      "minDscr": 1.5065427168020704,
+      "thirtyYearFcfe_m": 58.21262114750142,
+      "equityIrr": 0.1040267789639241,
+      "moic": 2.04788999063708,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "medium"
+        }
+      }
+    },
+    {
+      "id": "P22",
+      "name": "Zeeland Zon",
+      "country": "Netherlands",
+      "countryCode": "NL",
+      "iso3": "NLD",
+      "lat": 51.5,
+      "lon": 3.9,
+      "technology": "solar",
+      "stage": "construction",
+      "capacityMw": 55.0,
+      "codYear": 2027,
+      "netCapacityFactor": 0.11465830372050403,
+      "annualGenerationGwh": 55.24237073253885,
+      "opexPerKwYear": 13.128090986981988,
+      "ppaShare": 0.8,
+      "ppaTenorYears": 15,
+      "ppaPrice": 47.0,
+      "countryBaseloadPrice": 74.0,
+      "captureFactor": 0.6756756756756757,
+      "capturePrice": 50.0,
+      "developmentRiskScore": 2.1,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 30.8,
+      "seniorDebt_m": 15.271026398138792,
+      "equity_m": 15.528973601861209,
+      "gearing": 0.4958125453941166,
+      "maxGearing": 0.75,
+      "capexPerKw": 560.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 58.271839527083465,
+      "minDscr": 1.325137740481225,
+      "thirtyYearFcfe_m": 22.250192998364806,
+      "equityIrr": -0.03242306978027726,
+      "moic": 0.7785593878644786,
+      "paybackYear": null,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "high"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P23",
+      "name": "Nordjylland Vind",
+      "country": "Denmark",
+      "countryCode": "DK",
+      "iso3": "DNK",
+      "lat": 57.1,
+      "lon": 9.9,
+      "technology": "onshore_wind",
+      "stage": "ready_to_build",
+      "capacityMw": 90.0,
+      "codYear": 2028,
+      "netCapacityFactor": 0.3840052891470306,
+      "annualGenerationGwh": 302.74976996351893,
+      "opexPerKwYear": 51.712597402743995,
+      "ppaShare": 0.67,
+      "ppaTenorYears": 20,
+      "ppaPrice": 50.0,
+      "countryBaseloadPrice": 59.0,
+      "captureFactor": 0.8813559322033898,
+      "capturePrice": 52.0,
+      "developmentRiskScore": 3.0,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "DKK",
+      "totalCapex_m": 99.12006936551356,
+      "seniorDebt_m": 71.36644994316975,
+      "equity_m": 27.753619422343807,
+      "gearing": 0.72,
+      "maxGearing": 0.72,
+      "capexPerKw": 1101.3341040612618,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 43.11300688555846,
+      "minDscr": 1.6883736178702358,
+      "thirtyYearFcfe_m": 178.45600597553945,
+      "equityIrr": 0.14161663508090017,
+      "moic": 2.5991288461291773,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P24",
+      "name": "Jutland Ridge",
+      "country": "Denmark",
+      "countryCode": "DK",
+      "iso3": "DNK",
+      "lat": 56.2,
+      "lon": 9.1,
+      "technology": "onshore_wind",
+      "stage": "construction",
+      "capacityMw": 60.0,
+      "codYear": 2027,
+      "netCapacityFactor": 0.3842938714818656,
+      "annualGenerationGwh": 201.98485885086856,
+      "opexPerKwYear": 46.0403161123395,
+      "ppaShare": 0.76,
+      "ppaTenorYears": 15,
+      "ppaPrice": 48.0,
+      "countryBaseloadPrice": 59.0,
+      "captureFactor": 0.8813559322033898,
+      "capturePrice": 52.0,
+      "developmentRiskScore": 2.3,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "DKK",
+      "totalCapex_m": 75.99804540973908,
+      "seniorDebt_m": 56.99853405730431,
+      "equity_m": 18.999511352434762,
+      "gearing": 0.7500000000000001,
+      "maxGearing": 0.75,
+      "capexPerKw": 1266.634090162318,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 43.224362696942606,
+      "minDscr": 1.4084727367511605,
+      "thirtyYearFcfe_m": 132.5433990850915,
+      "equityIrr": 0.11027829175600401,
+      "moic": 2.1221246577362236,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "high"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P25",
+      "name": "Connacht Wind",
+      "country": "Ireland",
+      "countryCode": "IE",
+      "iso3": "IRL",
+      "lat": 53.7,
+      "lon": -8.9,
+      "technology": "onshore_wind",
+      "stage": "greenfield",
+      "capacityMw": 110.0,
+      "codYear": 2030,
+      "netCapacityFactor": 0.3648718838058505,
+      "annualGenerationGwh": 351.59054723531756,
+      "opexPerKwYear": 52.36925928108394,
+      "ppaShare": 0.16,
+      "ppaTenorYears": 12,
+      "ppaPrice": 65.0,
+      "countryBaseloadPrice": 85.0,
+      "captureFactor": 0.8823529411764706,
+      "capturePrice": 75.0,
+      "developmentRiskScore": 3.6,
+      "gridSecured": false,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 180.52646289561423,
+      "seniorDebt_m": 117.34220088214927,
+      "equity_m": 63.18426201346497,
+      "gearing": 0.65,
+      "maxGearing": 0.65,
+      "capexPerKw": 1641.149662687402,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 66.04914618403822,
+      "minDscr": 1.9509197637332591,
+      "thirtyYearFcfe_m": 349.26035368686144,
+      "equityIrr": 0.13406697986269422,
+      "moic": 2.4062225169694553,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "generation": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "grid": {
+          "estimateBasis": "placeholder",
+          "confidence": "low"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "medium"
+        }
+      }
+    },
+    {
+      "id": "P26",
+      "name": "Kerry Highlands",
+      "country": "Ireland",
+      "countryCode": "IE",
+      "iso3": "IRL",
+      "lat": 52.1,
+      "lon": -9.5,
+      "technology": "onshore_wind",
+      "stage": "ready_to_build",
+      "capacityMw": 75.0,
+      "codYear": 2029,
+      "netCapacityFactor": 0.36513439919756724,
+      "annualGenerationGwh": 239.89330027280167,
+      "opexPerKwYear": 45.947544355876744,
+      "ppaShare": 0.69,
+      "ppaTenorYears": 12,
+      "ppaPrice": 73.0,
+      "countryBaseloadPrice": 85.0,
+      "captureFactor": 0.8823529411764706,
+      "capturePrice": 75.0,
+      "developmentRiskScore": 2.7,
+      "gridSecured": true,
+      "omContracted": false,
+      "currency": "EUR",
+      "totalCapex_m": 127.5,
+      "seniorDebt_m": 91.8,
+      "equity_m": 35.7,
+      "gearing": 0.72,
+      "maxGearing": 0.72,
+      "capexPerKw": 1700.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 62.082052365729574,
+      "minDscr": 1.7499258907723068,
+      "thirtyYearFcfe_m": 253.94342699102438,
+      "equityIrr": 0.14970885944201318,
+      "moic": 2.6791738970362595,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P27",
+      "name": "Norrland Vind",
+      "country": "Sweden",
+      "countryCode": "SE",
+      "iso3": "SWE",
+      "lat": 64.2,
+      "lon": 19.8,
+      "technology": "onshore_wind",
+      "stage": "ready_to_build",
+      "capacityMw": 200.0,
+      "codYear": 2029,
+      "netCapacityFactor": 0.3334218340371921,
+      "annualGenerationGwh": 584.1550532331606,
+      "opexPerKwYear": 51.900836650282145,
+      "ppaShare": 0.73,
+      "ppaTenorYears": 12,
+      "ppaPrice": 35.0,
+      "countryBaseloadPrice": 42.0,
+      "captureFactor": 0.8809523809523809,
+      "capturePrice": 37.0,
+      "developmentRiskScore": 2.6,
+      "gridSecured": true,
+      "omContracted": false,
+      "currency": "SEK",
+      "totalCapex_m": 210.0,
+      "seniorDebt_m": 82.88340294571596,
+      "equity_m": 127.11659705428404,
+      "gearing": 0.394682871170076,
+      "maxGearing": 0.72,
+      "capexPerKw": 1050.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 50.47864936600651,
+      "minDscr": 1.2960676025021587,
+      "thirtyYearFcfe_m": 74.42185243775245,
+      "equityIrr": -0.12983973235065954,
+      "moic": 0.35743525407024623,
+      "paybackYear": null,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P28",
+      "name": "Västra Götaland",
+      "country": "Sweden",
+      "countryCode": "SE",
+      "iso3": "SWE",
+      "lat": 58.2,
+      "lon": 12.6,
+      "technology": "onshore_wind",
+      "stage": "greenfield",
+      "capacityMw": 120.0,
+      "codYear": 2030,
+      "netCapacityFactor": 0.3337114871321618,
+      "annualGenerationGwh": 350.7975152733285,
+      "opexPerKwYear": 47.35492224432528,
+      "ppaShare": 0.42,
+      "ppaTenorYears": 20,
+      "ppaPrice": 32.0,
+      "countryBaseloadPrice": 42.0,
+      "captureFactor": 0.8809523809523809,
+      "capturePrice": 37.0,
+      "developmentRiskScore": 4.1,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "SEK",
+      "totalCapex_m": 126.0,
+      "seniorDebt_m": 52.99891899463312,
+      "equity_m": 73.00108100536687,
+      "gearing": 0.420626341227247,
+      "maxGearing": 0.65,
+      "capexPerKw": 1050.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 51.19630149095902,
+      "minDscr": 1.4,
+      "thirtyYearFcfe_m": 38.341414623962024,
+      "equityIrr": -0.11838620922094095,
+      "moic": 0.4102097659606141,
+      "paybackYear": null,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "generation": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "medium"
+        }
+      }
+    },
+    {
+      "id": "P29",
+      "name": "Ostrobothnia Tuuli",
+      "country": "Finland",
+      "countryCode": "FI",
+      "iso3": "FIN",
+      "lat": 63.1,
+      "lon": 21.8,
+      "technology": "onshore_wind",
+      "stage": "ready_to_build",
+      "capacityMw": 180.0,
+      "codYear": 2029,
+      "netCapacityFactor": 0.3227604119248688,
+      "annualGenerationGwh": 508.92861752313314,
+      "opexPerKwYear": 53.308455429039896,
+      "ppaShare": 0.66,
+      "ppaTenorYears": 10,
+      "ppaPrice": 35.0,
+      "countryBaseloadPrice": 45.0,
+      "captureFactor": 0.8888888888888888,
+      "capturePrice": 40.0,
+      "developmentRiskScore": 3.2,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 189.0,
+      "seniorDebt_m": 72.6739001921681,
+      "equity_m": 116.3260998078319,
+      "gearing": 0.3845179904347519,
+      "maxGearing": 0.72,
+      "capexPerKw": 1050.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 52.670719649522,
+      "minDscr": 1.3468119295144094,
+      "thirtyYearFcfe_m": 85.5753132501187,
+      "equityIrr": -0.1302510758866921,
+      "moic": 0.3550419144900347,
+      "paybackYear": null,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P30",
+      "name": "Lapland Ridge",
+      "country": "Finland",
+      "countryCode": "FI",
+      "iso3": "FIN",
+      "lat": 66.5,
+      "lon": 25.7,
+      "technology": "onshore_wind",
+      "stage": "greenfield",
+      "capacityMw": 160.0,
+      "codYear": 2031,
+      "netCapacityFactor": 0.3229719434174895,
+      "annualGenerationGwh": 452.6774758939533,
+      "opexPerKwYear": 47.26068569999188,
+      "ppaShare": 0.23,
+      "ppaTenorYears": 12,
+      "ppaPrice": 35.0,
+      "countryBaseloadPrice": 45.0,
+      "captureFactor": 0.8888888888888888,
+      "capturePrice": 40.0,
+      "developmentRiskScore": 3.8,
+      "gridSecured": true,
+      "omContracted": false,
+      "currency": "EUR",
+      "totalCapex_m": 168.0,
+      "seniorDebt_m": 81.46360183987169,
+      "equity_m": 86.53639816012831,
+      "gearing": 0.48490239190399814,
+      "maxGearing": 0.65,
+      "capexPerKw": 1050.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 55.575579418298595,
+      "minDscr": 1.4,
+      "thirtyYearFcfe_m": 83.66344392812925,
+      "equityIrr": -0.10581539213861096,
+      "moic": 0.47461663724409203,
+      "paybackYear": null,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "generation": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "medium"
+        }
+      }
+    },
+    {
+      "id": "P31",
+      "name": "Schleswig Wind",
+      "country": "Germany",
+      "countryCode": "DE",
+      "iso3": "DEU",
+      "lat": 54.4,
+      "lon": 9.4,
+      "technology": "onshore_wind",
+      "stage": "construction",
+      "capacityMw": 100.0,
+      "codYear": 2027,
+      "netCapacityFactor": 0.2700344472017791,
+      "annualGenerationGwh": 236.5501757487585,
+      "opexPerKwYear": 53.58897711150348,
+      "ppaShare": 0.83,
+      "ppaTenorYears": 12,
+      "ppaPrice": 57.0,
+      "countryBaseloadPrice": 73.0,
+      "captureFactor": 0.8767123287671232,
+      "capturePrice": 64.0,
+      "developmentRiskScore": 2.0,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 105.0,
+      "seniorDebt_m": 67.28103320769743,
+      "equity_m": 37.71896679230257,
+      "gearing": 0.6407717448352137,
+      "maxGearing": 0.75,
+      "capexPerKw": 1050.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 57.86490965273693,
+      "minDscr": 1.3361607118380785,
+      "thirtyYearFcfe_m": 159.49090544459762,
+      "equityIrr": 0.023358647271404798,
+      "moic": 1.1850415148623237,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "high"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P32",
+      "name": "Eifel Höhen",
+      "country": "Germany",
+      "countryCode": "DE",
+      "iso3": "DEU",
+      "lat": 50.3,
+      "lon": 6.6,
+      "technology": "onshore_wind",
+      "stage": "greenfield",
+      "capacityMw": 65.0,
+      "codYear": 2030,
+      "netCapacityFactor": 0.27023656953766945,
+      "annualGenerationGwh": 153.87270269474897,
+      "opexPerKwYear": 47.16677598003298,
+      "ppaShare": 0.61,
+      "ppaTenorYears": 10,
+      "ppaPrice": 63.0,
+      "countryBaseloadPrice": 73.0,
+      "captureFactor": 0.8767123287671232,
+      "capturePrice": 64.0,
+      "developmentRiskScore": 4.0,
+      "gridSecured": false,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 68.25,
+      "seniorDebt_m": 44.362500000000004,
+      "equity_m": 23.887499999999992,
+      "gearing": 0.6500000000000001,
+      "maxGearing": 0.65,
+      "capexPerKw": 1050.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 63.137865119029286,
+      "minDscr": 1.7020921773851994,
+      "thirtyYearFcfe_m": 102.12240314669157,
+      "equityIrr": 0.07076423610550797,
+      "moic": 1.6044308485892358,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "generation": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "grid": {
+          "estimateBasis": "placeholder",
+          "confidence": "low"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P33",
+      "name": "Pomorskie Wiatr",
+      "country": "Poland",
+      "countryCode": "PL",
+      "iso3": "POL",
+      "lat": 54.2,
+      "lon": 18.0,
+      "technology": "onshore_wind",
+      "stage": "ready_to_build",
+      "capacityMw": 130.0,
+      "codYear": 2029,
+      "netCapacityFactor": 0.28121264152366665,
+      "annualGenerationGwh": 320.24495616715154,
+      "opexPerKwYear": 51.99180965591222,
+      "ppaShare": 0.62,
+      "ppaTenorYears": 12,
+      "ppaPrice": 70.0,
+      "countryBaseloadPrice": 80.0,
+      "captureFactor": 0.875,
+      "capturePrice": 70.0,
+      "developmentRiskScore": 2.3,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "PLN",
+      "totalCapex_m": 146.19454076075786,
+      "seniorDebt_m": 105.26006934774566,
+      "equity_m": 40.934471413012204,
+      "gearing": 0.72,
+      "maxGearing": 0.72,
+      "capexPerKw": 1124.5733904673682,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 62.56309989691784,
+      "minDscr": 1.6794659191255539,
+      "thirtyYearFcfe_m": 261.8255828993471,
+      "equityIrr": 0.12837397563530917,
+      "moic": 2.3438302269292475,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P34",
+      "name": "Mazowsze Wind",
+      "country": "Poland",
+      "countryCode": "PL",
+      "iso3": "POL",
+      "lat": 52.4,
+      "lon": 21.0,
+      "technology": "onshore_wind",
+      "stage": "greenfield",
+      "capacityMw": 90.0,
+      "codYear": 2030,
+      "netCapacityFactor": 0.2815505923331528,
+      "annualGenerationGwh": 221.97448699545768,
+      "opexPerKwYear": 46.320506824180484,
+      "ppaShare": 0.25,
+      "ppaTenorYears": 12,
+      "ppaPrice": 61.0,
+      "countryBaseloadPrice": 80.0,
+      "captureFactor": 0.875,
+      "capturePrice": 70.0,
+      "developmentRiskScore": 3.7,
+      "gridSecured": false,
+      "omContracted": true,
+      "currency": "PLN",
+      "totalCapex_m": 94.5,
+      "seniorDebt_m": 61.425000000000004,
+      "equity_m": 33.074999999999996,
+      "gearing": 0.6500000000000001,
+      "maxGearing": 0.65,
+      "capexPerKw": 1050.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 60.2391012897898,
+      "minDscr": 2.0164081892226684,
+      "thirtyYearFcfe_m": 193.96807300320373,
+      "equityIrr": 0.1404210354400951,
+      "moic": 2.490764432217149,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "generation": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "grid": {
+          "estimateBasis": "placeholder",
+          "confidence": "low"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "medium"
+        }
+      }
+    },
+    {
+      "id": "P35",
+      "name": "Bretagne Éolien",
+      "country": "France",
+      "countryCode": "FR",
+      "iso3": "FRA",
+      "lat": 48.2,
+      "lon": -3.2,
+      "technology": "onshore_wind",
+      "stage": "ready_to_build",
+      "capacityMw": 70.0,
+      "codYear": 2028,
+      "netCapacityFactor": 0.2582171524885669,
+      "annualGenerationGwh": 158.3387579059892,
+      "opexPerKwYear": 52.27343394141644,
+      "ppaShare": 0.63,
+      "ppaTenorYears": 15,
+      "ppaPrice": 54.0,
+      "countryBaseloadPrice": 67.0,
+      "captureFactor": 0.8805970149253731,
+      "capturePrice": 59.0,
+      "developmentRiskScore": 2.8,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 73.5,
+      "seniorDebt_m": 41.68174739145439,
+      "equity_m": 31.818252608545617,
+      "gearing": 0.5670986039653657,
+      "maxGearing": 0.72,
+      "capexPerKw": 1050.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 62.51099237396401,
+      "minDscr": 1.4,
+      "thirtyYearFcfe_m": 72.50344883336616,
+      "equityIrr": -0.017860617826426173,
+      "moic": 0.8717424116483835,
+      "paybackYear": null,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P36",
+      "name": "Champagne Crest",
+      "country": "France",
+      "countryCode": "FR",
+      "iso3": "FRA",
+      "lat": 48.9,
+      "lon": 4.3,
+      "technology": "onshore_wind",
+      "stage": "construction",
+      "capacityMw": 55.0,
+      "codYear": 2027,
+      "netCapacityFactor": 0.25856818239260465,
+      "annualGenerationGwh": 124.57815027675693,
+      "opexPerKwYear": 43.999635284766555,
+      "ppaShare": 0.74,
+      "ppaTenorYears": 10,
+      "ppaPrice": 55.0,
+      "countryBaseloadPrice": 67.0,
+      "captureFactor": 0.8805970149253731,
+      "capturePrice": 59.0,
+      "developmentRiskScore": 2.5,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 57.75,
+      "seniorDebt_m": 36.64573204057214,
+      "equity_m": 21.104267959427855,
+      "gearing": 0.6345581305726778,
+      "maxGearing": 0.75,
+      "capexPerKw": 1050.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 55.968853434531596,
+      "minDscr": 1.3974504000062902,
+      "thirtyYearFcfe_m": 81.70180185267105,
+      "equityIrr": 0.03047299249645763,
+      "moic": 1.2482009138233403,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "high"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P37",
+      "name": "Galicia Ventos",
+      "country": "Spain",
+      "countryCode": "ES",
+      "iso3": "ESP",
+      "lat": 42.9,
+      "lon": -8.0,
+      "technology": "onshore_wind",
+      "stage": "ready_to_build",
+      "capacityMw": 95.0,
+      "codYear": 2028,
+      "netCapacityFactor": 0.2617840319952555,
+      "annualGenerationGwh": 217.8566714264516,
+      "opexPerKwYear": 49.953107136301696,
+      "ppaShare": 0.85,
+      "ppaTenorYears": 15,
+      "ppaPrice": 49.0,
+      "countryBaseloadPrice": 58.0,
+      "captureFactor": 0.8793103448275862,
+      "capturePrice": 51.0,
+      "developmentRiskScore": 2.8,
+      "gridSecured": true,
+      "omContracted": false,
+      "currency": "EUR",
+      "totalCapex_m": 99.75,
+      "seniorDebt_m": 47.826809038241485,
+      "equity_m": 51.923190961758515,
+      "gearing": 0.47946675727560384,
+      "maxGearing": 0.72,
+      "capexPerKw": 1050.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 60.5929122956834,
+      "minDscr": 1.2417107923844843,
+      "thirtyYearFcfe_m": 63.1109858803606,
+      "equityIrr": -0.07379138158711357,
+      "moic": 0.5561158292023439,
+      "paybackYear": null,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P38",
+      "name": "Aragón Wind",
+      "country": "Spain",
+      "countryCode": "ES",
+      "iso3": "ESP",
+      "lat": 41.3,
+      "lon": -0.5,
+      "technology": "onshore_wind",
+      "stage": "greenfield",
+      "capacityMw": 140.0,
+      "codYear": 2030,
+      "netCapacityFactor": 0.2620500354834553,
+      "annualGenerationGwh": 321.3781635169095,
+      "opexPerKwYear": 44.654936847276986,
+      "ppaShare": 0.52,
+      "ppaTenorYears": 15,
+      "ppaPrice": 48.0,
+      "countryBaseloadPrice": 58.0,
+      "captureFactor": 0.8793103448275862,
+      "capturePrice": 51.0,
+      "developmentRiskScore": 4.3,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 147.0,
+      "seniorDebt_m": 77.75128854088699,
+      "equity_m": 69.24871145911301,
+      "gearing": 0.5289203302101155,
+      "maxGearing": 0.65,
+      "capexPerKw": 1050.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 63.95720584308206,
+      "minDscr": 1.4000000000000001,
+      "thirtyYearFcfe_m": 96.49884356127289,
+      "equityIrr": -0.0679218383090468,
+      "moic": 0.611179570678254,
+      "paybackYear": null,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "generation": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P39",
+      "name": "Alentejo Vento",
+      "country": "Portugal",
+      "countryCode": "PT",
+      "iso3": "PRT",
+      "lat": 38.4,
+      "lon": -8.2,
+      "technology": "onshore_wind",
+      "stage": "ready_to_build",
+      "capacityMw": 60.0,
+      "codYear": 2029,
+      "netCapacityFactor": 0.2531592916617542,
+      "annualGenerationGwh": 133.06052369741806,
+      "opexPerKwYear": 50.98285770043731,
+      "ppaShare": 0.58,
+      "ppaTenorYears": 20,
+      "ppaPrice": 48.0,
+      "countryBaseloadPrice": 56.0,
+      "captureFactor": 0.875,
+      "capturePrice": 49.0,
+      "developmentRiskScore": 2.8,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 63.0,
+      "seniorDebt_m": 27.171890976676192,
+      "equity_m": 35.828109023323805,
+      "gearing": 0.431299856772638,
+      "maxGearing": 0.72,
+      "capexPerKw": 1050.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 66.046357852051,
+      "minDscr": 1.3701185833367242,
+      "thirtyYearFcfe_m": 19.499424762038156,
+      "equityIrr": -0.10121979970562872,
+      "moic": 0.4537628574345382,
+      "paybackYear": null,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P40",
+      "name": "Thrace Wind",
+      "country": "Greece",
+      "countryCode": "GR",
+      "iso3": "GRC",
+      "lat": 41.1,
+      "lon": 25.4,
+      "technology": "onshore_wind",
+      "stage": "greenfield",
+      "capacityMw": 85.0,
+      "codYear": 2030,
+      "netCapacityFactor": 0.27378623866059815,
+      "annualGenerationGwh": 203.8612333066814,
+      "opexPerKwYear": 43.8106108373031,
+      "ppaShare": 0.4,
+      "ppaTenorYears": 15,
+      "ppaPrice": 68.0,
+      "countryBaseloadPrice": 84.0,
+      "captureFactor": 0.8809523809523809,
+      "capturePrice": 74.0,
+      "developmentRiskScore": 4.1,
+      "gridSecured": false,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 93.43204876721856,
+      "seniorDebt_m": 60.730831698692064,
+      "equity_m": 32.701217068526496,
+      "gearing": 0.65,
+      "maxGearing": 0.65,
+      "capexPerKw": 1099.200573731983,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 62.79363659600623,
+      "minDscr": 2.0337352252107928,
+      "thirtyYearFcfe_m": 189.0127724172504,
+      "equityIrr": 0.1405053216931268,
+      "moic": 2.491144918605759,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "generation": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "grid": {
+          "estimateBasis": "placeholder",
+          "confidence": "low"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "medium"
+        }
+      }
+    },
+    {
+      "id": "P41",
+      "name": "Apennine Ridge",
+      "country": "Italy",
+      "countryCode": "IT",
+      "iso3": "ITA",
+      "lat": 42.1,
+      "lon": 13.4,
+      "technology": "onshore_wind",
+      "stage": "ready_to_build",
+      "capacityMw": 50.0,
+      "codYear": 2029,
+      "netCapacityFactor": 0.22376687168894335,
+      "annualGenerationGwh": 98.00988979975719,
+      "opexPerKwYear": 50.13942794222385,
+      "ppaShare": 0.63,
+      "ppaTenorYears": 10,
+      "ppaPrice": 70.0,
+      "countryBaseloadPrice": 92.0,
+      "captureFactor": 0.8804347826086957,
+      "capturePrice": 81.0,
+      "developmentRiskScore": 2.3,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 52.5,
+      "seniorDebt_m": 37.8,
+      "equity_m": 14.7,
+      "gearing": 0.72,
+      "maxGearing": 0.72,
+      "capexPerKw": 1050.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 74.26828993740813,
+      "minDscr": 1.418726397860912,
+      "thirtyYearFcfe_m": 84.52679620167527,
+      "equityIrr": 0.058210323027301114,
+      "moic": 1.4998995381397704,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P42",
+      "name": "Groningen Wind",
+      "country": "Netherlands",
+      "countryCode": "NL",
+      "iso3": "NLD",
+      "lat": 53.3,
+      "lon": 6.8,
+      "technology": "onshore_wind",
+      "stage": "construction",
+      "capacityMw": 70.0,
+      "codYear": 2027,
+      "netCapacityFactor": 0.3084105851957761,
+      "annualGenerationGwh": 189.11737084204987,
+      "opexPerKwYear": 43.71807946823537,
+      "ppaShare": 0.76,
+      "ppaTenorYears": 20,
+      "ppaPrice": 58.0,
+      "countryBaseloadPrice": 74.0,
+      "captureFactor": 0.8783783783783784,
+      "capturePrice": 65.0,
+      "developmentRiskScore": 1.9,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 88.84720584126467,
+      "seniorDebt_m": 66.21407131383228,
+      "equity_m": 22.63313452743239,
+      "gearing": 0.745257779205021,
+      "maxGearing": 0.75,
+      "capexPerKw": 1269.2457977323525,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 53.027632882087985,
+      "minDscr": 1.4,
+      "thirtyYearFcfe_m": 141.36593711543065,
+      "equityIrr": 0.10537244500922938,
+      "moic": 2.061182307228216,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "high"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P43",
+      "name": "Dobrogea Wind",
+      "country": "Romania",
+      "countryCode": "RO",
+      "iso3": "ROU",
+      "lat": 44.8,
+      "lon": 28.6,
+      "technology": "onshore_wind",
+      "stage": "ready_to_build",
+      "capacityMw": 150.0,
+      "codYear": 2029,
+      "netCapacityFactor": 0.2752319791856408,
+      "annualGenerationGwh": 361.654820649932,
+      "opexPerKwYear": 49.671042571775615,
+      "ppaShare": 0.61,
+      "ppaTenorYears": 10,
+      "ppaPrice": 67.0,
+      "countryBaseloadPrice": 80.0,
+      "captureFactor": 0.875,
+      "capturePrice": 70.0,
+      "developmentRiskScore": 2.7,
+      "gridSecured": true,
+      "omContracted": false,
+      "currency": "RON",
+      "totalCapex_m": 167.88732420800267,
+      "seniorDebt_m": 120.87887342976191,
+      "equity_m": 47.00845077824074,
+      "gearing": 0.72,
+      "maxGearing": 0.72,
+      "capexPerKw": 1119.248828053351,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 62.71311721097129,
+      "minDscr": 1.6074983616870766,
+      "thirtyYearFcfe_m": 297.58814533175865,
+      "equityIrr": 0.11235300519795233,
+      "moic": 2.126495780607384,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P44",
+      "name": "Scottish Borders",
+      "country": "United Kingdom",
+      "countryCode": "GB",
+      "iso3": "GBR",
+      "lat": 55.5,
+      "lon": -3.0,
+      "technology": "onshore_wind",
+      "stage": "greenfield",
+      "capacityMw": 130.0,
+      "codYear": 2031,
+      "netCapacityFactor": 0.35171881362264973,
+      "annualGenerationGwh": 400.5373849534736,
+      "opexPerKwYear": 52.63544379360974,
+      "ppaShare": 0.58,
+      "ppaTenorYears": 20,
+      "ppaPrice": 66.0,
+      "countryBaseloadPrice": 82.0,
+      "captureFactor": 0.8780487804878049,
+      "capturePrice": 72.0,
+      "developmentRiskScore": 3.5,
+      "gridSecured": true,
+      "omContracted": false,
+      "currency": "GBP",
+      "totalCapex_m": 168.72045524363585,
+      "seniorDebt_m": 109.66829590836332,
+      "equity_m": 59.05215933527255,
+      "gearing": 0.65,
+      "maxGearing": 0.65,
+      "capexPerKw": 1297.849655720276,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 61.102207415823536,
+      "minDscr": 2.1261930490216856,
+      "thirtyYearFcfe_m": 311.5042325960437,
+      "equityIrr": 0.13681715669742023,
+      "moic": 2.3810390199642164,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "generation": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P45",
+      "name": "Hornsea Fringe",
+      "country": "United Kingdom",
+      "countryCode": "GB",
+      "iso3": "GBR",
+      "lat": 53.9,
+      "lon": 1.8,
+      "technology": "offshore_wind",
+      "stage": "greenfield",
+      "capacityMw": 400.0,
+      "codYear": 2032,
+      "netCapacityFactor": 0.5052206705044955,
+      "annualGenerationGwh": 1770.293229447752,
+      "opexPerKwYear": 85.64695326332003,
+      "ppaShare": 0.34,
+      "ppaTenorYears": 15,
+      "ppaPrice": 64.0,
+      "countryBaseloadPrice": 82.0,
+      "captureFactor": 0.8658536585365854,
+      "capturePrice": 71.0,
+      "developmentRiskScore": 4.5,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "GBP",
+      "totalCapex_m": 1028.1912238054424,
+      "seniorDebt_m": 668.3242954735376,
+      "equity_m": 359.8669283319048,
+      "gearing": 0.6500000000000001,
+      "maxGearing": 0.65,
+      "capexPerKw": 2570.4780595136062,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 84.47120177640085,
+      "minDscr": 1.4839493630527996,
+      "thirtyYearFcfe_m": 977.888840842855,
+      "equityIrr": 0.017847944898911394,
+      "moic": 1.1205837058988477,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "generation": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "medium"
+        }
+      }
+    },
+    {
+      "id": "P46",
+      "name": "Kriegers Flak II",
+      "country": "Denmark",
+      "countryCode": "DK",
+      "iso3": "DNK",
+      "lat": 55.1,
+      "lon": 13.0,
+      "technology": "offshore_wind",
+      "stage": "ready_to_build",
+      "capacityMw": 350.0,
+      "codYear": 2031,
+      "netCapacityFactor": 0.5064733746694401,
+      "annualGenerationGwh": 1552.8473667365033,
+      "opexPerKwYear": 95.5698619754985,
+      "ppaShare": 0.82,
+      "ppaTenorYears": 12,
+      "ppaPrice": 47.0,
+      "countryBaseloadPrice": 59.0,
+      "captureFactor": 0.864406779661017,
+      "capturePrice": 51.0,
+      "developmentRiskScore": 4.0,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "DKK",
+      "totalCapex_m": 770.0,
+      "seniorDebt_m": 324.522964982201,
+      "equity_m": 445.477035017799,
+      "gearing": 0.42145839608078056,
+      "maxGearing": 0.72,
+      "capexPerKw": 2200.0,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 73.43491568867097,
+      "minDscr": 1.2936466932502722,
+      "thirtyYearFcfe_m": 263.5061671935714,
+      "equityIrr": -0.13205498866267756,
+      "moic": 0.3845163570954684,
+      "paybackYear": null,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "medium"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P47",
+      "name": "Borssele Extension",
+      "country": "Netherlands",
+      "countryCode": "NL",
+      "iso3": "NLD",
+      "lat": 51.7,
+      "lon": 3.0,
+      "technology": "offshore_wind",
+      "stage": "construction",
+      "capacityMw": 300.0,
+      "codYear": 2029,
+      "netCapacityFactor": 0.5068177721090614,
+      "annualGenerationGwh": 1331.9171051026135,
+      "opexPerKwYear": 86.11705061234534,
+      "ppaShare": 0.9,
+      "ppaTenorYears": 10,
+      "ppaPrice": 62.0,
+      "countryBaseloadPrice": 74.0,
+      "captureFactor": 0.8648648648648649,
+      "capturePrice": 64.0,
+      "developmentRiskScore": 3.4,
+      "gridSecured": true,
+      "omContracted": true,
+      "currency": "EUR",
+      "totalCapex_m": 661.3789100850872,
+      "seniorDebt_m": 456.6823121271731,
+      "equity_m": 204.69659795791412,
+      "gearing": 0.690500264165394,
+      "maxGearing": 0.75,
+      "capexPerKw": 2204.5963669502908,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 64.30021950574124,
+      "minDscr": 1.3615540334217537,
+      "thirtyYearFcfe_m": 860.9661760484324,
+      "equityIrr": 0.04935860614181198,
+      "moic": 1.4244552854193375,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "debtTerms": {
+          "estimateBasis": "binding_offer",
+          "confidence": "medium"
+        },
+        "generation": {
+          "estimateBasis": "engineering_estimate",
+          "confidence": "high"
+        },
+        "grid": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "om": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    },
+    {
+      "id": "P48",
+      "name": "Baltica Nord",
+      "country": "Poland",
+      "countryCode": "PL",
+      "iso3": "POL",
+      "lat": 54.8,
+      "lon": 17.5,
+      "technology": "offshore_wind",
+      "stage": "greenfield",
+      "capacityMw": 450.0,
+      "codYear": 2032,
+      "netCapacityFactor": 0.5062391980132088,
+      "annualGenerationGwh": 1995.5949185680693,
+      "opexPerKwYear": 97.91448839660734,
+      "ppaShare": 0.52,
+      "ppaTenorYears": 10,
+      "ppaPrice": 66.0,
+      "countryBaseloadPrice": 80.0,
+      "captureFactor": 0.8625,
+      "capturePrice": 69.0,
+      "developmentRiskScore": 5.0,
+      "gridSecured": false,
+      "omContracted": false,
+      "currency": "PLN",
+      "totalCapex_m": 1007.6333233642571,
+      "seniorDebt_m": 654.9616601867672,
+      "equity_m": 352.6716631774899,
+      "gearing": 0.6500000000000001,
+      "maxGearing": 0.65,
+      "capexPerKw": 2239.1851630316824,
+      "debtRate": 0.055,
+      "debtTenorYears": 18,
+      "lcoe": 78.9747289545894,
+      "minDscr": 1.5634487298341815,
+      "thirtyYearFcfe_m": 1090.812655214991,
+      "equityIrr": 0.032892224679703985,
+      "moic": 1.2311084728927346,
+      "paybackYear": 2036,
+      "provenance": {
+        "capex": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "debtTerms": {
+          "estimateBasis": "internal_model",
+          "confidence": "low"
+        },
+        "generation": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "grid": {
+          "estimateBasis": "placeholder",
+          "confidence": "low"
+        },
+        "om": {
+          "estimateBasis": "benchmark",
+          "confidence": "low"
+        },
+        "opex": {
+          "estimateBasis": "benchmark",
+          "confidence": "medium"
+        },
+        "price": {
+          "estimateBasis": "contracted",
+          "confidence": "high"
+        }
+      }
+    }
+  ],
+  "assumptions": {
+    "riskCaps": {
+      "low": 2.6,
+      "balanced": 3.6,
+      "high": 5.0
+    }
+  }
+}

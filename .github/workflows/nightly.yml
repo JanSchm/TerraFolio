@@ -1,0 +1,71 @@
+# The wall-clock half of #12's performance suite.
+#
+# A new file rather than a job in ci.yml on purpose. These are timings, and a timing
+# assertion on a shared runner fails for reasons that have nothing to do with the code
+# — which is how a perf suite ends up skipped and measuring nothing. They run on a
+# schedule, where a red build is worth investigating rather than worth muting, and the
+# per-commit suite keeps the machine-independent guards in tests/perf/test_engine_guards
+# that catch the regressions that actually matter.
+#
+# `ci.yml` is 1A's and is untouched; this adds a schedule beside it rather than a stage
+# inside it. Announced on #1.
+name: Nightly performance
+
+on:
+  schedule:
+    # 03:17 UTC: off the hour, because the hour is when every other cron fires and a
+    # runner competing with a thousand others is the load these tests exist to avoid.
+    - cron: '17 3 * * *'
+  # So a run can be triggered by hand before a release, or after a dependency bump
+  # that is expected to move the numbers.
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  budgets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Node is required, not optional: two of the five budgets — mandate feedback and
+      # the holdings table — are client-side, and the suite skips them rather than
+      # failing if node is absent. A nightly that silently measured three of five
+      # would be worse than no nightly.
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Sync the locked environment
+        run: uv sync --frozen
+
+      - name: Confirm node is present, so nothing skips quietly
+        run: node --version
+
+      # -s so the measurements reach the log. The numbers are the point of the job;
+      # a green tick that does not say what it measured is not an audit trail (§12).
+      - name: Wall-clock budgets
+        env:
+          TERRAFOLIO_PERF: '1'
+        run: uv run pytest tests/perf tests/regression -v -s
+
+      # The before/after table #12's pull request carries, refreshed on the runner so
+      # a regression shows up as a number rather than as a timeout.
+      - name: Benchmark the search and the repair operator
+        run: |
+          uv run python tools/bench_ga.py \
+            --candidates 500,2000 \
+            --efforts fast,standard,exhaustive \
+            --compare-repair \
+            --repeats 3
+
+      - name: Profile the slowest configuration
+        run: uv run python tools/bench_ga.py --candidates 2000 --efforts exhaustive --profile
