@@ -43,7 +43,7 @@
   <section class="panel !p-[22px]" aria-labelledby="s-progress">
     <div class="mb-4 flex items-baseline justify-between gap-3">
       <h2 id="s-progress" class="m-0 text-h6 uppercase tracking-caps text-muted">Progress towards the mandate</h2>
-      <p class="m-0 font-condensed text-note tracking-wide">
+      <p class="m-0 font-condensed text-note tracking-wide" data-region="round-counter">
         ROUND <span class="num" data-field="round">&#8212;</span> /
         <span class="num" data-field="roundTotal">&#8212;</span>
       </p>
@@ -99,6 +99,14 @@
         <dd class="num m-0 text-num-lg" data-field="bestBlendedIrr">&#8212;</dd>
       </div>
     </dl>
+
+    <!-- The engine streams a round at least every 100 ms (epic §7), so the counter
+         and these figures cannot be live regions themselves without interrupting
+         the reader ten times a second. One sentence per quiet second instead. -->
+    <p class="sr-only" role="status" aria-live="polite" aria-atomic="true"
+       data-region="progress-announcer"
+       x-data="liveRegion({ watch: ['[data-region=&quot;round-counter&quot;]', '[data-region=&quot;live-stats&quot;]'], quiet: 1500 })"
+       x-text="message"></p>
   </section>
 
   <div class="mt-[18px] flex flex-wrap items-center justify-between gap-4">

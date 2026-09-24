@@ -312,6 +312,15 @@
       </div>
     </dl>
 
+    <!-- The figures above recompute on every keystroke and every slider tick (A-18),
+         so making them a live region directly would announce dozens of times during
+         one drag. This carries one composed sentence once they settle, derived by
+         observing them so it cannot fall out of step. ui-contract.md §7.2. -->
+    <p class="sr-only" role="status" aria-live="polite" aria-atomic="true"
+       data-region="feasibility-announcer"
+       x-data="liveRegion({ watch: ['[data-region=&quot;feasibility-figures&quot;]'], quiet: 700 })"
+       x-text="message"></p>
+
     <div class="flex items-center gap-4">
       <ul class="flex max-w-[460px] flex-col gap-1" data-region="feasibility-warnings"
           aria-live="polite" aria-label="Feasibility warnings"></ul>

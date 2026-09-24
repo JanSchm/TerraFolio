@@ -42,6 +42,11 @@
     return prefix + '-' + uid;
   }
 
+  /** One line of text out of whatever whitespace the markup used. */
+  function collapse(text) {
+    return String(text || '').replace(/\s+/g, ' ').trim();
+  }
+
   /** Announces a control's new value to whatever is listening above it. */
   function emit(el, name, value) {
     if (!el || !el.dispatchEvent) return;
@@ -312,6 +317,95 @@
   }
 
   /**
+   * A polite announcement of figures that change far too often to be one.
+   *
+   * ui-contract.md §7.2 asks for the mandate footer's figures and the search
+   * screen's round counter to be polite live regions, "so a screen-reader user
+   * hears progress and feasibility without polling". Marking those regions live
+   * directly would satisfy the letter and defeat the purpose. Feasibility
+   * recomputes on `input` (A-18), so one drag of the capital slider emits dozens of
+   * announcements; the engine streams a round at least every 100 ms (epic §7), so
+   * the counter would interrupt itself ten times a second. Either way the figures
+   * become unusable at exactly the moment they matter.
+   *
+   * So the visible figures stay silent and keep updating at full rate, and one
+   * sr-only region carries a single composed sentence per quiet window. It is
+   * derived by observing the figures rather than written alongside them, which
+   * means it cannot drift out of step with what is on screen and issue #11 does
+   * not have to remember it exists.
+   *
+   * Nothing is announced until a figure is actually known: the pages ship showing
+   * em dashes, and reading a row of them aloud on arrival is noise.
+   */
+  function liveRegion(options) {
+    var o = options || {};
+    return {
+      /* No `name`, and none is needed: this announces rather than emits, so it has
+         nothing to put on the tf:change seam. It would also read as a mandate field
+         to the wire-contract guard, which holds every named control on the mandate
+         page against api.md §6.1. */
+      message: '',
+      quiet: typeof o.quiet === 'number' ? o.quiet : 700,
+      sources: [],
+      timer: null,
+
+      init: function () {
+        var doc = this.$el.ownerDocument;
+        this.observe((o.watch || []).map(function (selector) {
+          return doc.querySelector(selector);
+        }).filter(Boolean));
+      },
+
+      /** Split out of init() so a test can drive it without a page. */
+      observe: function (nodes) {
+        var self = this;
+        this.sources = nodes;
+        if (!nodes.length) return null;
+        var view = nodes[0].ownerDocument.defaultView;
+        var observer = new view.MutationObserver(function () { self.schedule(); });
+        nodes.forEach(function (node) {
+          observer.observe(node, { childList: true, characterData: true, subtree: true });
+        });
+        return observer;
+      },
+
+      /** Trailing throttle: one announcement once the figures stop moving. */
+      schedule: function () {
+        var self = this;
+        var view = this.sources.length
+          ? this.sources[0].ownerDocument.defaultView
+          : null;
+        if (!view) return;
+        if (this.timer) view.clearTimeout(this.timer);
+        this.timer = view.setTimeout(function () {
+          self.timer = null;
+          self.flush();
+        }, this.quiet);
+      },
+
+      flush: function () {
+        var text = this.compose();
+        /* An em dash means the figure is not known yet (§2). A sentence made only
+           of them says nothing, and repeating what was just said says nothing either. */
+        if (!text || text === this.message) return;
+        if (text.indexOf(fmt.DASH) !== -1 && !/[0-9]/.test(text)) return;
+        this.message = text;
+      },
+
+      compose: function () {
+        return this.sources.map(function (node) {
+          var terms = node.querySelectorAll('dt');
+          if (!terms.length) return collapse(node.textContent);
+          return Array.prototype.map.call(terms, function (dt) {
+            var dd = dt.parentElement.querySelector('dd');
+            return collapse(dt.textContent) + ' ' + collapse(dd ? dd.textContent : '');
+          }).join('. ');
+        }).filter(Boolean).join('. ') + '.';
+      },
+    };
+  }
+
+  /**
    * What a modal has to do that `role="dialog"` alone does not.
    *
    * ui-contract.md §7.2: the drawer and the export dialog "trap focus, close on
@@ -562,6 +656,7 @@
     kpiTile: kpiTile,
     holdingsTable: holdingsTable,
     overlay: overlay,
+    liveRegion: liveRegion,
   };
 
   factories.status = STATUS;
