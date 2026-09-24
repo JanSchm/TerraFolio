@@ -364,6 +364,7 @@ def _tiles(record: RunRecord, bands: Mapping[str, float]) -> list[Tile]:
     mandate = record.mandate
     if totals is None:  # pragma: no cover - the endpoint refuses an unfinished run
         return []
+    shortfall = mandate.capacity_target_mw - totals.capacity_mw
     capacity_gap = abs(totals.capacity_mw - mandate.capacity_target_mw) / mandate.capacity_target_mw
     split_gap = abs(totals.solar_share - mandate.solar_share)
     moic = "" if totals.equity_irr is None else f"{multiple(totals.moic or 0.0)} MOIC"
@@ -371,7 +372,16 @@ def _tiles(record: RunRecord, bands: Mapping[str, float]) -> list[Tile]:
         Tile(
             label="Installed capacity",
             value=quantity(totals.capacity_mw, "MW"),
-            sub=f"target {quantity(mandate.capacity_target_mw, 'MW')}",
+            # §5.1: the sub-label carries the **shortfall** when the target is
+            # unreachable (§13). The run still returns the best feasible
+            # portfolio, so an alert tone alone would say the target was missed
+            # without saying by how much — which is the one number a committee
+            # asks for next. A portfolio at or above target renders as before,
+            # because `_join` drops the empty clause.
+            sub=_join(
+                f"target {quantity(mandate.capacity_target_mw, 'MW')}",
+                f"{quantity(shortfall, 'MW')} short" if shortfall > 0.0 else "",
+            ),
             state=_verdict(capacity_gap <= bands["capacityBand"]),
         ),
         Tile(

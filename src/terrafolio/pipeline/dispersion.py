@@ -83,8 +83,13 @@ class Distribution:
 
     @property
     def agrees(self) -> bool:
-        """True when every file declares the same value."""
-        return self.minimum == self.maximum
+        """True when every file declares the same value.
+
+        A distribution over no files agrees vacuously. Without that clause the
+        bounds are ``NaN``, ``NaN == NaN`` is False, and an empty pipeline reports
+        every declared assumption as disagreeing (4C-2).
+        """
+        return self.count == 0 or self.minimum == self.maximum
 
 
 def _distribution(ids: Sequence[str], values: Vector) -> Distribution:
@@ -133,7 +138,18 @@ class DispersionReport:
 
 
 def dispersion_report(arrays: ProjectArrays) -> DispersionReport:
-    """Build the report over a loaded pipeline."""
+    """Build the report over a loaded pipeline.
+
+    §11 reports "the distribution of each **declared** assumption across the
+    pipeline". A pipeline with no files declares nothing, so it has no
+    distributions — not nine unanimous ones, and not nine disagreements. Reporting
+    them anyway put a ``NaN`` median on a wire that forbids non-finite numbers, so
+    an empty ``pipeline/`` did not render a zero-candidate mandate page: it stopped
+    the server starting (4C-2, §13).
+    """
+    if arrays.count == 0:
+        return DispersionReport(pipeline_wide={}, by_market={})
+
     declared = arrays.assumptions
     columns: dict[str, Vector] = {
         "taxRate": declared.tax_rate,
