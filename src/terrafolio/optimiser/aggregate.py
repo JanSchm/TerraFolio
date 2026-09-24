@@ -10,6 +10,15 @@ and a population of one is how the winner is aggregated.
 the genetic algorithm's hot path — and everything downstream of it is float64. That is
 the epic's rule stated as code: the speed-up is in the matrix product, and precision
 belongs in the outputs.
+
+**Reduction order.** The GA's trajectory turns on ``f[a] >= f[b]``, and a GEMM's
+reduction order depends on BLAS blocking, which depends on the CPU and the thread count.
+2A quantises fitness to 6 dp and the runner pins BLAS to one thread, which makes a
+divergence vanishingly unlikely — but not impossible, and §12 asks for a guarantee
+rather than a probability. ``deterministic=True`` therefore swaps the GEMM for
+``einsum(optimize=False)``, which never enters BLAS and whose order is fixed by the
+shape and dtype alone. It costs 17-45x the GEMM and is off by default; see
+``docs/decisions.md`` 4B-3 for what that buys and what it does not.
 """
 
 from __future__ import annotations
@@ -83,13 +92,28 @@ class Aggregates:
         return empty
 
 
-def aggregate(features: Features, selection: Matrix) -> Aggregates:
+def _reduce(selection: Matrix, matrix: Matrix, *, deterministic: bool) -> Matrix:
+    """``selection @ matrix``, optionally without going near BLAS.
+
+    ``optimize=False`` is load-bearing: with optimisation on, einsum is free to hand a
+    two-operand contraction back to ``tensordot`` and therefore to the GEMM this exists
+    to avoid.
+    """
+    if deterministic:
+        contracted: Matrix = np.einsum("mn,nk->mk", selection, matrix, optimize=False)
+        return contracted
+    product: Matrix = selection @ matrix
+    return product
+
+
+def aggregate(features: Features, selection: Matrix, *, deterministic: bool = False) -> Aggregates:
     """Reduce ``(m, n)`` selections to their portfolio totals.
 
     ``selection`` is float — 1.0 for held, 0.0 for not — rather than boolean, because
     the whole point is that one matrix product replaces a loop.
     """
-    totals = np.asarray(selection @ features.matrix_for(selection.dtype), dtype=np.float64)
+    reduced = _reduce(selection, features.matrix_for(selection.dtype), deterministic=deterministic)
+    totals = np.asarray(reduced, dtype=np.float64)
     fit_width = features.fit.shape[-1]
     fit, country = totals[:, :fit_width], totals[:, fit_width:]
 
