@@ -312,6 +312,150 @@
   }
 
   /**
+   * What a modal has to do that `role="dialog"` alone does not.
+   *
+   * ui-contract.md §7.2: the drawer and the export dialog "trap focus, close on
+   * `Esc`, and restore focus to what opened them". Both already carried
+   * `role="dialog"` and `aria-modal="true"`, which is the *claim* that focus is
+   * trapped; nothing was doing the trapping. A keyboard user tabbed straight out of
+   * an open drawer into the page behind it, which is still there and still
+   * scrollable, and on closing it landed at the top of the document rather than back
+   * at the row they opened.
+   *
+   * Three notes on how, rather than what:
+   *
+   *   - Tab is intercepted and the next element focused explicitly. A browser will
+   *     not honour a trap any other way, and it is also the only form jsdom can
+   *     exercise, since it does not move focus on Tab at all.
+   *   - The opener is found by a delegated listener on the document, not by a
+   *     handler bound at init. The rows that open the drawer do not exist yet —
+   *     issue #11 renders them — and a delegated listener means they work with no
+   *     drawer code in table.js.
+   *   - The background is left alone. Marking it `aria-hidden` would put focusable
+   *     elements inside a hidden subtree, which is its own violation and one axe
+   *     reports; `aria-modal` plus a trap that actually traps is the conformant
+   *     pair.
+   */
+  var FOCUSABLE = [
+    'a[href]', 'button:not([disabled])', 'input:not([disabled]):not([type="hidden"])',
+    'select:not([disabled])', 'textarea:not([disabled])', '[tabindex]:not([tabindex="-1"])',
+  ].join(', ');
+
+  function overlay(options) {
+    var o = options || {};
+    return {
+      name: o.name || 'overlay',
+      open: false,
+      /** What to give focus back to. §7.2's "restore focus to what opened them". */
+      returnTo: null,
+      panel: null,
+      scrim: null,
+
+      init: function () {
+        this.attach(this.$refs.panel, this.$refs.scrim);
+        if (o.openWith) this.delegate(o.openWith);
+      },
+
+      /** Split out of init() so a test can drive the trap without a page. */
+      attach: function (panel, scrim) {
+        this.panel = panel || null;
+        this.scrim = scrim || null;
+      },
+
+      delegate: function (selector) {
+        var self = this;
+        var doc = this.$el.ownerDocument;
+        doc.addEventListener('click', function (event) {
+          var target = event.target;
+          if (!target || !target.closest) return;
+          var trigger = target.closest(selector);
+          if (trigger) self.show({ target: trigger });
+        });
+      },
+
+      /** In tab order, skipping anything hidden or disabled. */
+      focusables: function () {
+        if (!this.panel) return [];
+        return Array.prototype.filter.call(this.panel.querySelectorAll(FOCUSABLE),
+          function (el) {
+            return !el.closest('[hidden]') && el.getAttribute('aria-hidden') !== 'true';
+          });
+      },
+
+      /**
+       * Where Tab should land, wrapping at both ends. Pure, so the trap can be
+       * asserted directly rather than inferred from where focus happened to go.
+       */
+      nextFocus: function (active, shift) {
+        var list = this.focusables();
+        if (!list.length) return this.panel;
+        var at = list.indexOf(active);
+        if (at === -1) return shift ? list[list.length - 1] : list[0];
+        var to = shift ? at - 1 : at + 1;
+        if (to < 0) to = list.length - 1;
+        if (to >= list.length) to = 0;
+        return list[to];
+      },
+
+      show: function ($event) {
+        var trigger = $event && $event.target;
+        this.returnTo = (trigger && trigger.closest)
+          ? (trigger.closest('button, a[href]') || trigger)
+          : null;
+        this.open = true;
+        this.expand(true);
+        var self = this;
+        /* After Alpine has removed [hidden]: focus() will not move to an element
+           the layout has no box for. */
+        this.after(function () {
+          var first = self.focusables()[0];
+          if (first) first.focus();
+          else if (self.panel) self.panel.focus();
+        });
+      },
+
+      hide: function () {
+        if (!this.open) return;
+        this.open = false;
+        this.expand(false);
+        var back = this.returnTo;
+        this.returnTo = null;
+        if (back && back.focus) back.focus();
+        emit(this.$el || this.panel, this.name, false);
+      },
+
+      onKeydown: function ($event) {
+        if (!this.open) return;
+        if ($event.key === 'Escape') {
+          $event.preventDefault();
+          $event.stopPropagation();
+          this.hide();
+        } else if ($event.key === 'Tab') {
+          $event.preventDefault();
+          var doc = this.panel && this.panel.ownerDocument;
+          var next = this.nextFocus(doc && doc.activeElement, $event.shiftKey);
+          if (next && next.focus) next.focus();
+        }
+      },
+
+      /* Only a trigger that declares aria-expanded gets it maintained. The export
+         button does; a holdings row does not, and three hundred rows announcing a
+         collapsed state each would be noise rather than information. */
+      expand: function (state) {
+        var trigger = this.returnTo;
+        if (trigger && trigger.hasAttribute && trigger.hasAttribute('aria-expanded')) {
+          trigger.setAttribute('aria-expanded', state ? 'true' : 'false');
+        }
+      },
+
+      after: function (fn) {
+        if (typeof this.$nextTick === 'function') this.$nextTick(fn);
+        else fn();
+      },
+    };
+  }
+
+  /**
    * The holdings table's sort state and row presentation.
    *
    * It deliberately does **not** sort `rows`. §12 budgets sort and filter at under
@@ -417,6 +561,7 @@
     splitBar: splitBar,
     kpiTile: kpiTile,
     holdingsTable: holdingsTable,
+    overlay: overlay,
   };
 
   factories.status = STATUS;

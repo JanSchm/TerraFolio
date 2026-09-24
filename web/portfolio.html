@@ -44,7 +44,7 @@
     <div class="flex flex-wrap gap-2">
       <a href="mandate.html"
          class="inline-flex min-h-[44px] cursor-pointer items-center whitespace-nowrap border border-edge bg-transparent px-4 py-2 font-condensed text-label font-semibold text-text no-underline hover:bg-accent-100">Edit mandate</a>
-      <button type="button" data-action="export"
+      <button type="button" data-action="export" aria-haspopup="dialog" aria-expanded="false"
               class="min-h-[44px] cursor-pointer whitespace-nowrap border border-edge bg-transparent px-4 py-2 font-condensed text-label font-semibold hover:bg-accent-100">Export</button>
       <button type="button" data-action="rerun"
               class="min-h-[44px] cursor-pointer whitespace-nowrap border border-accent-700 bg-accent-700 px-4 py-2 font-condensed text-label font-semibold tracking-cta text-bg hover:bg-accent-800">Re-run</button>
@@ -364,7 +364,7 @@
                 <span class="sr-only" x-text="lockName(row)"></span>
               </td>
               <td class="px-2 py-2 text-left align-top">
-                <button type="button" data-action="open-drawer"
+                <button type="button" data-action="open-drawer" aria-haspopup="dialog"
                         class="block cursor-pointer border-0 bg-transparent p-0 text-left hover:underline">
                   <span class="block font-condensed text-num-cell font-semibold" x-text="row.name"></span>
                   <span class="block text-meta text-muted" x-text="fmt.join(row.country, row.id)"></span>
@@ -400,17 +400,25 @@
   </section>
 </main>
 
-<!-- ── Project detail drawer ───────────────────────────────────────────────── -->
-<div class="fixed inset-0 z-scrim bg-text/35" data-region="drawer-scrim" hidden></div>
-<aside class="panel fixed inset-y-0 right-0 z-drawer w-[min(440px,94vw)] overflow-y-auto border-l border-divider bg-bg !p-[22px]"
-       data-region="drawer" role="dialog" aria-modal="true" aria-labelledby="p-drawer-title" hidden>
+<!-- ── Project detail drawer ─────────────────────────────────────────────────
+     role="dialog" and aria-modal are the claim that focus is trapped; overlay()
+     is what does the trapping, closes on Esc and hands focus back to the row that
+     opened it (ui-contract.md §7.2, §5.5). The opener is delegated on the
+     document because those rows are rendered by issue #11 and do not exist yet. -->
+<div x-data="overlay({ name: 'drawer', openWith: '[data-action=&quot;open-drawer&quot;]' })"
+     @keydown="onKeydown($event)">
+  <div class="fixed inset-0 z-scrim bg-text/35" data-region="drawer-scrim"
+       x-ref="scrim" :hidden="!open" hidden @click="hide()"></div>
+  <aside class="panel fixed inset-y-0 right-0 z-drawer w-[min(440px,94vw)] overflow-y-auto border-l border-divider bg-bg !p-[22px]"
+         data-region="drawer" role="dialog" aria-modal="true" aria-labelledby="p-drawer-title"
+         x-ref="panel" tabindex="-1" :hidden="!open" hidden>
   <div class="flex items-start justify-between gap-3">
     <div>
       <p class="m-0 mb-[2px] text-h6 uppercase tracking-caps text-accent-700" data-field="drawer-kicker">&#8212;</p>
       <h2 id="p-drawer-title" class="m-0 text-h3" data-field="drawer-name">&#8212;</h2>
       <p class="m-0 mt-[2px] text-cell text-muted" data-field="drawer-location">&#8212;</p>
     </div>
-    <button type="button" data-action="close-drawer"
+    <button type="button" data-action="close-drawer" @click="hide()"
             class="min-h-[44px] flex-none cursor-pointer border border-edge bg-transparent px-4 py-2 font-condensed text-label font-semibold hover:bg-accent-100">Close</button>
   </div>
   <dl class="my-[18px] grid grid-cols-2 border border-divider" data-region="drawer-headline"></dl>
@@ -421,13 +429,16 @@
     <button type="button" data-action="drawer-exclude" aria-pressed="false"
             class="min-h-[44px] cursor-pointer border border-edge bg-transparent px-4 py-2 font-condensed text-label font-semibold hover:bg-accent-100">Exclude from search</button>
   </div>
-</aside>
+  </aside>
+</div>
 
 <!-- ── Export dialog ───────────────────────────────────────────────────────── -->
-<div class="fixed inset-0 z-dialog flex items-center justify-center bg-text/35 p-4"
-     data-region="export-scrim" hidden>
-  <div class="panel w-[min(460px,92vw)] bg-bg !p-6" role="dialog" aria-modal="true"
-       aria-labelledby="p-export-title">
+<div x-data="overlay({ name: 'export', openWith: '[data-action=&quot;export&quot;]' })"
+     @keydown="onKeydown($event)">
+  <div class="fixed inset-0 z-dialog flex items-center justify-center bg-text/35 p-4"
+       data-region="export-scrim" x-ref="scrim" :hidden="!open" hidden @click.self="hide()">
+    <div class="panel w-[min(460px,92vw)] bg-bg !p-6" role="dialog" aria-modal="true"
+         aria-labelledby="p-export-title" x-ref="panel" tabindex="-1">
     <h2 id="p-export-title" class="mb-[6px] mt-0 text-h4">Export portfolio</h2>
     <p class="m-0 text-label text-muted" data-field="export-subtitle">&#8212;</p>
     <div class="my-[18px] mb-5 flex flex-col gap-2">
@@ -445,8 +456,9 @@
       </button>
     </div>
     <div class="flex justify-end">
-      <button type="button" data-action="close-export"
+      <button type="button" data-action="close-export" @click="hide()"
               class="min-h-[44px] cursor-pointer border border-accent-700 bg-accent-700 px-4 py-2 font-condensed text-label font-semibold text-bg hover:bg-accent-800">Done</button>
+    </div>
     </div>
   </div>
 </div>
