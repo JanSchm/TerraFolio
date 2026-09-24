@@ -172,9 +172,14 @@ says nothing moved. All four components are required.
 
 ---
 
-## 3. `GET /pipeline/status`
+## 3. `GET /pipeline/status` and `POST /pipeline/reload`
 
 Load and validation state. The mandate screen shows a banner from it; #12 asserts against it.
+
+`POST /pipeline/reload` revalidates the directory and recomputes the snapshot hash — users add and
+remove files while the server runs — and returns **this same body**, so there is one shape for
+"what is the state of the pipeline" rather than two. Stored runs keep their own snapshot; only a
+*new* run against a now-stale `pipelineHash` is [409](#63-responses) (§13).
 
 **200**
 
@@ -200,6 +205,9 @@ Load and validation state. The mandate screen shows a banner from it; #12 assert
   }
 }
 ```
+
+A reload that changes nothing returns the same `pipelineHash`, and the `ETag` of
+[`GET /pipeline`](#2-get-pipeline) therefore does not move either.
 
 `rejected` files did not load — a tie-out failed. `warnings` loaded normally: plausibility checks
 and the dispersion report **warn and never block**, because one stale file must not stop all work
@@ -250,9 +258,14 @@ field for a fixed set of mandates. If they diverge, the client is wrong.
   "lockedEquity_m": 0,
   "warnings": [ { "code": "CAPACITY_BELOW_TARGET", "severity": "alert",
                   "message": "Eligible pipeline is 1,180 MW — below the 1,500 MW target." } ],
+  "screensToWiden": ["riskScore", "minDscr"],
   "runnable": true
 }
 ```
+
+`screensToWiden` names the screens rejecting candidates, worst offender first, which is §13's
+"naming the screens to widen". It is advisory on a runnable mandate and the actionable half of the
+answer on one that is not.
 
 and, when the locks alone cannot be funded:
 
@@ -260,27 +273,37 @@ and, when the locks alone cannot be funded:
 {
   "eligibleCount": 214, "totalCount": 300,
   "lockedEquity_m": 1420,
-  "warnings": [ { "code": "LOCKS_EXCEED_CAPITAL", "severity": "blocking",
-                  "message": "Locked projects need €1,420m of equity against €1,200m available. Release a lock to run.",
-                  "detail": { "availableCapital_m": 1200, "excess_m": 220,
-                              "lockedIds": ["P01","P17","P44"] } } ],
+  "warnings": [ { "code": "LOCKS_EXCEED_CAPITAL", "severity": "alert",
+                  "message": "Locked projects need €1,420m of equity against €1,200m available. Release a lock to run." } ],
+  "screensToWiden": [],
   "runnable": false
 }
 ```
 
 `warnings` are ordered by the §5.4 severity, which is **not** the order the design mockup emits them
-in (A-5). `severity` is `blocking`, `alert` or `info`. Strings are pinned in
-[`ui-contract.md` §3.5](ui-contract.md#35-warning-strings).
+in (A-5). Strings are pinned in [`ui-contract.md` §3.5](ui-contract.md#35-warning-strings).
 
-| Code | Severity | |
-|---|---|---|
-| `NO_CANDIDATES` | blocking | Nothing passes the screens. |
-| `LOCKS_EXCEED_CAPITAL` | blocking | The locked projects alone need more equity than is available. `detail` carries `lockedEquity_m`, `availableCapital_m`, `excess_m` and `lockedIds`. |
-| `CAPACITY_BELOW_TARGET` | alert | |
-| `LEVERAGE_UNREACHABLE` | alert | |
-| `SOLAR_MIX_UNREACHABLE` | info | |
-| `CAPITAL_UNDERUSED` | info | |
-| `LOCKS_PRESENT` | info | |
+**`severity` is `alert` or `info`. It is never `blocking`.** An earlier draft of this document wrote
+`"severity": "blocking"` on the two blocking codes; 1A's `WarningSeverity` admits two values and
+validates that a warning's severity is the one its *code* carries, and that model is both the
+executable definition of the schema and what the store persists. Whether a warning stops the run is
+a property of the code — `WarningCode.disables_run`, true for exactly `NO_CANDIDATES` and
+`LOCKS_EXCEED_CAPITAL` — and it reaches a client as **`runnable`**. So severity says how loudly to
+render it and `runnable` says whether the button works, and the two cannot contradict each other.
+
+The numbers a client needs to act on a block are in the sentence, and in the **422** body's `detail`
+when the run is actually attempted — see [§6.3](#63-responses). The preview does not repeat them
+per warning.
+
+| Code | Severity | Blocks | |
+|---|---|---|---|
+| `NO_CANDIDATES` | alert | **yes** | Nothing passes the screens. |
+| `LOCKS_EXCEED_CAPITAL` | alert | **yes** | The locked projects alone need more equity than is available. The **422** carries `lockedEquity_m`, `availableCapital_m`, `excess_m` and `lockedIds` in `detail`. |
+| `CAPACITY_BELOW_TARGET` | alert | no | |
+| `LEVERAGE_UNREACHABLE` | alert | no | |
+| `SOLAR_MIX_UNREACHABLE` | info | no | |
+| `CAPITAL_UNDERUSED` | info | no | |
+| `LOCKS_PRESENT` | info | no | |
 
 **`runnable` is `false` if and only if some warning is `blocking`**, and those are exactly the two
 conditions `POST /optimisations` answers with `422`. Preview and run must agree: a preview that
@@ -319,8 +342,16 @@ stream.
 | `eurRevenueOnly` | boolean | — | false |
 | `omContractedOnly` | boolean | — | false |
 
-`codFrom > codTo` is **400** `INVALID_MANDATE`. An empty `countries` or `stages` is accepted and
-yields `NO_CANDIDATES` on preview; it is **422** here, because there is nothing to search.
+`codFrom > codTo` is **400** `INVALID_MANDATE`, and so is any field outside the range above;
+`detail.field` names it, except where the check is a relationship between two fields and so names
+neither.
+
+An empty `countries` or `stages` is **400** `INVALID_MANDATE`, not 422. An earlier draft of this
+document had it accepted and answered `NO_CANDIDATES`; the executable definition of the schema —
+1A's `domain/mandate.py` — requires at least one of each, and epic §8 makes that model the owner of
+record. Conforming rather than forking: "you have selected no countries" is a fault in the mandate,
+which is what 400 says, where `NO_CANDIDATES` says the mandate is coherent and the pipeline has
+nothing that fits it. `NO_CANDIDATES` keeps that second meaning.
 
 ### 6.2 Request
 
@@ -352,9 +383,15 @@ Location: /optimisations/01JB2Q…
 ```
 
 ```json
-{ "runId": "01JB2Q…", "status": "queued",
-  "streamUrl": "/optimisations/01JB2Q…/stream", "totalGenerations": 60 }
+{ "runId": "01JB2Q…", "runRef": "A-4", "status": "queued",
+  "streamUrl": "/optimisations/01JB2Q…/stream",
+  "resultUrl": "/optimisations/01JB2Q…",
+  "totalGenerations": 60, "seed": 91827364 }
 ```
+
+`seed` is the **resolved** one, whether the caller supplied it or the server drew it. Epic §5 makes
+a run with no recorded seed not a run, and returning it here means a client never has to wait for
+the result to learn what it can replay. `runRef` is the short human label the export carries (§7.6).
 
 **409** `PIPELINE_MOVED` — the pipeline changed since `pipelineHash` was issued. `detail` carries
 `currentPipelineHash`. Stored runs keep their own snapshot; only a *new* run is blocked, and the UI
@@ -369,7 +406,7 @@ release, so `detail` carries:
   "lockedIds": ["P01","P17","P44"], "excess_m": 220 }
 ```
 
-**422** `NO_CANDIDATES` — no project passes the screens.
+**422** `NO_CANDIDATES` — the mandate is well-formed and no project passes its screens.
 
 **400** `INVALID_MANDATE` — a field out of range, or `codFrom > codTo`. `detail.field` names it.
 
@@ -384,12 +421,33 @@ per-generation data from the engine and never a simulated animation (§6).
 These names keep the technical vocabulary deliberately: the stream is not user-facing, and §14's ban
 applies to copy, not to the protocol (A-11). The UI relabels for display.
 
+**The event log is the source of truth, not an in-memory fan-out.** A Standard run finishes in
+about 2.5 s, so a browser that POSTs and then opens the stream routinely misses the first
+generations or the whole run. The worker appends each generation to `run_event` and the stream
+tails that table from the beginning — so replay, late subscribers, several simultaneous
+subscribers and survival across a server restart all fall out of one decision rather than four
+mechanisms.
+
 ```
+id: 7
 event: generation
 data: {"generation":7,"totalGenerations":60,
        "bestFitness":6.2121,"meanFitness":2.0041,
        "best":{"projectCount":11,"capacityMw":1661,"equity_m":1154,"blendedIrr":0.121}}
 ```
+
+**`id:` is the generation number**, which makes `Last-Event-ID` a resume cursor: `Last-Event-ID: 20`
+replays from generation 21. Generations are 1-based, so `0` is only ever the "from the beginning"
+sentinel. `status`, `done` and `failed` carry **no** `id:` — an id on a terminal frame would collide
+with the generation sequence, and under the EventSource spec a frame without one leaves the
+client's cursor where it was, which is what a reconnect after `done` needs.
+
+```
+event: status
+data: {"status":"running","startedAt":"2026-09-21T09:22:11Z"}
+```
+
+Sent first, so a subscriber that joined a `queued` run knows that before any generation arrives.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -408,9 +466,16 @@ event: failed
 data: {"runId":"01JB2Q…","error":{"code":"ENGINE_ERROR","message":"…"}}
 ```
 
+A `:keepalive` comment frame goes out every 15 s, for proxies during an Exhaustive run. Conforming
+clients ignore comment frames.
+
 A client joining late receives the events already emitted, then continues live, so a reconnect does
-not lose the curve. **404** `RUN_NOT_FOUND`; **410** `RUN_EXPIRED` if the stream has closed and the
-result is available instead.
+not lose the curve — including a client that subscribes only **after** the run has finished, which
+replays every generation and then receives exactly one `done`.
+
+**404** `RUN_NOT_FOUND`. **410** `RUN_EXPIRED` is **reserved and not emitted in v1**: nothing prunes
+`run_event`, so no stream ever expires, and implementing it would mean an unreachable branch that
+contradicts the replay guarantee above.
 
 ---
 
@@ -518,8 +583,16 @@ Required by §12's reproducibility and audit trail. Every one of these is record
 Re-running with the same mandate, pipeline hash, assumption set and seed must reproduce the result
 exactly. #12 asserts this across releases.
 
-**404** `RUN_NOT_FOUND`. A run still in flight returns **200** with `status: "running"` and no
-`aggregates`.
+**404** `RUN_NOT_FOUND`.
+
+**A run still in flight returns 200**, with `status` (`queued` or `running`) and no `aggregates`,
+plus `generation` and `totalGenerations` so a non-streaming client can poll progress without
+parsing the stream. Not 202: the run *is* the resource, and 202 would say the request to read it
+had been accepted rather than that the run has not finished. `holdings`, the two cash-flow series
+and `convergence` are present but may be empty until it does.
+
+A `failed` or `cancelled` run also returns **200**, carrying its `status` and, for a failure, the
+`error` block. A run that failed is still audit trail (§12), not a 404 and not a 500.
 
 ---
 
@@ -579,7 +652,7 @@ clamp, tolerance and band the engine uses appears here and nowhere else in code 
 | `400` | Malformed request, or a mandate field out of range. | `INVALID_MANDATE` |
 | `404` | No such run or project. | `RUN_NOT_FOUND`, `PROJECT_NOT_FOUND` |
 | `409` | `pipelineHash` no longer matches. | `PIPELINE_MOVED` |
-| `410` | The stream has closed; read the result instead. | `RUN_EXPIRED` |
+| `410` | Reserved; not emitted in v1 — see [§7](#7-get-optimisationsidstream). | `RUN_EXPIRED` |
 | `422` | Well-formed but unrunnable: locks exceed capital, or nothing passes the screens. | `LOCKS_EXCEED_CAPITAL`, `NO_CANDIDATES` |
 | `500` | Engine or store failure. | `ENGINE_ERROR`, `STORE_ERROR` |
 

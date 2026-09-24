@@ -19,6 +19,9 @@ seed pipeline and spreadsheet path (issue 2C):
     A full search, printing the selected ids and all twelve §7.1 tiles.
 ``terrafolio bench``
     Timings for the load and for the search at each effort level.
+``terrafolio serve``
+    The HTTP service (issue 3A): the endpoints, the event stream and the
+    exports, over this same pipeline, store and engine.
 
 **This module is the display boundary.** The core works in euros; §14's formats are
 €m with thousands separators, IRR to one decimal, DSCR and MOIC to two with a
@@ -479,6 +482,49 @@ def _bench(args: argparse.Namespace, assumptions: AssumptionSet) -> int:
 
 
 # ---------------------------------------------------------------------------
+# serve (issue 3A)
+# ---------------------------------------------------------------------------
+
+DEFAULT_HOST: Final = "127.0.0.1"
+"""Loopback, not ``0.0.0.0``. Pipeline data is commercially sensitive (§12) and
+nothing in this backlog authenticates, so binding every interface by default
+would publish it; an operator who wants that says so."""
+
+DEFAULT_PORT: Final = 8000
+
+
+def _serve(args: argparse.Namespace, assumptions: AssumptionSet) -> int:
+    """Run the HTTP service over this pipeline, store and engine.
+
+    The three imports are deferred on purpose, and the lint rule that would
+    hoist them is suppressed rather than obeyed. ``terrafolio pipeline validate``
+    should not pay to import FastAPI, uvicorn and a process pool to read a
+    directory — and, more than that, importing ``terrafolio.api`` reaches
+    ``runner.worker``, whose import **pins this process's BLAS threads**. That
+    is exactly right inside a worker and a side effect ``terrafolio run`` did not
+    ask for.
+    """
+    del assumptions  # the service loads its own, under the settings it is given
+
+    import uvicorn  # noqa: PLC0415 - see above: importing the API pins BLAS threads
+
+    from terrafolio.api.app import create_app  # noqa: PLC0415
+    from terrafolio.api.settings import RunnerMode, Settings  # noqa: PLC0415
+
+    settings = Settings(
+        pipeline_dir=Path(args.pipeline),
+        database_path=Path(args.db),
+        runner_mode=RunnerMode(args.runner),
+    )
+    print(
+        f"terrafolio serving {settings.pipeline_dir}/ on http://{args.host}:{args.port} "
+        f"({settings.runner_mode.value} runner, store {settings.database_path})"
+    )
+    uvicorn.run(create_app(settings), host=args.host, port=args.port, log_level=args.log_level)
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
 
@@ -746,6 +792,18 @@ def build_parser() -> argparse.ArgumentParser:
     _add_mandate_arguments(bench)
     bench.add_argument("--repeats", type=int, default=BENCH_REPEATS)
     bench.add_argument("--seed", type=int, default=BENCH_SEED)
+
+    serve = commands.add_parser("serve", help="run the HTTP service")
+    serve.add_argument("--host", default=DEFAULT_HOST)
+    serve.add_argument("--port", type=int, default=DEFAULT_PORT)
+    serve.add_argument("--db", default="terrafolio.db", help="SQLite run store")
+    serve.add_argument(
+        "--runner",
+        default="process",
+        choices=["process", "thread", "inline"],
+        help="where a search runs; process pins BLAS to one thread per worker",
+    )
+    serve.add_argument("--log-level", default="info")
     return parser
 
 
@@ -764,6 +822,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "preview": _preview,
         "run": _run,
         "bench": _bench,
+        "serve": _serve,
     }
     try:
         return handlers[args.command](args, assumptions)

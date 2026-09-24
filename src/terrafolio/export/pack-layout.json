@@ -1,0 +1,54 @@
+{
+  "$schemaId": "terrafolio/committee-pack-layout/v1",
+  "note": "Every colour, band and geometry the offline committee pack draws with, quoted from docs/ui-contract.md — §1.1 for the palette, §5.1 for the compliance bands, §5.2 and §5.3 for the chart and map, §6 for the convergence curves. They live in a data file for the same reason src/terrafolio/generate/countries.json does: they are a quotation of a document, not calibration the engine reads, and a display constant written into a Python source file is one nobody can audit against the document it came from. tests/api/test_committee_pack.py parses ui-contract.md and asserts these still match it.",
+  "colour": {
+    "bg": "#f2f2f3",
+    "surface": "#e9e9ea",
+    "text": "#1d1f20",
+    "accent": "#5980a6",
+    "accent2": "#728fab",
+    "neutral200": "#e7e7ea",
+    "neutral300": "#d4d4d7",
+    "neutral700": "#5d5d60",
+    "accent100": "#eef6ff",
+    "accent200": "#d6ebff",
+    "accent300": "#b5d9fd",
+    "accent400": "#94bce3",
+    "accent700": "#416180",
+    "accent800": "#2c455d",
+    "dividerAlpha": 0.16
+  },
+  "compliance": {
+    "capacityBand": 0.08,
+    "techSplitBand": 0.08
+  },
+  "cashflow": {
+    "width": 960,
+    "height": 290,
+    "barGap": 2,
+    "tickEvery": 5,
+    "axisLabelSpace": 18,
+    "tickLabelSpace": 24,
+    "tickBaseline": 14,
+    "axisBaseline": -6
+  },
+  "convergence": {
+    "width": 600,
+    "height": 150
+  },
+  "map": {
+    "width": 960,
+    "height": 300,
+    "centreLon": 12,
+    "centreLat": 55,
+    "scaleFactor": 1.15,
+    "countryStroke": 0.6,
+    "markerRadiusFloor": 3,
+    "markerRadiusFactor": 0.42,
+    "markerFillOpacity": 0.82,
+    "markerStroke": 1
+  },
+  "page": {
+    "width": 1040
+  }
+}
