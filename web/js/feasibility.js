@@ -183,6 +183,57 @@
     });
   }
 
+  /**
+   * This file's screen names, spelled as `optimiser/screens.py` spells them.
+   *
+   * The two lists were written independently and four of the nine disagree. The wire
+   * name is the one that reaches a user, through `screensToWiden` on
+   * POST /mandate/preview and in the 422 a blocked run answers with, so it is the one
+   * this side has to emit. The local names stay as they are: they key `screens` and
+   * are what `SCREEN_ORDER` and every unit test name.
+   */
+  var WIRE_SCREEN_NAMES = {
+    country: 'countries',
+    stage: 'stages',
+    codWindow: 'codWindow',
+    minDscr: 'minDscr',
+    riskCap: 'riskScore',
+    gridSecured: 'gridSecured',
+    omContracted: 'omContracted',
+    currency: 'eurRevenue',
+    notExcluded: 'exclusions',
+  };
+
+  /**
+   * The screens rejecting anything, worst offender first — §13's "naming the screens
+   * to widen", and the actionable half of the answer on a mandate nothing passes.
+   *
+   * Each screen is counted **independently** over the whole pipeline, as
+   * `ScreenResult.drops` does: a project failing three screens is counted by all
+   * three, because widening any one of them is a thing the user can do. Ties break on
+   * the wire name, which is what makes this reproduce the server's order exactly.
+   */
+  function screensToWiden(all, m, cap, excludedIds) {
+    var drops = {};
+    var i;
+    var j;
+    for (i = 0; i < SCREEN_ORDER.length; i++) drops[SCREEN_ORDER[i]] = 0;
+    for (i = 0; i < all.length; i++) {
+      for (j = 0; j < SCREEN_ORDER.length; j++) {
+        var name = SCREEN_ORDER[j];
+        if (!screens[name](all[i], m, cap, excludedIds)) drops[name] += 1;
+      }
+    }
+    return SCREEN_ORDER
+      .filter(function (name) { return drops[name] > 0; })
+      .map(function (name) { return { name: WIRE_SCREEN_NAMES[name], drops: drops[name] }; })
+      .sort(function (a, b) {
+        if (a.drops !== b.drops) return b.drops - a.drops;
+        return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+      })
+      .map(function (entry) { return entry.name; });
+  }
+
   /* ── The eligible pool, in aggregate ────────────────────────────────────────
      Field names are the POST /mandate/preview response (api.md §5). Solar share is
      capacity-weighted and gearing is cost-weighted, matching the portfolio aggregates
@@ -365,6 +416,7 @@
       eligibleGearing: agg.eligibleGearing,
       lockedEquity_m: lockedEquity_m,
       warnings: found,
+      screensToWiden: screensToWiden(all, mandate, cap, excludedIds),
       runnable: !blocking,
       /* Not on the wire: the pool itself, and the three footer figures already
          formatted, so the page never formats a number of its own (spec §14). */
@@ -382,6 +434,8 @@
 
   var api = {
     feasibility: feasibility,
+    screensToWiden: screensToWiden,
+    WIRE_SCREEN_NAMES: WIRE_SCREEN_NAMES,
     screens: screens,
     SCREEN_ORDER: SCREEN_ORDER,
     passes: passes,

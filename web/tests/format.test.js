@@ -122,6 +122,47 @@ test('score — development risk to one decimal', () => {
   assertDashesUndefined(fmt.score, 'score');
 });
 
+test('eurM1 keeps the decimal a whole million would hide', () => {
+  assert.equal(fmt.eurM1(28.93), '€28.9m');
+  assert.equal(fmt.eurM1(-28.93), '€-28.9m');
+  assert.equal(fmt.eurM1(1204.65), '€1,204.7m', 'grouped like every other figure');
+  assert.equal(fmt.eurM1(0), '€0.0m', 'a flow of zero is a flow, not a blank');
+  assert.notEqual(fmt.eurM1(28.93), fmt.eurM(28.93), 'it is not the whole-million format');
+  for (const bad of [null, undefined, NaN, Infinity, -Infinity, 'x', {}]) {
+    assert.equal(fmt.eurM1(bad), fmt.DASH);
+  }
+});
+
+test('eur is euros with the unit left to the label beside it', () => {
+  assert.equal(fmt.eur(41), '\u20ac41');
+  assert.equal(fmt.eur(1204.6), '\u20ac1,205');
+  assert.equal(fmt.eur(0), '\u20ac0', 'a cost of zero is a cost');
+  assert.ok(!fmt.eur(41).endsWith('m'), 'it is not in millions, and must not claim to be');
+  for (const bad of [null, undefined, NaN, Infinity, -Infinity, 'x', {}]) {
+    assert.equal(fmt.eur(bad), fmt.DASH);
+  }
+});
+
+test('degrees is two decimals, which is the precision the sites are known to', () => {
+  assert.equal(fmt.degrees(39.33), '39.33\u00b0');
+  assert.equal(fmt.degrees(1.1), '1.10\u00b0', 'padded, so a column of them aligns');
+  assert.equal(fmt.degrees(-8.94), '-8.94\u00b0');
+  assert.equal(fmt.degrees(0), '0.00\u00b0');
+  for (const bad of [null, undefined, NaN, Infinity, -Infinity, 'x', {}]) {
+    assert.equal(fmt.degrees(bad), fmt.DASH);
+  }
+});
+
+test('mandateScore is three decimals, because that is where a run moves', () => {
+  assert.equal(fmt.mandateScore(5.018856), '5.019');
+  assert.equal(fmt.mandateScore(-2.216503), '-2.217');
+  assert.equal(fmt.mandateScore(0), '0.000', 'a score of zero is a score, not a blank');
+  assert.equal(fmt.mandateScore(1234.5), '1,234.500', 'grouped like every other figure');
+  for (const bad of [null, undefined, NaN, Infinity, -Infinity, 'x', {}]) {
+    assert.equal(fmt.mandateScore(bad), fmt.DASH);
+  }
+});
+
 test('join — middle-dot separator, dropping absent parts', () => {
   assert.equal(fmt.join('a', 'b'), `a ${DOT} b`);
   assert.equal(fmt.join(['a', 'b', 'c']), `a ${DOT} b ${DOT} c`, 'accepts an array');

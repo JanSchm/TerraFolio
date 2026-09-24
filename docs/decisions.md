@@ -2807,6 +2807,333 @@ acceptance criterion in this issue.
 runs the Tailwind build that `offline.test.js` requires. The file is #2's ownership row and #2
 is closed; the change is announced on issue #1 rather than left for someone to notice.
 
+## 4A — the three pages against the live API
+
+Issue [#11](https://github.com/JanSchm/TerraFolio/issues/11) wires #5's shells and #10's
+conformant markup to #9's API. Nothing here is a new contract: the wire is `api.md`, the
+screens are `ui-contract.md`, and where this file records a decision it is because the two
+documents were silent or because the client and the server disagreed.
+
+### 4A-1 · `GET /pipeline` and `GET /assumptions` are joined in the client
+
+`web/js/feasibility.js` reads its per-project risk ceiling off `payload.assumptions.riskCaps`
+and deliberately carries none of its own, because epic §5 requires every band to be an
+auditable configuration change rather than an edit to a page script. But `api.md` §2 puts no
+assumption set on `/pipeline`, and §10 gives it its own endpoint — where `riskCaps` carries
+**both** of §5.3's caps, `project` (the per-project pre-screen) and `portfolio` (the objective's
+capex-weighted penalty).
+
+**Decided.** `api.js`'s `getPipeline` fetches both and returns the pipeline with
+`assumptions: { riskCaps: <the project map>, portfolioRiskCaps, co2FactorTPerMwh, set }`. The
+join is in `api.js` rather than in `mandate.js` so that every wire field name in the front end
+appears in one file. No endpoint changes; the screens see one payload.
+
+### 4A-2 · `UK` and `GB` are the same market, on both sides of the screen
+
+`pipeline-schema.md` §4.1 accepts `UK` as an alias for ISO `GB`, `ui-contract.md` §3.2 names the
+fourteenth market `UK`, and every file in the shipped pipeline carries `GB`.
+`pipeline/arrays.py` normalises **both** ends for exactly this reason. `feasibility.js`
+normalised neither, so the mandate footer screened every British project out of its own pool.
+
+Measured over the shipped 300 files at the default mandate: **164 candidates and 28,589 MW**
+against the server's **177 and 31,147 MW**. Thirteen projects, silently absent, on the one
+figure §5.4 exists to give.
+
+**Decided.** `isoCountry` collapses the alias, and the country screen applies it to the file's
+code and to the mandate's alike — an alias that holds in one direction is not an alias, it is a
+screen that rejects a market without saying so.
+
+### 4A-3 · A lock re-admits past the screens on the client too
+
+[2A-20](#2a-20--locked-projects-still-re-admit-past-the-screens) settled that a lock re-admits a
+project failing a hard pre-screen, visibly, because a lock is a user instruction that outranks a
+soft screen. `apply_screens` implements it as `eligible = survives_every_screen | locked`;
+`feasibility.js` filtered on the screens alone. A mandate with two locked projects therefore
+counted three eligible candidates on screen against the server's five.
+
+**Decided.** The client re-admits too, with the same exception: a project that is both locked
+and excluded stays excluded, because the exclusion is the more specific instruction.
+
+### 4A-4 · `screensToWiden`, in the server's vocabulary
+
+`api.md` §5 puts `screensToWiden` on the preview response and §13 makes it the actionable half
+of the answer on a mandate nothing passes. `feasibility.js` computed nothing, so a client that
+matched the server field for field could not exist — which is what #12's screen-parity tests
+are for.
+
+**Decided.** It is computed client-side, counting each screen **independently** over the whole
+pipeline as `ScreenResult.drops` does — a project failing three screens is counted by all three,
+because widening any one of them is a thing the user can do — and breaking ties on the name.
+
+The two lists of screen names had been written independently and four of the nine disagreed
+(`country`/`countries`, `stage`/`stages`, `riskCap`/`riskScore`, `currency`/`eurRevenue`,
+`notExcluded`/`exclusions`). The wire name is the one that reaches a user, so `WIRE_SCREEN_NAMES`
+maps onto it and the local names stay as they are, keying `screens` and naming every unit test.
+
+Nine of ten mandates now agree with `POST /mandate/preview` field for field over the shipped
+pipeline, including the locks and the empty-pool case. The tenth is [4A-11](#4a-11--two-things-raised-rather-than-fixed).
+
+### 4A-5 · Persistence: the mandate per user, the steering per session
+
+spec §5 wants every control to persist "per user between sessions"; §7.6 wants locks and
+exclusions to accumulate across runs; §11 wants a run id to reopen the exact result.
+
+**Decided.** The mandate is `localStorage`, the steering and the last run are `sessionStorage`,
+and the run id is in the query string. The steering belongs to the session's work rather than to
+the user: a lock is a statement about the portfolio being built now, and a lock surviving a
+week to surprise the next mandate is not what §7.6 describes.
+
+Every access is wrapped, because both areas throw `SecurityError` on a `file://` origin — which
+is how A-15 requires the pages to open and how the whole node suite loads them. A page that
+cannot remember a mandate must still let the user state one.
+
+`tests/helpers/served.js` serves the same markup from an `http` origin for the tests that have
+to observe persistence, running the same scripts read off the page rather than listed.
+
+### 4A-6 · The mandate is read off the controls, not listed again
+
+The eighteen `api.md` §6.1 fields appear nowhere in `mandate.js`. Each control already knew its
+own `scale` — the factor that turns a percent spinner into the fraction the wire carries
+([A-17](#a-17--the-mandate-is-fractions-throughout)) — but only inside `changed()`, where a
+reader of the page's state could not reach it.
+
+**Decided.** Every control offers `wire()` and `restore()` as a pair and `changed()` emits what
+`wire()` returns, so a control has one idea of its own value. The mandate is then whatever the
+named controls carry, and cannot drift from them. Both directions round at a precision far finer
+than any control's step, because `11 / 100 * 100` is `11.000000000000002` and a mandate restored
+from last week should show the hurdle the user typed.
+
+### 4A-7 · The pipeline is not re-fetched when the hold period moves
+
+`GET /pipeline` takes `holdYears` and its ETag includes it, so each hold period is a distinct
+400 KB body rather than a 304. Dragging the hold-period control would pull one per step.
+
+**Decided.** The mandate screen does not re-fetch. Every figure in §3.4's footer — the eligible
+count, capacity and equity at full draw — and all nine screens are mandate-dependent but
+**hold-independent**: `equityIrr`, `moic`, `terminalValue_m` and `paybackYear` move with the hold
+period, and none of them appears on screen 01. The hold period reaches the run through the
+mandate on `POST /optimisations`, and the portfolio screen reads the run rather than the
+pipeline. If a figure that does move with it is ever added to screen 01, this has to change with
+it.
+
+### 4A-8 · Pacing the search screen is not simulating it
+
+spec §6 requires the curves to be real streamed data and the screen to hold for 1.5 s. Over the
+shipped pipeline a Standard search finishes in **78 ms**, and because the event log is the
+stream's source of truth (3A-2) a browser that POSTs and then subscribes is handed the whole run
+at once.
+
+**Decided.** Frames are queued and replayed on a tick sized to spread the run across the
+minimum. Nothing is invented, dropped or reordered; only the moment of drawing moves. When the
+engine is slower than the tick the queue is empty and the tick costs nothing. Verified by
+replaying a real run and comparing the rendered `points` against what its stored trace produces:
+byte-identical.
+
+x is scaled to the run's **total** rather than to how many rounds have arrived, so the curve
+grows left to right against a fixed axis instead of the whole history sliding under itself on
+every frame. Both series share one domain, because the gap between them closing is what the
+chart is for.
+
+### 4A-9 · The map joins on the ISO code, and degrades when there is no atlas
+
+`ui-contract.md` §5.3 and issue #11 both require the join to be on the ISO code rather than on
+`properties.name`, which the design mockup string-matched. Natural Earth's 110m corpus
+identifies a country by its **numeric** ISO code and carries no alpha-3, while a project file
+carries alpha-3, so the join needs a table either way.
+
+**Decided.** `ISO_NUMERIC` in `map.js` maps the fourteen markets' alpha-3 onto the numeric code.
+It is a quotation of ISO 3166-1 rather than of a label a corpus update can restyle, and a test
+asserts every one of the fourteen resolves to a shape the vendored atlas actually has. A country
+with no entry is simply not tinted; its markers still plot, because they come from the run's own
+coordinates and not from the atlas.
+
+Note this differs from the committee pack, which matches by name (3A-9) on the grounds that the
+names agree for all fourteen. Both work today; this one fails louder if they stop agreeing.
+
+The atlas is read from `window.TerraFolio.worldAtlas` first — `public/countries-110m.js` is how
+it reaches a page opened from disk, where `fetch` cannot read a `file://` URL (A-15) — then by
+fetching `public/countries-110m.json`, and the panel degrades to `Map data unavailable.` only if
+both are absent. §13's "the rest of the page is unaffected" is checked by leaving the tiles, the
+bars and the rows in place and asserting they are still there.
+
+**Worth knowing for whoever verifies this:** 1D ships the atlas **twice**, so issue #11's
+criterion — "degrades with `public/countries-110m.json` removed" — names half of it. Removing
+only the JSON leaves the map drawing from the vendored script, correctly. Removing both degrades
+it.
+
+### 4A-10 · A lock change makes a new row, because Alpine reuses the old one
+
+Alpine's keyed `x-for` reuses the element it already has for a key and re-evaluates that row's
+bindings only when the **item** changes. Locking a project mutated `row.locked` in place, so the
+steering store, the backing array and the rendered row disagreed — and the row was the only one
+of the three a user could see.
+
+**Decided.** A lock change rebuilds the changed rows as new objects. The same reasoning applies
+to anything else that later changes a row in place.
+
+Opening a run also **adopts its own steering** where the session has none: a run records which
+projects were locked into it and which were excluded from it, so a shared result opened fresh
+carries on from where that run left off rather than showing a lock column that contradicts the
+run it describes.
+
+### 4A-11 · Two things raised rather than fixed
+
+Neither is this issue's to decide, and both are recorded here so they are not found twice.
+
+**An empty eligible pool reports a solar share and a gearing of `0` on the wire.**
+`feasibility.js` reports `NaN`, which `format.js` renders as an em dash. Over the shipped
+pipeline this is the only field-level disagreement left between the client and
+`POST /mandate/preview`, and it only arises when nothing passes the screens. Epic §5 says an
+undefined figure is never zero, so the client looks right and the server looks wrong — but
+`optimiser/feasibility.py` is 2A's and the wire is 3A's. Neither figure is rendered in §3.4's
+footer; they exist for the parity #12 asserts.
+
+**`feasibility.js` carries §5.4's two thresholds as literals** — the 20-point solar divergence
+and the 90% capital absorption floor — where epic §5 requires every band to be configuration.
+`GET /assumptions` already serves both, as `feasibility.solarDivergenceTolerance` and
+`feasibility.capitalAbsorptionFloor`. Threading them through means either changing the fixtures
+in #5's own test suite or keeping the literal as a fallback, which is the thing being objected
+to. One line, once someone says which.
+
+---
+
+### 4A-12 · The cash-flow chart's base year is the pipeline's, and is fetched
+
+`baseYearOf` read the mandate's `codFrom`. That is an independent screen the user sets
+anywhere in 2027–2033 (`ui-contract.md` §3.2); the base year is a property of the
+**pipeline**, identical for every file in it (`pipeline-schema.md` §4.6.1). They are equal
+only because the shipped corpus starts where the default COD window does.
+
+A mandate opening its window in 2030 therefore moved all thirty bar readouts, the six
+x-axis ticks, all thirty rows of the sr-only table, §13's "COD falls after the hold" note
+and the undefined-payback year three years out — every one of them a figure an investment
+committee reads.
+
+**Decided.** `RunRecord` carries no `baseYear`, so the page asks. `api.getBaseYear` reads a
+project's own `assumptions.baseYear` off `GET /projects/{id}/statements` — a few KB, and the
+drawer caches the same response — and falls back to `GET /pipeline`, which carries it too and
+costs several hundred. It resolves **before** the first render, because thirty bars drawn and
+then relabelled is worse than one small request.
+
+When neither answers, the base year is `null` and every year renders an em dash. A year label
+is a claim, and the number that was being used instead of it merely looked like one.
+
+Worth folding `baseYear` into the run record if 3A's wire is revisited: it is a property of
+the snapshot the run recorded, and every consumer of `cashflow30Y_m` needs it.
+
+### 4A-13 · A re-run claims the snapshot its own run saw
+
+The first implementation fetched `GET /pipeline/status` immediately before posting and sent
+the hash it returned. That makes **409 `PIPELINE_MOVED` unreachable by construction** — the
+claim is fetched fresh, so it is always true — and §13's "Re-running warns that the pipeline
+moved" could never fire. Confirmed by moving a file under a loaded page: the re-run succeeded
+silently against different data.
+
+**Decided.** The re-run sends `provenance.pipelineHash` from the run it is re-running. If the
+directory has moved, the server answers 409 and the screen says so; the way forward is the
+mandate screen, which loads the new snapshot. This also removes a round trip from the path.
+
+### 4A-14 · Undefined stays undefined in the two places this screen coerced it
+
+Two more instances of the coercion epic §5 exists to forbid, both found in review:
+
+* `charts.bars` mapped a non-finite value to `0`, which drew a bar on the zero line and read
+  `2031: €0m` aloud — a claim that the portfolio returned nothing that year — and pulled the
+  caption's cumulative total toward zero. It now marks the year `missing`, draws no control,
+  reads an em dash, and excludes it from the sum. `curves` had always done this correctly.
+* `feasibility.js` summed `lockedEquity_m` over the raw `lockedIds`, including projects that
+  were also excluded. `preview_feasibility` sums over `set(locked) - set(excluded)`, and that
+  figure decides `LOCKS_EXCEED_CAPITAL` — a **blocking** warning. The client could disable a
+  run the server would accept. The `held` set the pool already used now feeds the sum too.
+
+Locking and excluding are also symmetric now: each clears the other, so the contradictory
+state that produced the second bug cannot be reached from the drawer at all.
+
+### 4A-15 · Silence is not an error state
+
+Three paths reported failure by doing nothing, which on a screen full of em dashes is
+indistinguishable from not having loaded yet.
+
+* A re-run the server refused returned `null` from a bare `.catch`. The portfolio screen now
+  carries one `role="status"` notice, and `message` is already one sentence fit to show a user
+  (api.md §1.7).
+* A run that is not `succeeded` — failed, cancelled, or a URL shared a second early — fell
+  through a status check and rendered nothing. It now says which.
+* A run id that resolves to nothing left the search screen spinning for ever: the `getResult`
+  rejection was swallowed and `EventSource` retries a 404 on a timer. `openStream` always had
+  an `on.dropped` seam; it is now used, after a five-second grace so an ordinary reconnect —
+  which the event log replays through `Last-Event-ID` — passes unremarked.
+
+### 4A-16 · Four smaller ones, each from review
+
+* **`steering()` dropped `totalRounds`.** It rebuilds the stored object field by field, so the
+  value `submit` wrote from the 202 was unreadable, and any later `saveSteering(steering())`
+  erased it. 3B-3's "know the total before the first round" was dead code. `search.js` also
+  falls back to `convergence.length`, because a run that has already succeeded comes back as a
+  `RunRecord` with no `totalGenerations` on it at all.
+* **The mandate was written to `localStorage` on every `input`.** A-18 makes ranges dispatch on
+  `input` so the footer stays live, so one drag of the capital slider is 76 synchronous,
+  disk-backed writes inside §12's 100 ms budget — invisible in jsdom, where the store is in
+  memory. The write now trails the drag by 250 ms and is flushed on `pagehide` and before a
+  submit, because a debounce that can lose the last edit is not persistence.
+* **`exports()` bound a click listener per render.** Two renders meant two downloads per click.
+  The three buttons are bound once from `start` and read the run id when pressed.
+* **The *Show all candidates* chip carried its own `■`/`□`.** 3B-2 made `TerraFolio.status` the
+  single table precisely because "an ASCII lookalike renders perfectly and means nothing", and
+  `table.js` was outside that guard. It reads the table now, as every other mark does.
+
+`runIdFromUrl` also moved into `api.js`, which already owns every other URL concern; it had
+been copy-pasted into both screens that carry a run id.
+
+---
+
+### 4A-17 · §13's warning names the screens that actually emptied the pool
+
+`ui-contract.md` §3.5 pins `NO_CANDIDATES` as *"No candidates pass the current screens. Widen
+countries, stages or the COD window."* That sentence is the server's `message` and three guards
+hold it verbatim, so it cannot move — and it is simply wrong whenever the pool was emptied by
+the DSCR floor, the risk appetite or one of the three execution toggles. §13 asks for "an
+explicit warning naming the screens to widen", and the screen was naming three it had not
+consulted.
+
+**Decided.** The pinned sentence stays exactly as it is, and a second line beneath it is built
+from `screensToWiden` — which [4A-4](#4a-4--screenstowiden-in-the-servers-vocabulary) already
+computes, worst offender first, and which nothing had been reading. `SCREEN_LABELS` maps the
+wire names onto `ui-contract.md` §3.2 and §3.3's own control labels, because a user cannot widen
+a thing called `eurRevenue`. At most three are named; past that it is a list rather than a
+sentence.
+
+Only `NO_CANDIDATES` carries it. `CAPACITY_BELOW_TARGET` is not a screen anyone can widen.
+
+### 4A-18 · A stored total, and a stored signature, each belong to one run
+
+Two pieces of session state were being applied to whatever run happened to be on screen.
+
+* **`totalRounds`.** `search.js` seeded the round counter from the stored total without checking
+  whose it was, so a session that had watched a Fast run (35 rounds) and then opened a link to
+  an Exhaustive one (110) scaled the progress bar and the convergence curve against 35 until the
+  first frame corrected it. It is used only when `runId` matches. `showTotal` also rebuilds the
+  replay ticker when a total is corrected, since the cadence is sized from it and was otherwise
+  left at the rate the old total implied.
+* **The re-run baseline.** `adoptSteering` preserved a null `signature`, and `changed()` answers
+  false whenever there is none — so a shared result opened in a fresh session read `Re-run`
+  however far the saved mandate had moved. Worse, the branch that could have seeded it only ran
+  when there was steering to adopt, which is the rarer case: a run with no locks never got a
+  baseline at all. It is now seeded from what the run was **submitted with** — its own mandate
+  and its own `lockedIds`/`excludedIds`, not whatever this session holds — and re-seeded when a
+  different run is opened, so a lock added before opening the run still reads as a change.
+
+### 4A-19 · A frame is proof the stream came back
+
+`lost()` recorded the time of the first `EventSource` error and never cleared it, so a blip now
+and an unrelated blip ten minutes later read as one ten-minute outage and stopped a run that was
+still streaming. Any `generation` or `status` frame now clears the mark, because receiving one is
+proof the connection recovered. The grace period exists for transient drops; it should start
+again each time, not accumulate.
+
+`map.js` also builds its marker titles through `format.js` now. `Math.round(mw) + ' MW'` printed
+`1000 MW` where the row for the same project in the holdings table said `1,000 MW` (spec §14).
+
 ---
 
 ## 4B — performance, reproducibility and screen parity
@@ -3347,6 +3674,59 @@ checked against the document by `tests/api/test_committee_pack.py`, so changing 
 contract change touching 1B, 3A and #11 at once. Raised on issue #1. What is fixed is that the two
 implementations agree exactly, so whatever scale is chosen will move both.
 
+### 4A-20 · #13's three factories, folded in — and one contract left open
+
+[4C-9](#4c-9--the-three-missing-page-states-land-in-webjsedge-statesjs) wrote
+`web/js/edge-states.js` with three factories "so that #11, which is in flight, folds three
+factories in rather than resolving three conflicting files". Two are folded in; the third is
+not, and the reason is a disagreement rather than an oversight.
+
+**`holdingNote`** replaces this file's own post-hold caveat in the drawer. Same three inputs —
+`codYear`, the pipeline's base year and `holdYears` — and now the same sentence the committee
+pack prints, which is the point of it living in one place.
+
+**`pipelineNotice`** is driven from `renderHealth`. §13 wants the mandate screen to say that
+`pipeline/` holds no files, and `NO_CANDIDATES` cannot: it tells the user to widen screens that
+are not the problem. It reads `fileCount`, not `loadedCount`, so a directory whose files all
+failed their tie-outs still reports as the different fault it is — those files are named in the
+validation banner beside it, which is this issue's own and stays.
+
+**`siteMap` is not adopted, and `web/js/map.js` stays.** The two disagree on one thing: 4C-9
+tints on `properties.name`, matching `export/committee.py` (3A-9); issue #11's brief is explicit
+that the join is on the ISO code, *"not on country name — the mockup string-matches
+`d.properties.name`, which silently drops any mismatch"*. Both work today for all fourteen
+markets. Adopting either silently would overrule one issue's written instruction with the
+other's, so the ISO join stays — it is this issue's instruction — and the question is
+[announced on #1](https://github.com/JanSchm/TerraFolio/issues/1) for #13 and the pack's owner
+to converge on one mechanism.
+
+What #13 got right regardless is folded in: the degradation is now **total**. An atlas that is
+absent, one with no `objects.countries`, one whose `countries` has no geometries, and one whose
+geometries point at arcs that are not there all produce §13's notice and none of them throws —
+a panel that threw would take the surrounding Alpine bindings with it.
+
+**Tile 1's shortfall** is gated on §5.1's 8% band rather than on the bare deficit, as
+[4C-3](#4c-3--tile-1s-sub-label-carries-the-shortfall) requires of this file by name: the
+default mandate lands 7.3% under target, so the ungated version put `110 MW short` on a tile
+that also read `✓ on target`. The clause is decided on the **rendered** figure, so a 0.3 MW
+deficit does not print `0 MW short`.
+
+### 4A-21 · A half-resolved conflict passed every guard
+
+One region of `web/mandate.html` was resolved and a second was not; `git add` staged the file
+with the markers still in it, and **nothing caught it**. jsdom parses `<<<<<<< HEAD` as ordinary
+text, so the accessibility, contrast, nav, copy and greyscale tests all walked past it while the
+page rendered it to the user between the heading and the panels. It was found by opening the
+page.
+
+**Decided.** `web/tests/no-conflict-markers.test.js` walks the tree for the three markers as git
+writes them — the side markers with a label after a space, the separator as seven equals alone on
+a line, so a setext underline and an ASCII rule are not flagged. It is a cheap check for a
+failure mode that is invisible to every expensive one, and it is the kind that only shows up
+after it has already shipped once.
+
+---
+
 ## Log
 
 | Date | Issue | Entry |
@@ -3478,6 +3858,25 @@ implementations agree exactly, so whatever scale is chosen will move both.
 | 2026-09-24 | #10 | 3B-8 — the search standfirst's hard-coded 90 and "recombining" raised for #3, copy left as §4 pins it. |
 | 2026-09-24 | #10 | 3B-9 — CI gains a web job; nothing under `web/` was verified on `main` before. |
 | 2026-09-24 | #10 | `ui-contract.md` §7.3 corrected: muted is `neutral-700` at 5.87:1, not `text` at 55%. |
+| 2026-09-24 | #11 | 4A-1 — `api.js` joins `GET /pipeline` with `GET /assumptions`; the screens see one payload. |
+| 2026-09-24 | #11 | 4A-2 — `UK` normalises to `GB` client-side; the footer had been short 13 projects and 2,558 MW. |
+| 2026-09-24 | #11 | 4A-3 — a lock re-admits past the screens on the client, as `apply_screens` already did. |
+| 2026-09-24 | #11 | 4A-4 — `screensToWiden` computed client-side, in the server's screen vocabulary. |
+| 2026-09-24 | #11 | 4A-5 — mandate in `localStorage`, steering in `sessionStorage`, run id in the query string. |
+| 2026-09-24 | #11 | 4A-6 — controls gain `wire()`/`restore()`; the eighteen §6.1 fields are listed nowhere else. |
+| 2026-09-24 | #11 | 4A-7 — screen 01 does not re-fetch the pipeline on a hold-period change; nothing on it moves. |
+| 2026-09-24 | #11 | 4A-8 — search frames are queued and replayed; the drawn curve matches the stored trace exactly. |
+| 2026-09-24 | #11 | 4A-9 — the map joins on numeric ISO, and degrades only when both vendored atlases are gone. |
+| 2026-09-24 | #11 | 4A-10 — a lock change rebuilds the row; Alpine reuses a keyed element and would not repaint. |
+| 2026-09-24 | #11 | 4A-11 — raised: an empty pool's `0` share on the wire, and §5.4's two thresholds as literals. |
+| 2026-09-24 | #11 | 4A-12 — the chart's base year is the pipeline's, fetched; `codFrom` had moved every year label. |
+| 2026-09-24 | #11 | 4A-13 — a re-run claims its own run's snapshot, so 409 `PIPELINE_MOVED` can actually fire. |
+| 2026-09-24 | #11 | 4A-14 — a missing cash flow and an excluded lock stop being coerced to zero. |
+| 2026-09-24 | #11 | 4A-15 — a refused re-run, an unrenderable run and a dead stream all say so. |
+| 2026-09-24 | #11 | 4A-16 — `totalRounds` survives the store; the mandate persists on a debounce; exports bind once. |
+| 2026-09-24 | #11 | 4A-17 — `NO_CANDIDATES` names the screens that emptied the pool, beside §3.5's pinned sentence. |
+| 2026-09-24 | #11 | 4A-18 — a stored round total and a re-run baseline each belong to one run, and are checked against it. |
+| 2026-09-24 | #11 | 4A-19 — a frame clears an earlier stream drop; map marker titles go through `format.js`. |
 | 2026-09-24 | #12 | 4B-1 — epic §7's 30 s does not reproduce (2.2 s measured); 99.4% of rows are over budget, so the column slice is the win and the row mask is a measured cost. |
 | 2026-09-24 | #12 | 4B-2 — the row mask is a margin *below* the budget, and it is `objective.equity_cap_tolerance_eur`; `None` keeps the pre-#12 behaviour. |
 | 2026-09-24 | #12 | 4B-3 — `deterministic_reduction` is a `SearchControls` field, not an assumption: a new TOML key would change `assumption_set_id` and reprice all 300 files. |
@@ -3495,3 +3894,5 @@ implementations agree exactly, so whatever scale is chosen will move both.
 | 2026-09-24 | #13 | 4C-8 — the edge fixtures are single documented edits to `P01`, width-3, and guarded against drift. |
 | 2026-09-24 | #13 | 4C-9 — the three missing page states land in `web/js/edge-states.js`; the map tints on country name, paints in utility classes because the system has no custom properties, and degrades on corrupt geometry as on missing. |
 | 2026-09-24 | #13 | 4C-10 — §5.3's map scale puts five of six markers outside the panel, in the pack as on screen. |
+| 2026-09-24 | #11 | 4A-20 — #13's `holdingNote` and `pipelineNotice` folded in; `siteMap` not, and the ISO-vs-name join raised on #1. |
+| 2026-09-24 | #11 | 4A-21 — a half-resolved conflict rendered to the user and passed every guard; a marker check now walks the tree. |

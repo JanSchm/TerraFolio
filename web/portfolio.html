@@ -8,10 +8,16 @@
 <script defer src="js/format.js"></script>
 <script defer src="js/controls.js"></script>
 <script defer src="js/edge-states.js"></script>
+<script defer src="js/api.js"></script>
+<script defer src="js/charts.js"></script>
+<script defer src="js/table.js"></script>
+<script defer src="js/mandate.js"></script>
 <script defer src="public/countries-110m.js"></script>
 <script defer src="vendor/d3-array.min.js"></script>
 <script defer src="vendor/d3-geo.min.js"></script>
 <script defer src="vendor/topojson-client.min.js"></script>
+<script defer src="js/map.js"></script>
+<script defer src="js/portfolio.js"></script>
 <script defer src="vendor/alpine.min.js"></script>
 </head>
 <body class="min-h-screen bg-bg text-text">
@@ -41,6 +47,15 @@
     <div>
       <h1 class="mb-[2px] text-h3">Suggested portfolio</h1>
       <p class="m-0 text-label text-muted" data-field="result-subtitle">&#8212;</p>
+      <!-- What this screen has to say when it cannot show a portfolio: a run that
+           failed or has not finished, and a re-run the server refused — spec §13
+           requires a re-run against a moved pipeline to warn rather than to do
+           nothing. Hidden until there is something to report. -->
+      <p class="m-0 mt-[6px] flex max-w-prose items-start gap-[7px] text-warn text-breach"
+         data-region="portfolio-notice" role="status" aria-live="polite" hidden>
+        <span class="num flex-none" aria-hidden="true">!</span>
+        <span><span class="sr-only">Warning: </span><span data-field="notice">&#8212;</span></span>
+      </p>
     </div>
     <div class="flex flex-wrap gap-2">
       <a href="mandate.html"
