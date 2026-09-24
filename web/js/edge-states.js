@@ -1,0 +1,401 @@
+/**
+ * edge-states.js — the three states spec §13 requires a page to render, and that
+ * nothing rendered.
+ *
+ * §13 has nine rows. Six of them are already visible somewhere a user can reach:
+ * the feasibility footer carries the two blocking warnings, the holdings table
+ * renders an em dash for an undefined IRR, and the committee pack shows a
+ * concentration breach and a capacity shortfall on their tiles. Three were not
+ * visible anywhere, because the code that would have shown them belongs to the
+ * page scripts issue #11 is still writing:
+ *
+ *   - the site map degrading to a notice when its geometry will not load,
+ *   - the mandate page saying that `pipeline/` holds no files, and that the
+ *     pipeline moved under a stored run,
+ *   - the detail sheet saying that a project's commercial operation date falls
+ *     after the hold period.
+ *
+ * They live in one file rather than in `map.js`, `mandate.js` and `portfolio.js`
+ * so that #11, which is in flight, folds three factories in rather than resolving
+ * three conflicting files. See docs/decisions.md 4C-9.
+ *
+ * None of these fetches anything. Each is a pure function of state a page hands
+ * it, which is what keeps the pages working over file:// (A-15) and keeps
+ * tests/offline.test.js honest.
+ *
+ * Classic script, not an ES module, for the same reason as every other file here.
+ */
+(function (root) {
+  'use strict';
+
+  var required = (typeof require === 'function');
+
+  /* The same dual resolution controls.js and feasibility.js use: the browser has
+     loaded these as classic scripts by the time Alpine initialises, while node
+     requires them. Without the node branch none of this is unit-testable. */
+  var fmt = required ? require('./format.js') : root.TerraFolio && root.TerraFolio.format;
+  if (!fmt) throw new Error('edge-states.js requires format.js to be loaded first');
+
+  var STATUS = required
+    ? require('./controls.js').status
+    : root.TerraFolio && root.TerraFolio.status;
+  if (!STATUS) throw new Error('edge-states.js requires controls.js to be loaded first');
+
+  /* d3-geo and topojson-client are the map's only dependencies, and their absence
+     is one of the ways the map becomes unavailable — so they are looked up, never
+     asserted. */
+  function geo() {
+    if (required) { try { return require('../vendor/d3-geo.min.js'); } catch (e) { return null; } }
+    return root.d3 || null;
+  }
+  function topo() {
+    if (required) {
+      try { return require('../vendor/topojson-client.min.js'); } catch (e) { return null; }
+    }
+    return root.topojson || null;
+  }
+
+  /**
+   * The sentences this file owns.
+   *
+   * `mapUnavailable` is pinned verbatim by ui-contract.md §5.3 and is the same
+   * string the committee pack renders server-side, so the two surfaces cannot
+   * drift. `emptyPipeline` is new: §13 requires the mandate page to say that
+   * `pipeline/` is empty, and no document pinned the words (4C-1). It is
+   * deliberately different from NO_CANDIDATES — "there are no files" and "no file
+   * passes your screens" send a user to different places, and telling somebody to
+   * widen a screen when there is nothing to widen is worse than saying nothing.
+   *
+   * There is no sentence here for a moved pipeline. The server already has one —
+   * `The pipeline changed since you loaded it; reload and try again.` — and a
+   * second copy of it in JavaScript is a third place for it to drift (4C-6,
+   * following 3A-11). `pipelineNotice` renders the one the 409 carried.
+   */
+  var MESSAGES = {
+    mapUnavailable: 'Map data unavailable.',
+    emptyPipeline: 'The pipeline holds no project files. Add files to pipeline/ and reload.',
+  };
+
+  /**
+   * §5.3's colours, as **utility classes** rather than as `var(--color-…)`.
+   *
+   * 1D's Tailwind theme defines literal colours and emits no custom properties —
+   * `web/dist/app.css` contains no `--color-*` at all — so `fill="var(--color-accent-200)"`
+   * is an unresolved reference and the browser falls back to its default, which
+   * is black. Every marker and every country would render in the wrong colour on
+   * a map that otherwise looked fine.
+   *
+   * The committee pack hits the same wall and answers it the other way: it
+   * declares its own `--pack-*` properties because it ships its own stylesheet.
+   * A page inside the design system should use the system instead, which is what
+   * the legend swatches directly beneath this map already do (`bg-solar`,
+   * `bg-wind`, `border-accent-700`).
+   *
+   * Written as whole literals because Tailwind's scanner reads
+   * `content: ['./*.html', './js/**' + '/*.js']` as plain text: a class assembled
+   * from fragments is a class that never gets generated.
+   */
+  var PAINT = {
+    held: 'fill-accent-200',
+    other: 'fill-neutral-200',
+    border: 'stroke-divider',
+    solar: 'fill-accent-700',
+    wind: 'fill-accent-400',
+    marker: 'stroke-bg',
+  };
+
+  /* ui-contract.md §5.3, in one place so the geometry is quotable rather than
+     scattered through the rendering. The committee pack reads the same numbers
+     from export/pack-layout.json. */
+  var MAP = {
+    width: 960, height: 300,
+    centreLon: 12, centreLat: 55, scaleFactor: 1.15,
+    countryStroke: 0.6,
+    markerRadiusFloor: 3, markerRadiusFactor: 0.42,
+    markerFillOpacity: 0.82, markerStroke: 1,
+  };
+
+  /**
+   * §7.3 and §13: a real projection of the selected sites, or a notice.
+   *
+   * The degradation is the part §13 legislates, and it is deliberately total: a
+   * missing atlas, a malformed one, or a missing projection library all produce
+   * the same notice, and none of them throws. A map that half-drew — countries
+   * but no markers, or markers at NaN — would be worse than one that says it is
+   * not there, because a reader cannot tell a missing country from an empty one.
+   */
+  function siteMap(options) {
+    var o = options || {};
+
+    /* Both memos live in the closure, never on the returned object. Alpine's
+       reactivity tracks property writes, so caching onto `this` inside a getter
+       that `x-html` evaluates would write to tracked state from inside the effect
+       reading it — which re-triggers the effect and leaves sibling bindings in an
+       inconsistent state. A closure variable is invisible to the proxy. */
+    var memo = null;
+    var decoded = null;
+
+    /**
+     * The atlas's countries as features, or `null` if it cannot produce them.
+     *
+     * The conversion happens **here**, not in `svg()`, because it is the call
+     * that throws on a corrupt topology — and `available` has to be able to
+     * answer without throwing. An atlas can be an object, and have an
+     * `objects.countries`, and still be unusable: `{objects: {countries: {}}}`
+     * makes `topojson.feature` reach for geometries that are not there. A panel
+     * that threw there would take the surrounding Alpine bindings with it, which
+     * is the opposite of the degradation §13 asks for.
+     *
+     * Memoised per atlas so `available` is cheap to read on every reactive pass.
+     */
+    function countries(atlas) {
+      if (decoded && decoded.atlas === atlas) return decoded.features;
+      decoded = { atlas: atlas, features: null };
+      var d3 = geo();
+      var client = topo();
+      if (!atlas || !atlas.objects || !atlas.objects.countries || !d3 || !client) {
+        return null;
+      }
+      try {
+        var collection = client.feature(atlas, atlas.objects.countries);
+        var list = collection && collection.features;
+        decoded.features = Array.isArray(list) && list.length ? list : null;
+      } catch (error) {
+        decoded.features = null;
+      }
+      return decoded.features;
+    }
+
+    return {
+      sites: o.sites || [],
+      atlas: o.atlas !== undefined ? o.atlas : (root.TerraFolio && root.TerraFolio.worldAtlas),
+
+      /**
+       * The countries the portfolio holds an asset in, for §5.3's tint.
+       *
+       * Keyed on the country **name** — `Spain`, not `ES` or `ESP` — because the
+       * atlas identifies a country by `properties.name` and its `id` is a numeric
+       * ISO-3166 code. `export/committee.py` joins the same two fields, so the
+       * printed pack and this panel tint the same countries.
+       */
+      get heldCountries() {
+        var names = {};
+        this.sites.forEach(function (site) {
+          if (site && site.country) names[site.country] = true;
+        });
+        return names;
+      },
+
+      get available() {
+        return countries(this.atlas) !== null;
+      },
+
+      /**
+       * The sentence the panel shows in place of a map.
+       *
+       * Text, not markup. The page renders it into its own element, outside the
+       * `role="img"` container: an ARIA img's subtree is presentational, so a
+       * notice injected inside it is announced to nobody, and the one state whose
+       * whole job is to explain itself would explain itself to sighted users only.
+       */
+      get notice() { return this.available ? '' : MESSAGES.mapUnavailable; },
+
+      /**
+       * The panel's `<svg>`, or nothing.
+       *
+       * A portfolio with no sites yet draws nothing rather than an empty atlas —
+       * the panel summarises a selection, and there is no selection before a run.
+       *
+       * Memoised on the atlas and the sites it was built from. `x-html` re-reads
+       * this getter on every reactive pass, and rebuilding means re-projecting
+       * 177 countries into a ~190 KB string; a page that assigns `atlas` and then
+       * `sites` would otherwise pay for it twice before the first paint.
+       */
+      get markup() {
+        if (!this.available || !this.sites.length) return '';
+        if (memo && memo.atlas === this.atlas && memo.sites === this.sites) return memo.svg;
+        memo = { atlas: this.atlas, sites: this.sites, svg: this.svg() };
+        return memo.svg;
+      },
+
+      svg: function () {
+        var d3 = geo();
+        var projection = d3.geoMercator()
+          .center([MAP.centreLon, MAP.centreLat])
+          .scale(MAP.width * MAP.scaleFactor)
+          .translate([MAP.width / 2, MAP.height / 2]);
+        var path = d3.geoPath(projection);
+        var held = this.heldCountries;
+
+        var shapes = countries(this.atlas).map(function (country) {
+          var drawn = path(country);
+          if (!drawn) return '';
+          var name = (country.properties || {}).name;
+          var fill = held[name] ? PAINT.held : PAINT.other;
+          return '<path d="' + drawn + '" class="' + fill + ' ' + PAINT.border
+            + '" stroke-width="' + MAP.countryStroke + '"/>';
+        }).join('');
+
+        var markers = this.sites.map(function (site) {
+          if (!fmt.defined(site.lat) || !fmt.defined(site.lon)) return '';
+          var point = projection([site.lon, site.lat]);
+          if (!point || !fmt.defined(point[0]) || !fmt.defined(point[1])) return '';
+          var mw = fmt.defined(site.capacityMw) ? site.capacityMw : 0;
+          var radius = Math.max(
+            MAP.markerRadiusFloor, Math.sqrt(mw) * MAP.markerRadiusFactor
+          );
+          var colour = site.technology === 'solar' ? PAINT.solar : PAINT.wind;
+          return '<circle cx="' + point[0].toFixed(1) + '" cy="' + point[1].toFixed(1)
+            + '" r="' + radius.toFixed(1) + '" class="' + colour + ' ' + PAINT.marker
+            + '" fill-opacity="' + MAP.markerFillOpacity
+            + '" stroke-width="' + MAP.markerStroke + '"/>';
+        }).join('');
+
+        return '<svg viewBox="0 0 ' + MAP.width + ' ' + MAP.height
+          + '" preserveAspectRatio="xMidYMid meet" class="h-full w-full">'
+          + shapes + markers + '</svg>';
+      },
+    };
+  }
+
+  /**
+   * §13: the pipeline is empty, or it moved under a stored run.
+   *
+   * Both are blockers rather than advisories — one cannot be run against, the
+   * other cannot be re-run against — so both take the blocking mark and word from
+   * the one status vocabulary controls.js exports. Nothing here is carried by
+   * colour alone (§7.1).
+   */
+  function pipelineNotice(options) {
+    var o = options || {};
+    return {
+      /** 'none', 'empty' or 'moved'. */
+      state: o.state || 'none',
+
+      /** The sentence a 409 carried, for the 'moved' state. */
+      detail: o.detail || '',
+
+      get visible() { return this.state === 'empty' || this.state === 'moved'; },
+
+      get message() {
+        if (this.state === 'empty') return MESSAGES.emptyPipeline;
+        if (this.state === 'moved') return this.detail;
+        return '';
+      },
+
+      get mark() { return this.visible ? STATUS.MARK.blocking : STATUS.MARK.none; },
+      get word() { return this.visible ? STATUS.WORD.blocking : ''; },
+      get toneClass() { return this.visible ? STATUS.TONE.blocking : ''; },
+
+      /**
+       * `GET /pipeline/status` → a state. `fileCount` rather than `loadedCount`,
+       * because a directory of files that all failed their tie-outs is a
+       * different problem with a different answer — those files are named in the
+       * rejection list, and telling their author the pipeline is empty would send
+       * them looking for a directory that is not the one at fault.
+       */
+      fromStatus: function (status) {
+        this.state = (status && status.fileCount === 0) ? 'empty' : 'none';
+        return this.state;
+      },
+
+      /**
+       * A 409 body → the 'moved' state, carrying the server's own sentence.
+       *
+       * A body with no `error` at all clears it: that is a run the server
+       * accepted, so the pipeline the client is holding is current again. A body
+       * carrying some *other* error is left alone — it belongs to whatever
+       * renders that error, and a failed run is not evidence the pipeline moved
+       * back.
+       */
+      fromConflict: function (body) {
+        var error = body && body.error;
+        if (!error) return this.clear();
+        if (error.code !== 'PIPELINE_MOVED') return this.state;
+        this.state = 'moved';
+        this.detail = error.message || '';
+        return this.state;
+      },
+
+      /** Back to silence, for a page that has recovered by any other route. */
+      clear: function () {
+        this.state = 'none';
+        this.detail = '';
+        return this.state;
+      },
+    };
+  }
+
+  /**
+   * §13 and ui-contract.md §5.5: a project whose COD falls after the hold period
+   * contributes only construction outflows and an exit value, and the drawer says
+   * so.
+   *
+   * Computed from three figures the page already has — the project's COD, the
+   * pipeline's base year and the mandate's hold period — rather than from a flag
+   * on the wire, because a flag would be a mandate-dependent value and nothing
+   * mandate-dependent is stored (epic §5, 4C-5). Moving the hold slider changes
+   * the answer, which is exactly the property a stored flag would lose.
+   *
+   * The tone is `info`, not a breach. Nothing is outside the mandate here — the
+   * portfolio is doing what a short hold and a late COD imply — and `text-breach`
+   * marks a mandate breach and nothing else.
+   */
+  function holdingNote(options) {
+    var o = options || {};
+    return {
+      codYear: o.codYear,
+      baseYear: o.baseYear,
+      holdYears: o.holdYears,
+
+      /** The last year the truncated cash-flow series covers. */
+      get exitYear() {
+        if (!fmt.defined(this.baseYear) || !fmt.defined(this.holdYears)) return null;
+        return this.baseYear + this.holdYears - 1;
+      },
+
+      get afterHold() {
+        var exit = this.exitYear;
+        return exit !== null && fmt.defined(this.codYear) && this.codYear > exit;
+      },
+
+      get message() {
+        if (!this.afterHold) return '';
+        return 'Commercial operation falls after the ' + fmt.count(this.holdYears)
+          + '-year hold. The project contributes construction outflows and an exit value only.';
+      },
+
+      /** The COD row's own suffix, so the figure and the caveat sit together. */
+      get codLabel() {
+        if (!fmt.defined(this.codYear)) return fmt.DASH;
+        if (!this.afterHold) return fmt.year(this.codYear);
+        return fmt.year(this.codYear) + ' ' + fmt.DASH + ' after the '
+          + fmt.count(this.holdYears) + '-year hold';
+      },
+
+      get mark() { return this.afterHold ? STATUS.MARK.info : STATUS.MARK.none; },
+      get word() { return this.afterHold ? STATUS.WORD.info : ''; },
+    };
+  }
+
+  var factories = {
+    siteMap: siteMap,
+    pipelineNotice: pipelineNotice,
+    holdingNote: holdingNote,
+  };
+
+  root.TerraFolio = root.TerraFolio || {};
+  root.TerraFolio.edgeStates = factories;
+
+  if (root.document) {
+    root.document.addEventListener('alpine:init', function () {
+      Object.keys(factories).forEach(function (name) {
+        root.Alpine.data(name, factories[name]);
+      });
+    });
+  }
+
+  if (typeof module === 'object' && module.exports) {
+    module.exports = Object.assign({}, factories, { messages: MESSAGES, map: MAP, paint: PAINT });
+  }
+})(typeof globalThis !== 'undefined' ? globalThis : this);

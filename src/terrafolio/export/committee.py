@@ -315,6 +315,21 @@ def _join(*parts: str) -> str:
     return SEPARATOR.join(part for part in parts if part)
 
 
+def _shortfall(deficit_mw: float, on_target: bool) -> str:
+    """§5.1's `{n} MW short` clause, or nothing.
+
+    The test is on the **rendered** figure rather than on the float behind it.
+    ``quantity`` rounds half away from zero to whole MW, and the pipeline's
+    capacities are not integral, so a deficit of 0.3 MW would otherwise print
+    "0 MW short" — a shortfall a reader cannot act on and would be right to
+    distrust.
+    """
+    if on_target or deficit_mw <= 0.0:
+        return ""
+    shown = quantity(deficit_mw, "MW")
+    return "" if shown == quantity(0.0, "MW") else f"{shown} short"
+
+
 # --------------------------------------------------------------------------
 # §5.1 — the twelve tiles
 # --------------------------------------------------------------------------
@@ -365,14 +380,24 @@ def _tiles(record: RunRecord, bands: Mapping[str, float]) -> list[Tile]:
     if totals is None:  # pragma: no cover - the endpoint refuses an unfinished run
         return []
     capacity_gap = abs(totals.capacity_mw - mandate.capacity_target_mw) / mandate.capacity_target_mw
+    on_target = capacity_gap <= bands["capacityBand"]
     split_gap = abs(totals.solar_share - mandate.solar_share)
     moic = "" if totals.equity_irr is None else f"{multiple(totals.moic or 0.0)} MOIC"
     return [
         Tile(
             label="Installed capacity",
             value=quantity(totals.capacity_mw, "MW"),
-            sub=f"target {quantity(mandate.capacity_target_mw, 'MW')}",
-            state=_verdict(capacity_gap <= bands["capacityBand"]),
+            # §5.1: the sub-label carries the **shortfall** when the target is
+            # *unreachable* (§13) — which is the same 8% band this tile's own
+            # verdict turns on, and not merely "under target". Gating on the
+            # bare deficit instead would put "110 MW short" beside the ✓ and the
+            # words "on target" on the same tile, which is what the default
+            # mandate produces against a 48-file pipeline.
+            sub=_join(
+                f"target {quantity(mandate.capacity_target_mw, 'MW')}",
+                _shortfall(mandate.capacity_target_mw - totals.capacity_mw, on_target),
+            ),
+            state=_verdict(on_target),
         ),
         Tile(
             label="Projects",
