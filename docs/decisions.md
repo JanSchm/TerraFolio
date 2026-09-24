@@ -3136,6 +3136,544 @@ again each time, not accumulate.
 
 ---
 
+## 4B — performance, reproducibility and screen parity
+
+### 4B-1 · Epic §7's 30 s does not reproduce, and the masking it prescribes is not the win
+
+*Raised by issue #12. Affects: epic §7's performance table.*
+
+Epic §7 records a known gap — "Exhaustive 160×110 at 2,000 candidates measures 30 s" — and #12
+attributes it to the budget repair's `argsort` running over the whole population every generation
+"but after a few generations most chromosomes are already within budget". Both halves were
+measured before anything was changed.
+
+**The 30 s does not reproduce.** Exhaustive at 2,000 candidates measures **2.2 s** for the search
+on an 8-core arm64 box under a load average of 14, and 1.4 s on an idle one. #12's criterion
+"materially faster than 30 s" was already true before this issue started, which is worth saying
+plainly rather than claiming a 20× win for a change that delivers under 2×.
+
+**Most chromosomes are not within budget.** A census over a real Exhaustive run counts
+**17,278 of 17,382 rows (99.4%)** over budget at the point of repair, and 95–99% at every other
+width and effort. The utilisation reward actively pushes portfolios onto the equity cap, so
+repair leaves almost every chromosome sitting on it and mutation and crossover push almost every
+child back over. There is next to nothing for a row mask to skip.
+
+**Decided.** The operator is narrowed on the *other* axis. No row holds more than `width`
+projects, so ranked positions beyond `width` are unheld in every row: `held` is `False` there and
+the scatter would write back the zeros it started from. The gather, the accumulation and the
+scatter therefore stop at `width` — about 22 of 2,000 in practice — while the ranking still runs
+over the full row, so sort stability is untouched and the answer is bit-identical.
+
+The row mask ships too, because #12 asks for it and because it covers the one shape where it
+would matter — a mandate whose capital dwarfs its pipeline. It is a measured net cost on every
+configuration in the shipped calibration, and the numbers are here so that nobody has to take
+that on trust. Dropping it is a one-line change: pass `tolerance=None` at `ga.py`'s two call
+sites.
+
+The operator alone, fastest of twenty calls, on populations drawn to be over budget at a rate
+*more* favourable to the row mask than reality (60–65%, against the 95–99% the census measures):
+
+| candidates | rows | over budget | legacy | rows only | slice only | both | speed-up |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 500 | 48 | 32/48 | 0.38 ms | 0.29 ms | 0.13 ms | 0.12 ms | 3.02× |
+| 500 | 88 | 57/88 | 0.68 ms | 0.51 ms | 0.23 ms | 0.22 ms | 3.11× |
+| 500 | 158 | 101/158 | 1.21 ms | 0.87 ms | 0.40 ms | 0.37 ms | 3.29× |
+| 2,000 | 48 | 30/48 | 1.39 ms | 1.05 ms | 0.37 ms | 0.36 ms | 3.86× |
+| 2,000 | 88 | 57/88 | 2.59 ms | 2.05 ms | 0.68 ms | 0.66 ms | 3.92× |
+| 2,000 | 158 | 95/158 | 4.61 ms | 3.19 ms | 1.20 ms | 1.13 ms | 4.09× |
+
+The whole search, fastest of nine, `identical` in every cell:
+
+| candidates | effort | legacy | rows only | slice only | both |
+|---:|---|---:|---:|---:|---:|
+| 500 | fast | 0.031 s | 0.032 s | 0.023 s | 0.026 s |
+| 500 | standard | 0.094 s | 0.092 s | 0.064 s | 0.067 s |
+| 500 | exhaustive | 0.281 s | 0.329 s | 0.263 s | 0.296 s |
+| 2,000 | fast | 0.158 s | 0.172 s | 0.112 s | 0.155 s |
+| 2,000 | standard | 0.651 s | 0.694 s | 0.530 s | 0.503 s |
+| 2,000 | exhaustive | 2.167 s | 2.278 s | 1.187 s | 1.538 s |
+
+numpy 2.4.6 · BLAS threads 8 · 8 CPUs · load 14.37 · Darwin arm64. **These were taken under
+load**, which this document is emphatic about elsewhere: the operator table is stable to a few
+percent because it times one call, and the whole-search table wobbles by 10–20% because a search
+is a fraction of a second and the load average is not a constant. The direction is consistent
+across every run: `slice` beats `legacy`, and `both` is slower than `slice` alone.
+
+Repair was 55% of an Exhaustive run at 2,000 before (argsort 0.224 s, cumsum 0.136 s,
+`take_along_axis` 0.115 s, `put_along_axis` 0.112 s of 1.23 s) and is 37% after, with `argsort`
+now the dominant remaining term at 0.517 s of 2.18 s. Narrowing that further means giving up
+either the stable sort or the full-row ranking, and neither is worth a further 20% here.
+
+### 4B-2 · The row mask is a margin below the budget, not a test against it
+
+*Raised by issue #12. Affects: `optimiser/repair.py`, `optimiser/ga.py`.*
+
+The mask sums a row all at once; the trimming accumulates along a ranked permutation. The two
+reduce the same numbers in different orders, so they can disagree in the last bit about whether a
+row exceeds its budget — and where the mask says "fits" and the accumulation says "does not", a
+bare `total > budget` test skips a row the unmasked operator would have trimmed, so the masked and
+unmasked forms answer differently. Measured at 1.14e-13 on a 40-holding row totalling about 1,000.
+
+This is not a corner case. Epic §6.2 introduced `equity_cap_tolerance_eur` precisely because
+"the utilisation reward actively pushes portfolios onto that boundary", so rows sitting exactly
+on the cap are the ones the search spends its time on.
+
+**Decided.** `repair_to_budget` takes `tolerance`, a margin *below* the budget: a row is repaired
+when its total exceeds `budget - tolerance`, so every row within a tolerance of the cap goes
+through the full path and the answer cannot move. `ga.py` passes
+`objective.equity_cap_tolerance_eur` — €1 against sums of order €10⁹, five orders of magnitude
+more headroom than any reduction-order difference needs, and the same constant epic §6.2
+introduced for the same artefact on the same boundary rather than a second one.
+
+`tolerance=None` means no row mask at all, which is the pre-#12 behaviour exactly. That is the
+default, so 2A's four direct callers stay green untouched, and it is also the escape hatch if the
+row mask is later dropped as 4B-1 suggests it could be.
+
+The row totals come from `np.einsum(..., optimize=False)`, deliberately not from
+`population @ equity`: a GEMM's reduction order depends on BLAS blocking and thread count, and the
+one place in this system permitted to vary across machines is the fitness the GA quantises, not an
+operator that decides which holdings survive. einsum is also the form that builds no `(m, n)`
+temporary — `np.where(population, equity, 0.0).sum(-1)` materialises 2.6 MB at (158, 2000) once per
+generation, against 0.07 MB, and is slightly slower at that width. Its summation order differs from
+a pairwise sum by about 1e-15 relative, six orders of magnitude inside the €1 margin, so it cannot
+move a row across the mask boundary.
+
+### 4B-3 · `deterministic_reduction` is a run control, not an assumption
+
+*Raised by issue #12. Affects: `optimiser/ga.py`, `optimiser/aggregate.py`, and 3A's provenance.*
+
+§12 asks for a bit-exact guarantee, and #12 asks for a `deterministic_reduction` flag that swaps
+the GEMM for `einsum(optimize=False)` so a golden can be checked across architectures. The
+question is where the flag lives. Epic §5 says every rate, weight, floor, clamp, tolerance and
+band belongs in the assumption set, and a naive reading puts this there too.
+
+It cannot go there. `assumption_set_id` is the sha256 of every non-metadata section of the
+calibration (`config/loader.py:320`), and `generate/draws.py:83` salts each project's PRNG with
+it — so a new key in the assumption set changes the id, changes every project's draws, and
+obliges 2C to regenerate all 300 committed pipeline files. That is a very large cascade for an
+execution mode, and it would break `test_the_committed_pipeline_is_what_the_generator_produces`
+on the way.
+
+**Decided.** It is a field on `SearchControls`, beside `effort`, `locked` and `seed` — which that
+class's own docstring already describes as "the run controls, which are not part of the mandate".
+Epic §5's rule is about numeric calibration, and the existing precedent for an execution mode is
+`RunnerMode`, which is a setting rather than an assumption. Default off, so no existing caller
+and no stored run changes.
+
+`optimize=False` is the mechanism and not a detail: with optimisation on, einsum may hand a
+two-operand contraction to `tensordot` and so back to the GEMM the flag exists to avoid. The flag
+would still be set, the tests would still pass on one machine, and the guarantee would be
+silently gone — so a source-level guard asserts the keyword rather than trusting it.
+
+Measured at 17× the GEMM at (50, 177), 36× at (90, 500) and 45× at (160, 2000) — which is
+2.13 ms per generation at the largest shape, about 0.23 s added to an Exhaustive run. Cheap
+enough to be a usable mode rather than a theoretical one.
+
+**Left open, raised for 3A.** `api/service.py:196` still derives the stored
+`deterministic_reduction` column from `blas_threads == 1` alone, and the wire has no way to ask
+for the flag. A run submitted over HTTP therefore cannot use it, and the column's meaning is now
+narrower than its name. Both are 3A's to resolve.
+
+### 4B-4 · The reproducibility guarantee, and what it does not cover
+
+*Raised by issue #12. Affects: §12's sign-off, epic §7's memory budget.*
+
+§12 says "mandate + pipeline hash + assumption set + seed determines the result **exactly**", and
+#12 asks for that to be written down honestly rather than asserted.
+
+**Decided.** The guarantee has three tiers, and the third one is a "no".
+
+- **A whole run, on a given architecture: bit-exact, unconditionally.** Same mandate, pipeline
+  hash, assumption set, seed, engine version and numpy version produce byte-identical served
+  bytes. Asserted on what `GET /optimisations/{id}` actually serves, not on the optimiser in
+  isolation, with four fields exempt — `runId`, `runRef`, `createdAt`, `durationMs` — and a test
+  asserting that the exemption list is exactly those four.
+- **The search *and the aggregates it reports*, across architectures, with
+  `deterministic_reduction` on: bit-exact.** The reduction order is then fixed by shape and dtype
+  rather than by BLAS blocking and thread count. "And the aggregates" is not a flourish: the flag
+  originally reached only the two reductions inside `evolve`, so `build_result` aggregated the
+  winner into the twelve §8.1 tiles through a GEMM and a run was reproducible in which projects it
+  chose but not in the numbers it printed about them. `build_result` now takes the mode, `cli.py`
+  and `runner/worker.py` pass it from the run's own controls, and a test asserts that *every*
+  recorded reduction in a full run received it — so a call site added later is caught by the same
+  assertion rather than by the next architecture migration.
+  Not a claim on paper: `tests/regression/deterministic_reduction_golden.json` was recorded on
+  arm64 Darwin and reproduces on x86_64 Linux in CI — same winning rows, same fitness to the last
+  bit, same 35-point convergence series.
+- **A whole run, across architectures: *not* bit-exact, and the flag does not fix it.**
+
+That third tier was found by CI, which is the outcome this issue's own scope predicts: *"claiming
+more in the §12 sign-off is a lie the first CI migration would expose."* The first run of #12's
+payload guard failed on x86_64 Linux having passed on arm64 Darwin, and the difference is a
+single field:
+
+**`annualGenerationGwh` differs by one ulp on 29 of the 48 golden projects, and it is the
+only field that differs at all.** The cause is
+`pipeline/derive.py:48`, which de-degrades each operating year with
+`(1 - degradationRate) ** age` — `numpy.power` on float64, which calls libm `pow`. `pow` is not
+required to be correctly rounded, and glibc's and Apple's implementations disagree in the last
+bit. It is upstream of the GA entirely, so `deterministic_reduction` cannot reach it.
+
+It is not confined to a diagnostic, either: `annualGenerationGwh` is served per project on
+`GET /pipeline`, stored on every holding (`optimiser/result.py:320`), and summed into §7.1's
+*Annual generation* tile (`api/records.py:152`). So two runs of the same mandate and seed on two
+architectures produce different stored bytes, in that field and in the tile above it.
+
+**Nothing the screens read is affected**, which is why the thirty parity pairs are portable:
+`id`, `countryCode`, `stage`, `technology`, `capacityMw`, `codYear`, `minDscr`,
+`developmentRiskScore`, `gridSecured`, `omContracted`, `currency`, `totalCapex_m`,
+`seniorDebt_m` and `equity_m` are bit-identical on both platforms, and the payload guard asserts
+exactly that rather than comparing whole records.
+
+**Recommended fix, which is 2A's to make.** Build the decline factor by repeated multiplication
+rather than by exponentiation — a `cumprod` along the year axis is the same arithmetic without
+libm in it. Raised on issue #1; until then the guarantee is as stated above, and a §12 sign-off
+should say "on a given architecture" and stop.
+
+**Across architectures without the flag, nothing stronger than "very likely" is claimed** for the
+search either. The trajectory turns on `f[a] >= f[b]`; fitness is quantised to 6 dp before every
+comparison and the runner pins BLAS to one thread, which makes divergence vanishingly unlikely
+rather than impossible.
+
+Also settled, since it was ambiguous: epic §7's "core arrays under 16 MB at 2,000 candidates"
+does not say whether the pipeline's own 30-year statements count. Both readings hold, so there
+was no need to choose the one that passes — **3.83 MB** for the search's working set (feature
+matrices at both precisions, the population, the aggregation's per-generation temporaries) and
+**15.83 MB** once the statements are included, extrapolated from the shipped 300 files to 2,000.
+Both are asserted. The inclusive reading has about 1% of headroom, which is the finding worth
+recording: one more 30-year matrix on `StatementArrays` would breach epic §7 at 2,000 candidates.
+
+### 4B-5 · Screen parity compares answers exactly and figures within a tolerance
+
+*Raised by issue #12. Affects: `tests/parity/`, and any later change to either implementation.*
+
+`web/js/feasibility.js` and `optimiser/feasibility.py` implement the same nine screens and seven
+warnings, and comparing them turns out to need two different kinds of equality.
+
+**Decided.** Compared **exactly**: the eligible count, the total, `runnable`, the warning codes in
+order, the eligible ids, and each project's list of failed screens. Those are the answer, and any
+difference in them is a bug.
+
+Compared **within 1e-12 relative**: `eligibleCapacityMw`, `eligibleEquity_m`,
+`eligibleSolarShare`, `eligibleGearing`, `lockedEquity_m`. Python aggregates in euros and converts
+at the API boundary; the JavaScript aggregates in €m because that is what the wire carries.
+`(x·10⁶)/(y·10⁶)` is not obliged to equal `x/y` to the last bit, and numpy's pairwise sum is not
+obliged to equal a sequential `forEach`. 1e-12 is five orders of magnitude tighter than anything
+the UI renders — €1,246.4162355799467m prints as `€1,246m` — and four wider than the ~1e-16 a
+unit conversion and a summation order can introduce.
+
+Both sides read the same projects: the payloads are generated from the golden fixtures by
+`api/scalars.py`, the real `GET /pipeline` serialiser, and a test fails if they ever stop matching
+what the API would serve.
+
+**Two smaller things settled with it.** The nine screens are spelled differently on the two
+sides — `country`/`countries`, `stage`/`stages`, `riskCap`/`riskScore`, `currency`/`eurRevenue`,
+`notExcluded`/`exclusions` — and the risk screen sits fifth in the JavaScript order and eighth in
+the Python one. `docs/api.md` §5's `screensToWiden` uses the Python names and `feasibility.js`
+does not expose `screensToWiden` at all, so the JavaScript names are internal: the harness maps
+them, pinned at both ends, rather than renaming them and breaking 1D's own tests. Raised for #11.
+
+And `feasibility.js` reads `payload.assumptions.riskCaps`, which `GET /pipeline` does not serve —
+the caps live behind `GET /assumptions`. Every existing JS test hand-builds them, so the page as
+shipped would throw on a real payload. The generated payload carries them so the harness can
+run; the gap is #11's.
+
+### 4B-6 · Three ways the two feasibility implementations had drifted, and one left alone
+
+*Raised by issue #12. Affects: `web/js/feasibility.js`, #11.*
+
+The thirty parity pairs found four divergences on their first run. Three changed the eligible
+count, which is the failure the parity suite exists to catch: the mandate footer promising a
+candidate count the run would not deliver.
+
+**Decided — fixed in `feasibility.js`, each with a pair that fails without it.**
+
+- **A lock re-admits.** `screens.py` computes `eligible = survives_every_screen | locked`, so a
+  locked project that fails a screen stays in the pool; `feasibility.js` filtered it out. Six of
+  the thirty pairs catch this. An exclusion still beats a lock, on both sides.
+- **`UK` collapses onto `GB`.** `pipeline-schema.md` §4.1 keeps `UK` as an alias and the loader
+  normalises files to `GB`; `mandate.html`'s country chips emit `UK`. Python normalises both ends
+  through `normalise_country_code`; the JavaScript compared raw strings, so every British project
+  was screened out client-side while the server admitted it. Now normalised inside the screen, so
+  it is right however the screen is called — which is what keeps 1D's direct test of
+  `screens.country({countryCode: 'UK'}, …)` green.
+- **Locked equity subtracts exclusions.** `feasibility.py` takes `set(locked) - set(excluded)`
+  before summing; the JavaScript summed every locked id, so an excluded project was still
+  committing capital in the footer.
+- **Capital absorption compares a ratio** (`equity / capital < 0.9`) rather than a product
+  (`equity < capital * 0.9`), matching `feasibility.py`, so a pool absorbing exactly the floor
+  lands on the same side on both sides. The two forms differ only in the last bits and only
+  exactly on the boundary — which is one of the four boundary pairs.
+
+**Decided — left alone, and asserted instead.** With no eligible pool, `feasibility.js` returns
+`NaN` for `eligibleSolarShare` and `eligibleGearing` and renders an em dash; `feasibility.py`
+returns `0.0`. Neither is wrong. The em dash is epic §5's rule — undefined is a dash, never a
+zero — and 1D asserts it directly ("there is no mix without a pool", "never 0%"). The `0.0` is
+forced: `PreviewResponse` types both fields as `float` under `allow_inf_nan=False`, so the wire
+cannot carry a `NaN` and the server has no way to say "undefined" here.
+
+Closing it means either dropping 1D's em dash or making two wire fields nullable, and the wire is
+a shared contract with a named owner. So each side's documented value is asserted exactly — a
+JavaScript `0` and a Python `NaN` both fail, which is tighter than the tolerance it replaces —
+and the contract question goes to #1: should `eligibleSolarShare` and `eligibleGearing` be
+`float | None`?
+
+### 4B-7 · Two of #12's criteria describe an engine 2A did not build
+
+*Raised by issue #12. Affects: #12's acceptance criteria.*
+
+Two criteria are written in terms that do not match the implementation, and both were guarded for
+their intent rather than restated to match the criterion.
+
+**"`irr_bisect` is called exactly `n_eligible + 1` times per run."** There is no `irr_bisect`;
+the solver is `economics/irr.py::irr`, and it is called **twice** per run — once on an
+`(n, hold)` matrix covering every loaded project in a single vectorised bisection, and once on
+the portfolio's own `(1, hold)` cash flow. The criterion describes a scalar per-project solver.
+2A's vectorised one is strictly better and satisfies what §10.3 actually forbids, which is IRR
+solving *inside the fitness loop*.
+
+**Decided.** The guard asserts what §10.3 forbids: exactly two bisections, the first vectorised
+over more than one row, and **no solve between the first and last scoring of the run**. The
+ordering assertion is the one that catches the regression — a per-project solve moved inside the
+loop would still be "a few calls" by some countings, but it would not be outside the scoring
+window.
+
+It is hooked at `npv` rather than at `irr`, which is the difference between a guard and a
+decoration: `irr` is imported by name into two modules, so patching those two bindings catches
+only the call sites that exist today, and a solve added inside the loop through a fresh
+`from … import irr` in `ga.py` would be invisible. `npv` is reachable only from inside `irr`,
+which resolves it from its own module globals at call time, so one hook sees every solve however
+`irr` was imported. Verified by adding exactly that call on purpose: 3,774 NPV evaluations against
+the 204 that two bisections make, where the binding-level hook had reported nothing wrong.
+
+**"One fitness call per generation."** There are two kinds. `ga.py` scores the whole population
+once per generation in float32 — the hot path, and the count that must not grow — and then
+re-scores the *leader alone* in float64 once per generation, once more for the winner, and once
+in `build_result`, so that nothing reported inherits the hot path's precision. That is deliberate
+and `ga.py`'s own docstring says so.
+
+**Decided.** Both counts are pinned separately, and the dtypes with them. Collapsing them into
+one number would let a population-scale call hide behind a one-row one, and asserting the dtypes
+at the same time is epic §5's float32 invariant — one `astype` moved by a line and either the hot
+path loses its speed or a reported metric inherits its precision.
+
+---
+
+## 4C — edge cases and error states
+
+Spec §13's nine rows plus the seven the file-based input model adds (epic §2), each driven end to
+end by a named test in `tests/unit/test_edge_cases_*.py` and `web/tests/edge-cases.test.js`. Two of
+the rows did not hold; both are fixed here under the licence issue #13 gives to open a fix against
+the module a case implicates.
+
+### 4C-1 · An empty pipeline answers `NO_CANDIDATES`, and the page tells it apart on `totalCount`
+
+*Raised by issue #13. Affects: #11.*
+
+§13 requires the mandate page to say that `pipeline/` is empty "rather than rendering a
+zero-candidate run". The obvious implementation is a new `WarningCode`, and it is the wrong one:
+the enum is 1A's, `FeasibilityWarning` validates that a severity is the one its code carries, and
+2B stores that model — so a banner would become a cross-issue contract change.
+
+**Decided.** The server keeps answering `NO_CANDIDATES`, and a client tells the two apart on
+`totalCount == 0` with an empty `screensToWiden`. "There are no files" and "no file passes your
+screens" send a user to different places, and `POST /mandate/preview` already carries both facts.
+
+The sentence — `The pipeline holds no project files. Add files to pipeline/ and reload.` — is new;
+no document pinned one. It lives in `web/js/edge-states.js` and is deliberately **not** the §3.5
+`NO_CANDIDATES` copy, which tells a user to widen three screens when there is nothing to widen.
+
+The state is derived from `fileCount`, not `loadedCount`. A directory whose files all failed their
+tie-outs is a different problem with a different answer: those files are named in `rejected[]`, and
+calling that pipeline empty would send their author looking at the wrong directory.
+
+### 4C-2 · A pipeline with no files has no distributions
+
+*Raised by issue #13. Affects: nobody — a defect fix.*
+
+An empty `pipeline/` did not render a zero-candidate mandate page. It stopped the server starting.
+
+`dispersion_report` built a `Distribution` for each of the nine declared assumptions over zero
+files, so its median, minimum and maximum were all `NaN`; `wire.DispersionEntry` sets
+`allow_inf_nan=False`, so `build_service` raised a pydantic `finite_number` error before the
+application had a route. `DispersionReport.disagreements` also reported **all nine** assumptions as
+disagreeing, because `agrees` is `minimum == maximum` and `NaN == NaN` is `False` — five problems
+reported where there was one, and none of them real.
+
+**Decided.** §11 reports "the distribution of each **declared** assumption across the pipeline". A
+pipeline with no files declares nothing, so it has no distributions — not nine unanimous ones and
+not nine disagreements. `dispersion_report` returns an empty report at zero projects, and
+`Distribution.agrees` is true at `count == 0` so a caller that builds one directly cannot be caught
+by the same `NaN` comparison.
+
+### 4C-3 · Tile 1's sub-label carries the shortfall
+
+*Raised by issue #13. Affects: #11.*
+
+`ui-contract.md` §5.1 says "Tile 1's sub-label shows the **shortfall against target** when the
+capacity target is unreachable (§13)". `export/committee.py` rendered `target {n} MW`
+unconditionally, so the printed pack went alert without ever saying by how much — which is a
+committee's next question.
+
+**Decided.** The sub-label becomes `target {t} MW · {n} MW short` when the target is
+**unreachable**, which is the same 8% band the tile's own verdict turns on — not merely "under
+target". That distinction is the whole of it: gating on the bare deficit puts `110 MW short` beside
+the ✓ and the words `on target` on one tile, and the *default* mandate does exactly that (1,390 MW
+against 1,500 is 7.3% out, inside the band). A tile that contradicts itself in a committee pack is
+worse than one that says less.
+
+The clause is also decided on the **rendered** figure rather than on the float behind it.
+`quantity` rounds half away from zero to whole MW and the pipeline's capacities are not integral
+(221.6, 165.2, 94.6 MW …), so a 0.3 MW deficit would otherwise print `0 MW short`.
+
+The `{n} MW short` wording is new — §5.1 pins the behaviour and not the words — and
+**`web/js/portfolio.js` must render the same string, under the same band**, or the screen and the
+printout will disagree. Announced on issue #1.
+
+### 4C-4 · A post-exit COD has an exit value of exactly zero
+
+*Raised by issue #13. Affects: nobody.*
+
+§13 says a project whose COD falls after the hold "contributes only construction outflows and an
+exit value", which reads as though the exit value is positive. At a five-year hold a 2032 project
+has no EBITDA in the exit year and debt still outstanding, so `terminal_value` floors at zero under
+limited liability: the whole truncated series is negative, the IRR is undefined and the MOIC is
+`0.00×`.
+
+**Decided.** §13 is satisfied by a zero exit value and the model is not bent to avoid it. Worth
+knowing downstream: the portfolio tile drops the MOIC clause when the IRR is undefined (§5.1), but
+a per-project row shows `0.00×`, because zero distributions is a real number where no IRR is not.
+
+### 4C-5 · The drawer's hold flag is computed, never stored
+
+*Raised by issue #13. Affects: #11.*
+
+`ui-contract.md` §5.5 requires the drawer to say when a project's COD falls after the hold, and
+pins no sentence and no wire field.
+
+**Decided.** No flag is added to the wire. The drawer computes it from three figures it already
+has — the project's `codYear`, the pipeline's `baseYear` and the mandate's `holdYears` — because a
+stored flag would be mandate-dependent, and nothing mandate-dependent is stored (epic §5). Moving
+the hold slider changes the answer, which is exactly the property a stored flag would lose.
+
+The sentence is `Commercial operation falls after the {n}-year hold. The project contributes
+construction outflows and an exit value only.`, and the Technical group's COD row reads
+`2032 — after the 5-year hold`. It takes the **info** mark and word, never `text-breach`: nothing
+here is outside the mandate, and `text-breach` marks a mandate breach and nothing else.
+
+### 4C-6 · §3.5's first sentence names three screens; the actionable ones travel in `screensToWiden`
+
+*Raised by issue #13. Affects: #11, #12, and `ui-contract.md`.*
+
+`ui-contract.md` §3.5's `NO_CANDIDATES` string is `No candidates pass the current screens. Widen
+countries, stages or the COD window.` — three screens, named unconditionally. A mandate blocked on
+minimum DSCR and development risk is sent to three controls that are not what is wrong.
+
+**Decided.** The sentence stays as the document pins it, and the actionable half reaches the user
+through `screensToWiden`, which `POST /mandate/preview` and the 422 both carry and which 2A-8
+computes independently per screen. `tests/unit/test_edge_cases_mandate.py` uses precisely such a
+mandate, so the gap is pinned rather than assumed. The copy is 1B's to change; raised on issue #1.
+
+Also recorded rather than fixed: `web/js/feasibility.js` does not compute `screensToWiden` at all,
+and its nine screen names differ from `optimiser/screens.py`'s in five of nine
+(`country`/`countries`, `stage`/`stages`, `riskCap`/`riskScore`, `currency`/`eurRevenue`,
+`notExcluded`/`exclusions`) and in order. `api.md` §5 says a diverging client is wrong. Both belong
+to #11's wiring and #12's screen-parity work.
+
+### 4C-7 · A whole-pipeline failure on reload is a 500, and that is 3A's to fix
+
+*Raised by issue #13. Affects: #9's module.*
+
+`PipelineLoadError` is raised by the loader for the three failures that break the index — duplicate
+ids, disagreeing base years, mixed id widths — and is caught nowhere under `src/terrafolio/api/`.
+`POST /pipeline/reload` over a pipeline with two files claiming one id therefore answers **500
+`INTERNAL_ERROR`, "The server could not complete that request."**, and the loader's message, which
+names every file claiming the id, reaches only the log. That is exactly the §13 row "two files
+share an `id` → both rejected, **named**".
+
+**Not fixed here.** The fix needs a new `ErrorCode` and a new row in `docs/api.md` §11, and epic §8
+makes the wire contract 3A's as owner of record while `docs/api.md` is 1B's file. Proposed on issue
+#1: **422 `PIPELINE_UNUSABLE`**, `detail.files`, `message = str(error)`. The server state is safe
+either way — `PipelineSource.reload` rebinds only after a successful load, so the session keeps the
+pipeline it had — and the test asserts that half plus the CLI's, both of which hold today.
+
+### 4C-8 · The edge fixtures are derived, width-3, and guarded
+
+*Raised by issue #13. Affects: nobody.*
+
+A valid project file carries thirty years of statements across eighteen tie-outs, so a hand-written
+"minimal" file fails for reasons its name does not claim — and a test named for one reason then
+passes on another.
+
+**Decided.** Every file under `tests/fixtures/edge/` is one documented edit to
+`tests/golden/fixtures/pipeline/P01-almonte-solar.json`, with a **width-3** id (`P49`–`P53`) so it
+drops into a copy of the golden corpus rather than tripping
+`loader._require_uniform_id_width` against the shipped pipeline's width-4 ids. A parametrised guard
+repairs each documented pointer from the base and asserts the file is its base again, which proves
+in one assertion that a fixture is current with 1A's schema, current with 1C's corpus, and broken in
+exactly one way.
+
+Three §13 rows need no fixture at all: 1C's corpus already holds ten projects operating in the base
+year, fourteen with non-EUR revenue, and two whose COD falls after a five-year hold.
+
+### 4C-9 · The three missing page states land in one file, not in three of #11's
+
+*Raised by issue #13. Affects: #11.*
+
+Three §13 rows had no rendered surface anywhere, because the code that would show them belongs to
+the seven page scripts #11 is writing: the map degrading to a notice, the mandate page reporting an
+empty or moved pipeline, and the drawer's hold flag. Leaving them unasserted would have left three
+of sixteen acceptance rows covered on the server only.
+
+**Decided.** They are implemented, in **one** new file — `web/js/edge-states.js`, exporting
+`siteMap`, `pipelineNotice` and `holdingNote` — rather than in `map.js`, `mandate.js` and
+`portfolio.js`. #11 is in flight; three partial files under its own names would be three conflicts
+to resolve, where one new file is an import to fold in. The page edits are additive: a script tag
+and a slot each on `mandate.html` and `portfolio.html`.
+
+`siteMap` is a real projection, not a placeholder: `d3.geoMercator` centred on §5.3's `[12, 55]` at
+`width × 1.15`, reading the atlas `public/countries-110m.js` already puts on `window`. It
+reproduces the committee pack's own Python reimplementation to the rendered decimal, and
+`web/tests/edge-cases.test.js` pins that agreement — including the country tint, which joins
+`holding.country` to the atlas's `properties.name` exactly as `export/committee.py` does. The
+atlas's `id` is a **numeric** ISO-3166 code, so a tint keyed on `ES` or `ESP` matches nothing and
+fails silently; only an assertion that a held country is actually tinted catches it.
+
+The map paints with **utility classes**, never `var(--color-…)`. 1D's Tailwind theme defines
+literal colours and emits no custom properties — `web/dist/app.css` carries no `--color-*` at all —
+so an inline `fill="var(--color-accent-200)"` is an unresolved reference and every country and
+marker falls back to the browser default. The committee pack meets the same wall and answers it the
+other way, declaring its own `--pack-*` properties, because it ships its own stylesheet; a page
+inside the design system should use the system, as the legend swatches under this very map already
+do. The test asserts each class exists in the built stylesheet, because a test that only counted the
+string in the markup would pass while the rendered map was black.
+
+An atlas that is an object, and carries an `objects.countries`, can still be unusable —
+`{objects: {countries: {}}}` makes `topojson.feature` reach for geometries that are not there. The
+conversion therefore happens where `available` can see it rather than inside `svg()`: a throw from a
+getter Alpine is evaluating takes the surrounding bindings with it, which is the opposite of the
+degradation §13 asks for. Corrupt geometry now reaches the same notice as missing geometry.
+
+The degradation notice is **text**, rendered by the page into an element beside the map rather than
+injected into it. `data-region="map"` carries `role="img"`, and an ARIA img's subtree is
+presentational — a notice inside it is announced to nobody, so the one state whose whole job is to
+explain itself would have explained itself to sighted users only.
+
+### 4C-10 · §5.3's map geometry puts most of the corpus off-panel
+
+*Raised by issue #13. Affects: #11, and `ui-contract.md`.*
+
+Noticed while checking the client against the pack. §5.3 pins `d3.geoMercator`, centre `[12, 55]`,
+scale `width × 1.15` and a 300px panel. At a 960px width that scale is 1,104, so 300px of height
+spans a narrow band around 55°N: of the first six markers a default run draws, **five fall outside
+the `0 0 960 300` viewBox**, Almonte at `cy="600.8"`. The shipped committee pack has always done
+this.
+
+**Not fixed here.** The numbers are `ui-contract.md`'s, quoted into `export/pack-layout.json` and
+checked against the document by `tests/api/test_committee_pack.py`, so changing them is a documented
+contract change touching 1B, 3A and #11 at once. Raised on issue #1. What is fixed is that the two
+implementations agree exactly, so whatever scale is chosen will move both.
+
 ## Log
 
 | Date | Issue | Entry |
@@ -3286,3 +3824,20 @@ again each time, not accumulate.
 | 2026-09-24 | #11 | 4A-17 — `NO_CANDIDATES` names the screens that emptied the pool, beside §3.5's pinned sentence. |
 | 2026-09-24 | #11 | 4A-18 — a stored round total and a re-run baseline each belong to one run, and are checked against it. |
 | 2026-09-24 | #11 | 4A-19 — a frame clears an earlier stream drop; map marker titles go through `format.js`. |
+| 2026-09-24 | #12 | 4B-1 — epic §7's 30 s does not reproduce (2.2 s measured); 99.4% of rows are over budget, so the column slice is the win and the row mask is a measured cost. |
+| 2026-09-24 | #12 | 4B-2 — the row mask is a margin *below* the budget, and it is `objective.equity_cap_tolerance_eur`; `None` keeps the pre-#12 behaviour. |
+| 2026-09-24 | #12 | 4B-3 — `deterministic_reduction` is a `SearchControls` field, not an assumption: a new TOML key would change `assumption_set_id` and reprice all 300 files. |
+| 2026-09-24 | #12 | 4B-4 — the §12 guarantee has three tiers, the third a "no": a whole run is **not** bit-exact across architectures. `annualGenerationGwh` differs by one ulp via libm `pow` in `derive.py:48`, found by CI. The search *is*, with the flag. Epic §7's 16 MB holds on both readings, 3.83 MB and 15.83 MB. |
+| 2026-09-24 | #12 | 4B-5 — parity compares answers exactly and the six figures at 1e-12; the nine screen names are mapped, not renamed. `GET /pipeline` serves no `riskCaps`, raised for #11. |
+| 2026-09-24 | #12 | 4B-6 — three `feasibility.js` divergences fixed (locks re-admit, `UK`→`GB`, locked equity less exclusions, absorption as a ratio); the empty-pool NaN-vs-0.0 left alone and asserted, raised for #1. |
+| 2026-09-24 | #12 | 4B-7 — `irr` is called twice per run, not `n_eligible + 1`, and is guarded at `npv`; "one fitness call per generation" is one population-scale call plus three one-row re-scores. |
+| 2026-09-24 | #13 | 4C-1 — an empty pipeline answers `NO_CANDIDATES`; a client tells it apart on `totalCount == 0`. |
+| 2026-09-24 | #13 | 4C-2 — a pipeline with no files has no distributions; the `NaN` ones stopped the server starting. |
+| 2026-09-24 | #13 | 4C-3 — tile 1 gains `· {n} MW short`, gated on §5.1's band so a ✓ tile never also reads short. |
+| 2026-09-24 | #13 | 4C-4 — a post-exit COD has an exit value of exactly zero; §13 is satisfied and the model is unchanged. |
+| 2026-09-24 | #13 | 4C-5 — the drawer's hold flag is computed from `codYear`, `baseYear` and `holdYears`; no wire flag. |
+| 2026-09-24 | #13 | 4C-6 — §3.5's first sentence names three screens statically; `screensToWiden` carries the real ones. |
+| 2026-09-24 | #13 | 4C-7 — a whole-pipeline failure on reload is a 500; `422 PIPELINE_UNUSABLE` proposed to 3A on #1. |
+| 2026-09-24 | #13 | 4C-8 — the edge fixtures are single documented edits to `P01`, width-3, and guarded against drift. |
+| 2026-09-24 | #13 | 4C-9 — the three missing page states land in `web/js/edge-states.js`; the map tints on country name, paints in utility classes because the system has no custom properties, and degrades on corrupt geometry as on missing. |
+| 2026-09-24 | #13 | 4C-10 — §5.3's map scale puts five of six markers outside the panel, in the pack as on screen. |

@@ -222,15 +222,11 @@ def execute(payload: RunPayload) -> WorkerOutcome:
     held = set(payload.locked_ids) - set(payload.excluded_ids)
     locked_all = np.array([project_id in held for project_id in arrays.ids], dtype=np.bool_)
 
+    controls = SearchControls(effort=payload.effort, locked=locked_all[rows], seed=payload.seed)
     connection = open_store(payload.database_path)
     try:
         start_run(connection, run_id=payload.run_id)
-        search = evolve(
-            features,
-            mandate,
-            assumptions,
-            SearchControls(effort=payload.effort, locked=locked_all[rows], seed=payload.seed),
-        )
+        search = evolve(features, mandate, assumptions, controls)
         events: list[GenerationEvent] = []
         while True:
             try:
@@ -260,6 +256,9 @@ def execute(payload: RunPayload) -> WorkerOutcome:
             returns=returns,
             contracted_share=contracted_revenue_share(arrays),
         ),
+        # The reported tiles reduce the way the search did, or a run asking for a
+        # BLAS-free reduction would get one only up to the point it reports (#12).
+        deterministic=controls.deterministic_reduction,
     )
     return WorkerOutcome(
         result=result,

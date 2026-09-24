@@ -25,13 +25,28 @@
     : root.TerraFolio && root.TerraFolio.format;
   if (!fmt) throw new Error('feasibility.js requires format.js');
 
+  /**
+   * Collapse the `UK` alias onto the ISO `GB` the rest of the system uses.
+   *
+   * pipeline-schema.md §4.1 keeps `UK` as an accepted alias and the assumption set's
+   * market tables key on `GB`, so `normalise_country_code` is applied at both ends in
+   * Python: to a file's declared country on load, and to the mandate's country chips
+   * before they are compared. This side compared raw strings, and mandate.html's chip
+   * group emits `UK` — so a British project was screened out of every mandate that
+   * asked for the United Kingdom, while the server admitted it. #12's parity harness
+   * found it; see docs/decisions.md 4B-6.
+   */
+  function normaliseCountry(code) {
+    return code === 'UK' ? 'GB' : code;
+  }
+
   /* ── The wire adapter ───────────────────────────────────────────────────────
      The one place GET /pipeline field names appear (api.md §2). Money is €m with an
      explicit _m suffix and the wire never carries a percentage, per api.md §1. */
   function project(raw) {
     return {
       id: raw.id,
-      countryCode: raw.countryCode,
+      countryCode: normaliseCountry(raw.countryCode),
       stage: raw.stage,
       technology: raw.technology,
       capacityMw: raw.capacityMw,
@@ -77,27 +92,23 @@
      (project, mandate) and returns a boolean; none looks at any other. Mandate field
      names are api.md §6.1. */
 
-  /**
-   * Collapse the `UK` alias onto the ISO `GB` the rest of the system uses.
-   *
-   * `pipeline-schema.md` §4.1 accepts `UK` as an alias and `ui-contract.md` §3.2 names
-   * the fourteenth market that way, so the country chips emit `UK` while every loaded
-   * file carries `GB`. `pipeline/arrays.py` normalises **both** ends for exactly this
-   * reason; doing it on one side only is not an alias, it is a screen that silently
-   * rejects every British project. See docs/decisions.md 4A-2.
-   */
-  function isoCountry(code) {
-    return code === 'UK' ? 'GB' : code;
-  }
-
   var screens = {
-    /** 1. The project's country is on the mandate's eligible list. */
+    /**
+     * 1. The project's country is on the mandate's eligible list.
+     *
+     * Both ends go through `normaliseCountry`, so the screen is right however it is
+     * called — the wire adapter has already normalised a project it built, and
+     * normalising twice is the same as normalising once.
+     *
+     * `some` rather than `map(...).indexOf(...)`: this runs once per project per
+     * recompute, and building a throwaway array of normalised codes each time put
+     * hundreds of allocations inside the path §12 budgets at under 100 ms.
+     */
     country: function (p, m) {
-      var wanted = m.countries || [];
-      for (var i = 0; i < wanted.length; i++) {
-        if (isoCountry(wanted[i]) === isoCountry(p.countryCode)) return true;
-      }
-      return false;
+      var wanted = normaliseCountry(p.countryCode);
+      return (m.countries || []).some(function (code) {
+        return normaliseCountry(code) === wanted;
+      });
     },
 
     /** 2. The project's development stage is in scope. */
@@ -269,7 +280,12 @@
   /** The two codes that disable the run — exactly the two POST /optimisations 422s. */
   var BLOCKING = ['NO_CANDIDATES', 'LOCKS_EXCEED_CAPITAL'];
 
-  function warnings(pool, agg, mandate, total, lockedIds, excludedIds, lockedEquity_m) {
+  /*
+   * `heldIds` is the locks net of exclusions — the ids `lockedEquity_m` is the equity
+   * of. It replaced a `total` parameter that was accepted and never read.
+   */
+
+  function warnings(pool, agg, mandate, heldIds, lockedIds, excludedIds, lockedEquity_m) {
     var out = [];
     var empty = pool.length === 0;
 
@@ -290,7 +306,11 @@
           lockedEquity_m: lockedEquity_m,
           availableCapital_m: mandate.availableCapital_m,
           excess_m: lockedEquity_m - mandate.availableCapital_m,
-          lockedIds: (lockedIds || []).slice(),
+          /* The locks this figure is the equity of — so an excluded id is absent,
+             because it commits nothing. §3.6 tells the user which lock to release,
+             and naming one that contributes nothing to the excess is worse than
+             naming none. */
+          lockedIds: heldIds.slice(),
         },
       });
     }
@@ -325,7 +345,11 @@
       });
     }
 
-    if (!empty && agg.eligibleEquity_m < mandate.availableCapital_m * 0.9) {
+    /* A ratio rather than `equity < capital * 0.9`, so that a pool absorbing exactly
+       the floor lands on the same side here as it does in `feasibility.py`, which
+       divides. The two forms differ only in the last bits, and only exactly on the
+       boundary — which is the case #12 ships a parity pair for. */
+    if (!empty && agg.eligibleEquity_m / mandate.availableCapital_m < 0.9) {
       out.push({
         code: 'CAPITAL_UNDERUSED', severity: 'info', tone: 'neutral', mark: '!',
         message: 'Full pipeline absorbs only ' + fmt.eurM(agg.eligibleEquity_m)
@@ -363,28 +387,24 @@
     var excludedIds = (locks && locks.excludedIds) || [];
     var cap = riskCap(payload, mandate.riskAppetite);
 
-    /* A lock re-admits a project that fails a hard pre-screen, and the re-admission
-       is visible rather than silent (`LOCKS_PRESENT`). That is what `apply_screens`
-       does — `eligible = survives_every_screen | locked` — and api.md §5 requires
-       this computation to agree with the preview endpoint field for field. A project
-       that is both locked and excluded stays excluded: the exclusion is the more
-       specific instruction. See decisions.md 2A-20 and 4A-3. */
+    /* A lock re-admits. `screens.py` computes `eligible = survives_every_screen |
+       locked`, and this side used to drop a locked project that failed a screen — so
+       the footer promised a candidate count the run would not deliver, which is the
+       one bug this whole file exists to avoid. An exclusion still wins over a lock,
+       on both sides (decisions 4B-6). */
     var held = lockedIds.filter(function (id) { return excludedIds.indexOf(id) === -1; });
     var pool = all.filter(function (p) {
       return passes(p, mandate, cap, excludedIds) || held.indexOf(p.id) !== -1;
     });
     var agg = aggregate(pool);
 
-    /* `held`, not `lockedIds`: a project that is both locked and excluded is not
-       held, so its equity is not required. `preview_feasibility` sums over
-       `set(locked) - set(excluded)` for the same reason, and this figure decides a
-       *blocking* warning — counting an excluded project here disables a run the
-       server would accept. See docs/decisions.md 4A-3. */
+    /* Locked equity is what the locks actually commit, so an excluded id contributes
+       nothing: `feasibility.py` takes `set(locked) - set(excluded)` before summing. */
     var lockedEquity_m = all.reduce(function (sum, p) {
       return held.indexOf(p.id) === -1 ? sum : sum + p.equity_m;
     }, 0);
 
-    var found = warnings(pool, agg, mandate, all.length, lockedIds, excludedIds, lockedEquity_m);
+    var found = warnings(pool, agg, mandate, held, lockedIds, excludedIds, lockedEquity_m);
     var blocking = found.some(function (w) { return BLOCKING.indexOf(w.code) !== -1; });
 
     return {
@@ -416,7 +436,6 @@
     feasibility: feasibility,
     screensToWiden: screensToWiden,
     WIRE_SCREEN_NAMES: WIRE_SCREEN_NAMES,
-    isoCountry: isoCountry,
     screens: screens,
     SCREEN_ORDER: SCREEN_ORDER,
     passes: passes,

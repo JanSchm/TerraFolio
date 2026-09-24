@@ -98,6 +98,20 @@ class SearchControls:
     locked: BoolVector | None = None
     seed: int | None = None
 
+    deterministic_reduction: bool = False
+    """Reduce without BLAS, so the answer is reproducible across architectures.
+
+    A run control rather than an assumption on purpose (#12, 4B-3).
+    ``assumption_set_id`` is the digest of every non-metadata section of the
+    calibration, and the seed pipeline's generator salts its PRNG with it — so a new
+    key in the assumption set would change the id and oblige 2C to regenerate all 300
+    committed files, which is a great deal of cascade for an execution mode. This sits
+    beside ``effort`` and ``seed``, which are already run controls and not mandate.
+
+    Costs 17-45x on the reduction, which is 2.13 ms per generation at (160, 2000) —
+    about 0.23 s added to an Exhaustive run, so it is usable rather than theoretical.
+    """
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GenerationEvent:
@@ -175,6 +189,7 @@ def evolve(
     :class:`GaOutcome` from ``StopIteration.value``.
     """
     effort, locked = controls.effort, controls.locked
+    deterministic = controls.deterministic_reduction
     params = _effort_params(effort, assumptions)
     population_size, generations = params.population, params.generations
     candidates = features.project_count
@@ -184,6 +199,11 @@ def evolve(
 
     equity = features.fit[:, COLUMN["equity"]]
     budget = mandate.available_capital_eur
+    # A row totalling within this of the budget is left alone rather than re-ranked.
+    # The same constant epic §6.2 put on the objective's cap, for the same reason: a
+    # chromosome sitting exactly on the boundary must not be moved by a rounding
+    # artefact, and the utilisation reward actively pushes them onto it (#12, 4B-2).
+    cap_tolerance = assumptions.objective.equity_cap_tolerance_eur
     resolved = resolve_seed(controls.seed)
     rng = np.random.default_rng(resolved)
 
@@ -203,11 +223,14 @@ def evolve(
         equity=equity,
         budget=budget,
         locked=locked,
+        tolerance=cap_tolerance,
     )
 
     def exact_fitness(selection: BoolVector) -> tuple[float, object]:
         """Re-score one chromosome in float64, whatever the hot path used."""
-        totals = aggregate(features, selection[None, :].astype(np.float64))
+        totals = aggregate(
+            features, selection[None, :].astype(np.float64), deterministic=deterministic
+        )
         return float(quantise(score(totals, mandate, assumptions), assumptions)[0]), totals
 
     def summarise(generation: int, winner: BoolVector, fitness: Vector) -> GenerationEvent:
@@ -230,7 +253,11 @@ def evolve(
 
     for generation in range(1, generations + 1):
         fitness = quantise(
-            score(aggregate(features, population.astype(np.float32)), mandate, assumptions),
+            score(
+                aggregate(features, population.astype(np.float32), deterministic=deterministic),
+                mandate,
+                assumptions,
+            ),
             assumptions,
         )
         ranked = elite_order(fitness)
@@ -258,7 +285,12 @@ def evolve(
         offspring = uniform_crossover(coin, population[mothers], population[fathers])
         offspring = force_locks(mutate(mutation, offspring, assumptions), locked)
         offspring = repair_to_budget(
-            offspring, priority=priority, equity=equity, budget=budget, locked=locked
+            offspring,
+            priority=priority,
+            equity=equity,
+            budget=budget,
+            locked=locked,
+            tolerance=cap_tolerance,
         )
 
         population = np.vstack([population[ranked[:elites]], offspring])

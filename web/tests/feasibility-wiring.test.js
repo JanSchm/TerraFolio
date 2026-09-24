@@ -63,10 +63,13 @@ const CAP = ASSUMPTIONS.riskCaps.balanced;
 
 /* ── 1. UK is an alias for GB, at both ends ──────────────────────────────────── */
 
-test('isoCountry collapses the UK alias and leaves every other code alone', () => {
-  assert.equal(F.isoCountry('UK'), 'GB');
-  assert.equal(F.isoCountry('GB'), 'GB');
-  assert.equal(F.isoCountry('ES'), 'ES');
+test('the alias is collapsed on the way in, so a pool carries ISO codes only', () => {
+  // #12 reached the same fix from the parity harness (4B-6) and normalises in the
+  // wire adapter as well as in the screen, which is the stronger place for it — so
+  // the helper is internal now and this asserts the behaviour rather than the name.
+  const pool = F.projects(payload([candidate({ id: 'P01', countryCode: 'UK' }),
+    candidate({ id: 'P02', countryCode: 'ES' })]));
+  assert.deepEqual(pool.map((p) => p.countryCode), ['GB', 'ES']);
 });
 
 test('a GB project passes a mandate that spells the market UK', () => {

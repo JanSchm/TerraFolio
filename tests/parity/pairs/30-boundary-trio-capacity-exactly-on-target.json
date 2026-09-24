@@ -1,0 +1,47 @@
+{
+  "why": "The same strictness on a pool of three, where one project dominates.",
+  "payload": "payload-trio.json",
+  "mandate": {
+    "availableCapital_m": 1200.0,
+    "capacityTargetMw": 680.0,
+    "solarShare": 0.45,
+    "targetIrr": 0.11,
+    "holdYears": 10,
+    "countries": [
+      "ES",
+      "PT",
+      "IT",
+      "GR",
+      "FR",
+      "DE",
+      "PL",
+      "RO",
+      "NL",
+      "DK",
+      "IE",
+      "SE",
+      "FI",
+      "GB"
+    ],
+    "stages": [
+      "greenfield",
+      "ready_to_build",
+      "construction"
+    ],
+    "minLeverage": 0.6,
+    "minDscr": 1.25,
+    "maxMerchantShare": 0.35,
+    "maxCountryShare": 0.35,
+    "maxProjectShare": 0.15,
+    "codFrom": 2027,
+    "codTo": 2032,
+    "riskAppetite": "balanced",
+    "gridSecuredOnly": false,
+    "eurRevenueOnly": false,
+    "omContractedOnly": false
+  },
+  "locks": {
+    "lockedIds": [],
+    "excludedIds": []
+  }
+}
