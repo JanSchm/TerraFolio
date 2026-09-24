@@ -237,15 +237,58 @@
   }
 
   /**
+   * The status vocabulary — ui-contract.md §7.1, "colour is never the only signal".
+   *
+   * §7.1 lists eight places where a colour carries a status, and the second signal
+   * each one owes. Those signals were scattered: the tile states lived here, the
+   * warning marks in feasibility.js, and the `Blocker:` / `Warning:` / `Note:`
+   * prefixes only as literal markup in styleguide.html. Three copies of one
+   * vocabulary drift, and the drift is invisible — a tile that loses its mark still
+   * renders, just in colour alone.
+   *
+   * So it lives here once, and the holdings rows, the FCFE bars and the map markers
+   * issue #11 renders read the same table the tiles do.
+   *
+   * The marks are specific code points and a lookalike is a silent failure: U+2713
+   * check, U+25A0 and U+25A1 filled and hollow squares, U+00D7 multiplication sign,
+   * U+2022 bullet, U+2191 and U+2193 arrows. tests/status-vocabulary.test.js holds
+   * them against ui-contract.md §7.1.
+   */
+  var STATUS = {
+    MARK: {
+      onTarget: '✓', breach: '!',
+      locked: '■', unlocked: '□',
+      blocking: '×', alert: '!', info: '•',
+      ascending: '↑', descending: '↓', none: '',
+    },
+    WORD: {
+      onTarget: 'on target', breach: 'outside the mandate',
+      locked: 'Locked', unlocked: 'Not locked',
+      selected: 'Selected', notSelected: 'Not selected',
+      blocking: 'Blocker: ', alert: 'Warning: ', info: 'Note: ',
+    },
+    /** The tone a feasibility warning's severity renders in (api.md §5 → §7.1). */
+    TONE: { blocking: 'text-breach', alert: 'text-breach', info: 'text-muted' },
+    /**
+     * §7.1: a Min DSCR cell below the floor owes `below the {n}× floor` in its
+     * accessible name. Through format.js, so the floor reads as the rest of the
+     * product does — `below the 1.25× floor`, never `below the 1.25 floor`.
+     */
+    dscrFloor: function (floor) {
+      return 'below the ' + fmt.dscr(floor) + ' floor';
+    },
+  };
+
+  /**
    * A KPI tile's compliance state.
    *
    * The mockup expressed this purely as the sub-label's colour, which epic §5
    * forbids. Each state therefore carries a mark and a spoken label as well.
    */
   var TILE_STATES = {
-    'on-target': { mark: '✓', label: 'on target' },
-    neutral: { mark: '', label: '' },
-    breach: { mark: '!', label: 'outside the mandate' },
+    'on-target': { mark: STATUS.MARK.onTarget, label: STATUS.WORD.onTarget },
+    neutral: { mark: STATUS.MARK.none, label: '' },
+    breach: { mark: STATUS.MARK.breach, label: STATUS.WORD.breach },
   };
 
   function kpiTile(options) {
@@ -272,14 +315,19 @@
     kpiTile: kpiTile,
   };
 
+  factories.status = STATUS;
+
   root.TerraFolio = root.TerraFolio || {};
   root.TerraFolio.controls = factories;
+  root.TerraFolio.status = STATUS;
 
   /* Alpine may load before or after this file; alpine:init covers both. */
   if (root.document) {
     root.document.addEventListener('alpine:init', function () {
       Object.keys(factories).forEach(function (name) {
-        root.Alpine.data(name, factories[name]);
+        /* The export carries STATUS as well as the factories; only a factory is a
+           component, and Alpine.data() with a plain object fails at use, not here. */
+        if (typeof factories[name] === 'function') root.Alpine.data(name, factories[name]);
       });
     });
   }
