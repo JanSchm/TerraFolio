@@ -42,6 +42,49 @@
     return prefix + '-' + uid;
   }
 
+  /**
+   * The figures inside a region, as opposed to the words around them.
+   *
+   * `data-field` marks exactly the slots issue #11 fills, so it is what tells a
+   * value from the label beside it. Without that distinction the search screen's
+   * round counter reads as one string — "ROUND — / —" — which is not the em dash,
+   * and so looks like a figure that has arrived when nothing has.
+   *
+   * A definition list without `data-field` falls back to its `<dd>`s, and anything
+   * else to itself, so a region added later still has values rather than none.
+   */
+  function slots(node) {
+    var fields = node.querySelectorAll('[data-field]');
+    if (fields.length) return Array.prototype.slice.call(fields);
+    var terms = node.querySelectorAll('dt');
+    if (terms.length) {
+      return Array.prototype.map.call(terms, valueFor).filter(Boolean);
+    }
+    return [node];
+  }
+
+  /**
+   * The `<dd>` belonging to a `<dt>`, for either shape a definition list takes.
+   *
+   * Walking forward to the next sibling `<dd>` is what the HTML actually means, and
+   * it reads a flat `<dt><dd><dt><dd>` list and a per-pair `<div>`-wrapped one the
+   * same way. Asking the parent for its first `<dd>` does not: on the flat shape —
+   * which is the conventional one — every term pairs with the first value, and the
+   * footer announces confidently wrong figures.
+   */
+  function valueFor(dt) {
+    for (var el = dt.nextElementSibling; el; el = el.nextElementSibling) {
+      if (el.tagName === 'DD') return el;
+      if (el.tagName === 'DT') return null;
+    }
+    return null;
+  }
+
+  /** One line of text out of whatever whitespace the markup used. */
+  function collapse(text) {
+    return String(text || '').replace(/\s+/g, ' ').trim();
+  }
+
   /** Announces a control's new value to whatever is listening above it. */
   function emit(el, name, value) {
     if (!el || !el.dispatchEvent) return;
@@ -237,15 +280,74 @@
   }
 
   /**
+   * The status vocabulary — ui-contract.md §7.1, "colour is never the only signal".
+   *
+   * §7.1 lists eight places where a colour carries a status, and the second signal
+   * each one owes. Those signals were scattered: the tile states lived here, the
+   * warning marks in feasibility.js, and the `Blocker:` / `Warning:` / `Note:`
+   * prefixes only as literal markup in styleguide.html. Three copies of one
+   * vocabulary drift, and the drift is invisible — a tile that loses its mark still
+   * renders, just in colour alone.
+   *
+   * So it lives here once, and the holdings rows, the FCFE bars and the map markers
+   * issue #11 renders read the same table the tiles do.
+   *
+   * The marks are specific code points and a lookalike is a silent failure: U+2713
+   * check, U+25A0 and U+25A1 filled and hollow squares, U+00D7 multiplication sign,
+   * U+2022 bullet, U+2191 and U+2193 arrows. tests/status-vocabulary.test.js holds
+   * them against ui-contract.md §7.1.
+   */
+  var STATUS = {
+    MARK: {
+      onTarget: '✓', breach: '!',
+      locked: '■', unlocked: '□',
+      blocking: '×', alert: '!', info: '•',
+      ascending: '↑', descending: '↓', none: '',
+    },
+    WORD: {
+      onTarget: 'on target', breach: 'outside the mandate',
+      locked: 'Locked', unlocked: 'Not locked',
+      selected: 'Selected', notSelected: 'Not selected',
+      blocking: 'Blocker: ', alert: 'Warning: ', info: 'Note: ',
+    },
+    /** The tone a feasibility warning's severity renders in (api.md §5 → §7.1). */
+    TONE: { blocking: 'text-breach', alert: 'text-breach', info: 'text-muted' },
+    /**
+     * §7.1: a Min DSCR cell below the floor owes `below the {n}× floor` in its
+     * accessible name. Through format.js, so the floor reads as the rest of the
+     * product does — `below the 1.25× floor`, never `below the 1.25 floor`.
+     */
+    dscrFloor: function (floor) {
+      return 'below the ' + fmt.dscr(floor) + ' floor';
+    },
+  };
+
+  /** The two values `aria-sort` takes for a sorted column, and nothing else. */
+  function direction(value) {
+    if (value === undefined || value === null) return 'descending';
+    if (value !== 'ascending' && value !== 'descending') {
+      throw new Error('holdingsTable: direction must be "ascending" or "descending", got '
+        + JSON.stringify(value));
+    }
+    return value;
+  }
+
+  /** ui-contract.md §5.4's display labels. Wire values in, investor English out. */
+  var TECHNOLOGY = { solar: 'Solar', onshore_wind: 'Wind', offshore_wind: 'Offshore wind' };
+  var STAGE = {
+    greenfield: 'Greenfield', ready_to_build: 'Ready-to-build', construction: 'Construction',
+  };
+
+  /**
    * A KPI tile's compliance state.
    *
    * The mockup expressed this purely as the sub-label's colour, which epic §5
    * forbids. Each state therefore carries a mark and a spoken label as well.
    */
   var TILE_STATES = {
-    'on-target': { mark: '✓', label: 'on target' },
-    neutral: { mark: '', label: '' },
-    breach: { mark: '!', label: 'outside the mandate' },
+    'on-target': { mark: STATUS.MARK.onTarget, label: STATUS.WORD.onTarget },
+    neutral: { mark: STATUS.MARK.none, label: '' },
+    breach: { mark: STATUS.MARK.breach, label: STATUS.WORD.breach },
   };
 
   function kpiTile(options) {
@@ -262,6 +364,396 @@
     };
   }
 
+  /**
+   * A polite announcement of figures that change far too often to be one.
+   *
+   * ui-contract.md §7.2 asks for the mandate footer's figures and the search
+   * screen's round counter to be polite live regions, "so a screen-reader user
+   * hears progress and feasibility without polling". Marking those regions live
+   * directly would satisfy the letter and defeat the purpose. Feasibility
+   * recomputes on `input` (A-18), so one drag of the capital slider emits dozens of
+   * announcements; the engine streams a round at least every 100 ms (epic §7), so
+   * the counter would interrupt itself ten times a second. Either way the figures
+   * become unusable at exactly the moment they matter.
+   *
+   * So the visible figures stay silent and keep updating at full rate, and one
+   * sr-only region carries a single composed sentence per quiet window. It is
+   * derived by observing the figures rather than written alongside them, which
+   * means it cannot drift out of step with what is on screen and issue #11 does
+   * not have to remember it exists.
+   *
+   * Nothing is announced until a figure is actually known: the pages ship showing
+   * em dashes, and reading a row of them aloud on arrival is noise.
+   */
+  function liveRegion(options) {
+    var o = options || {};
+    return {
+      /* No `name`, and none is needed: this announces rather than emits, so it has
+         nothing to put on the tf:change seam. It would also read as a mandate field
+         to the wire-contract guard, which holds every named control on the mandate
+         page against api.md §6.1. */
+      message: '',
+      quiet: typeof o.quiet === 'number' ? o.quiet : 700,
+      sources: [],
+      timer: null,
+
+      init: function () {
+        var doc = this.$el.ownerDocument;
+        this.observe((o.watch || []).map(function (selector) {
+          return doc.querySelector(selector);
+        }).filter(Boolean));
+      },
+
+      /** Split out of init() so a test can drive it without a page. */
+      observe: function (nodes) {
+        var self = this;
+        this.sources = nodes;
+        if (!nodes.length) return null;
+        var view = nodes[0].ownerDocument.defaultView;
+        var observer = new view.MutationObserver(function () { self.schedule(); });
+        nodes.forEach(function (node) {
+          observer.observe(node, { childList: true, characterData: true, subtree: true });
+        });
+        return observer;
+      },
+
+      /** Trailing throttle: one announcement once the figures stop moving. */
+      schedule: function () {
+        var self = this;
+        var view = this.sources.length
+          ? this.sources[0].ownerDocument.defaultView
+          : null;
+        if (!view) return;
+        if (this.timer) view.clearTimeout(this.timer);
+        this.timer = view.setTimeout(function () {
+          self.timer = null;
+          self.flush();
+        }, this.quiet);
+      },
+
+      flush: function () {
+        var text = this.compose();
+        /* Nothing worth saying, or nothing new to say. */
+        if (!text || text === this.message) return;
+        this.message = text;
+      },
+
+      /** A source's own value slots — see `slots()`. Kept for callers and tests. */
+      values: function () {
+        var out = [];
+        this.sources.forEach(function (node) {
+          slots(node).forEach(function (el) { out.push(collapse(el.textContent)); });
+        });
+        return out;
+      },
+
+      /**
+       * A source is worth announcing once every figure in it has arrived.
+       *
+       * Not "at least one": the search screen learns its round total from the 202
+       * before the first round streams, and "ROUND — / 60. Mandate score —.
+       * Capacity —. …" is a sentence of em dashes read out at the one moment the
+       * user is waiting to hear a number. Partial is silence; the next quiet window
+       * is a fraction of a second away.
+       */
+      ready: function (node) {
+        var found = slots(node);
+        if (!found.length) return false;
+        return found.every(function (el) {
+          var value = collapse(el.textContent);
+          return value && value !== fmt.DASH;
+        });
+      },
+
+      compose: function () {
+        var self = this;
+        var parts = this.sources.filter(function (node) {
+          return self.ready(node);
+        }).map(function (node) {
+          var terms = node.querySelectorAll('dt');
+          if (!terms.length) return collapse(node.textContent);
+          return Array.prototype.map.call(terms, function (dt) {
+            var dd = valueFor(dt);
+            return collapse(dt.textContent) + ' ' + collapse(dd ? dd.textContent : '');
+          }).join('. ');
+        }).filter(Boolean);
+        /* No trailing full stop when there is nothing to end: a source that is
+           momentarily empty would otherwise announce "." on its own. */
+        return parts.length ? parts.join('. ') + '.' : '';
+      },
+    };
+  }
+
+  /**
+   * What a modal has to do that `role="dialog"` alone does not.
+   *
+   * ui-contract.md §7.2: the drawer and the export dialog "trap focus, close on
+   * `Esc`, and restore focus to what opened them". Both already carried
+   * `role="dialog"` and `aria-modal="true"`, which is the *claim* that focus is
+   * trapped; nothing was doing the trapping. A keyboard user tabbed straight out of
+   * an open drawer into the page behind it, which is still there and still
+   * scrollable, and on closing it landed at the top of the document rather than back
+   * at the row they opened.
+   *
+   * Three notes on how, rather than what:
+   *
+   *   - Tab is intercepted and the next element focused explicitly. A browser will
+   *     not honour a trap any other way, and it is also the only form jsdom can
+   *     exercise, since it does not move focus on Tab at all.
+   *   - The opener is found by a delegated listener on the document, not by a
+   *     handler bound at init. The rows that open the drawer do not exist yet —
+   *     issue #11 renders them — and a delegated listener means they work with no
+   *     drawer code in table.js.
+   *   - The background is left alone. Marking it `aria-hidden` would put focusable
+   *     elements inside a hidden subtree, which is its own violation and one axe
+   *     reports; `aria-modal` plus a trap that actually traps is the conformant
+   *     pair.
+   */
+  var FOCUSABLE = [
+    'a[href]', 'button:not([disabled])', 'input:not([disabled]):not([type="hidden"])',
+    'select:not([disabled])', 'textarea:not([disabled])', '[tabindex]:not([tabindex="-1"])',
+  ].join(', ');
+
+  function overlay(options) {
+    var o = options || {};
+    return {
+      name: o.name || 'overlay',
+      open: false,
+      /** What to give focus back to. §7.2's "restore focus to what opened them". */
+      returnTo: null,
+      panel: null,
+      scrim: null,
+
+      init: function () {
+        this.attach(this.$refs.panel, this.$refs.scrim);
+        var self = this;
+        /* Bound once so hide() can take it off again. */
+        this.keydown = function (event) { self.onKeydown(event); };
+        if (o.openWith) this.delegate(o.openWith);
+      },
+
+      /** Split out of init() so a test can drive the trap without a page. */
+      attach: function (panel, scrim) {
+        this.panel = panel || null;
+        this.scrim = scrim || null;
+      },
+
+      delegate: function (selector) {
+        var self = this;
+        var doc = this.$el.ownerDocument;
+        doc.addEventListener('click', function (event) {
+          var target = event.target;
+          if (!target || !target.closest) return;
+          var trigger = target.closest(selector);
+          if (trigger) self.show({ target: trigger });
+        });
+      },
+
+      /** In tab order, skipping anything hidden or disabled. */
+      focusables: function () {
+        if (!this.panel) return [];
+        return Array.prototype.filter.call(this.panel.querySelectorAll(FOCUSABLE),
+          function (el) {
+            return !el.closest('[hidden]') && el.getAttribute('aria-hidden') !== 'true';
+          });
+      },
+
+      /**
+       * Where Tab should land, wrapping at both ends. Pure, so the trap can be
+       * asserted directly rather than inferred from where focus happened to go.
+       */
+      nextFocus: function (active, shift) {
+        var list = this.focusables();
+        if (!list.length) return this.panel;
+        var at = list.indexOf(active);
+        if (at === -1) return shift ? list[list.length - 1] : list[0];
+        var to = shift ? at - 1 : at + 1;
+        if (to < 0) to = list.length - 1;
+        if (to >= list.length) to = 0;
+        return list[to];
+      },
+
+      show: function ($event) {
+        /* Already open: a second show() would overwrite returnTo, stranding the
+           first trigger's aria-expanded="true" and losing the element focus is
+           owed back. The opener is delegated on the document, so this is reachable
+           whenever a trigger stays clickable behind the scrim. */
+        if (this.open) return;
+        if (!this.keydown) {
+          var bound = this;
+          this.keydown = function (event) { bound.onKeydown(event); };
+        }
+        var trigger = $event && $event.target;
+        this.returnTo = (trigger && trigger.closest)
+          ? (trigger.closest('button, a[href]') || trigger)
+          : null;
+        this.open = true;
+        this.expand(true);
+        /* On the document, not on the wrapper: a wrapper-scoped listener only
+           traps Tab once focus is already inside, so focus arriving from outside —
+           back from the URL bar, or moved programmatically — would walk the page
+           behind the scrim freely. §7.2 asks for a trap, not a fence. */
+        if (this.keydown) this.doc().addEventListener('keydown', this.keydown, true);
+        var self = this;
+        /* After Alpine has removed [hidden]: focus() will not move to an element
+           the layout has no box for. */
+        this.after(function () {
+          var first = self.focusables()[0];
+          if (first) first.focus();
+          else if (self.panel) self.panel.focus();
+        });
+      },
+
+      hide: function () {
+        if (!this.open) return;
+        this.open = false;
+        if (this.keydown) this.doc().removeEventListener('keydown', this.keydown, true);
+        this.expand(false);
+        var back = this.returnTo;
+        this.returnTo = null;
+        if (back && back.focus) back.focus();
+        emit(this.$el || this.panel, this.name, false);
+      },
+
+      onKeydown: function ($event) {
+        if (!this.open) return;
+        if ($event.key === 'Escape') {
+          $event.preventDefault();
+          $event.stopPropagation();
+          this.hide();
+        } else if ($event.key === 'Tab') {
+          $event.preventDefault();
+          var doc = this.panel && this.panel.ownerDocument;
+          var next = this.nextFocus(doc && doc.activeElement, $event.shiftKey);
+          if (next && next.focus) next.focus();
+        }
+      },
+
+      /* Only a trigger that declares aria-expanded gets it maintained. The export
+         button does; a holdings row does not, and three hundred rows announcing a
+         collapsed state each would be noise rather than information. */
+      expand: function (state) {
+        var trigger = this.returnTo;
+        if (trigger && trigger.hasAttribute && trigger.hasAttribute('aria-expanded')) {
+          trigger.setAttribute('aria-expanded', state ? 'true' : 'false');
+        }
+      },
+
+      /** The document this overlay lives in, however it was attached. */
+      doc: function () {
+        return (this.$el && this.$el.ownerDocument)
+          || (this.panel && this.panel.ownerDocument)
+          || root.document;
+      },
+
+      after: function (fn) {
+        if (typeof this.$nextTick === 'function') this.$nextTick(fn);
+        else fn();
+      },
+    };
+  }
+
+  /**
+   * The holdings table's sort state and row presentation.
+   *
+   * It deliberately does **not** sort `rows`. §12 budgets sort and filter at under
+   * 50 ms over 500 rows and issue #11 owns that; what lives here is the part that
+   * keeps going wrong when sorting is written first — `aria-sort` and the arrow
+   * drifting apart from each other and from the data. Both are derived from one
+   * piece of state, so they cannot disagree, and `sortBy` emits `tf:change` for
+   * whoever is holding the array.
+   *
+   * `direction` is spelled in the `aria-sort` vocabulary rather than asc/desc, so
+   * nothing has to translate between the attribute and the state.
+   *
+   * The row helpers are here for the same reason: ui-contract.md §7.1 owes four of
+   * its eight second signals to this table — the lock column's mark, `Locked` and
+   * `Not selected` in a row's accessible name, and a Min DSCR under the floor —
+   * and a row rendered without them is a row whose status is colour alone.
+   */
+  function holdingsTable(options) {
+    var o = options || {};
+    return {
+      /* #11 assigns the run's holdings array. Empty until then, and never seeded
+         with specimen data: a table that shows figures nobody computed is worse
+         than one that shows none. */
+      rows: [],
+      name: o.name || 'holdingsSort',
+      field: o.field || 'equityIrr',
+      /* Spelled in the aria-sort vocabulary, and checked, because both the
+         attribute and the arrow are indexed by it: 'desc' would put a value
+         outside the ARIA token list on the header and render the literal text
+         "undefined" beside its label, neither of which fails loudly. */
+      direction: direction(o.direction),
+      /* The mandate's Min DSCR floor. Null until #11 supplies it, and a null floor
+         breaches nothing — the cell cannot claim a breach it cannot measure. */
+      dscrFloor: typeof o.dscrFloor === 'number' ? o.dscrFloor : null,
+      fmt: fmt,
+
+      /** §5.4: a new column sorts descending; the same column reverses. */
+      sortBy: function (key, $event) {
+        if (this.field === key) {
+          this.direction = this.direction === 'descending' ? 'ascending' : 'descending';
+        } else {
+          this.field = key;
+          this.direction = 'descending';
+        }
+        emit($event && $event.target, this.name,
+          { field: this.field, direction: this.direction });
+      },
+
+      ariaSort: function (key) {
+        return this.field === key ? this.direction : 'none';
+      },
+      /** Decorative, and mirrored from the same state aria-sort reads (§7.2). */
+      arrow: function (key) {
+        return this.field === key ? STATUS.MARK[this.direction] : STATUS.MARK.none;
+      },
+
+      /** §5.4's display labels for wire values. The row carries the wire value. */
+      technologyLabel: function (row) {
+        return TECHNOLOGY[row.technology] || row.technology;
+      },
+      stageLabel: function (row) {
+        return STAGE[row.stage] || row.stage;
+      },
+
+      lockMark: function (row) {
+        return row.locked ? STATUS.MARK.locked : STATUS.MARK.unlocked;
+      },
+      /**
+       * What a screen reader hears on entering the row. §7.1 wants `Locked` on a
+       * locked row and `Not selected` on a shaded one; both grounds are colours,
+       * and this is the channel that is not.
+       */
+      lockName: function (row) {
+        var parts = [row.locked ? STATUS.WORD.locked : STATUS.WORD.unlocked];
+        if (row.selected === false) parts.push(STATUS.WORD.notSelected);
+        return parts.join('. ');
+      },
+      rowClass: function (row) {
+        if (row.locked) return 'bg-highlight';
+        return row.selected === false ? 'bg-deemph' : '';
+      },
+
+      dscrBreached: function (row) {
+        return this.dscrFloor !== null
+          && typeof row.minDscr === 'number'
+          && row.minDscr < this.dscrFloor;
+      },
+      dscrClass: function (row) {
+        return this.dscrBreached(row) ? 'text-breach' : '';
+      },
+      dscrMark: function (row) {
+        return this.dscrBreached(row) ? STATUS.MARK.breach : STATUS.MARK.none;
+      },
+      /** Read after the value, so the cell announces "1.18×, below the 1.25× floor". */
+      dscrNote: function (row) {
+        return this.dscrBreached(row) ? ', ' + STATUS.dscrFloor(this.dscrFloor) : '';
+      },
+    };
+  }
+
   var factories = {
     rangeField: rangeField,
     numberField: numberField,
@@ -270,10 +762,14 @@
     segmented: segmented,
     splitBar: splitBar,
     kpiTile: kpiTile,
+    holdingsTable: holdingsTable,
+    overlay: overlay,
+    liveRegion: liveRegion,
   };
 
   root.TerraFolio = root.TerraFolio || {};
   root.TerraFolio.controls = factories;
+  root.TerraFolio.status = STATUS;
 
   /* Alpine may load before or after this file; alpine:init covers both. */
   if (root.document) {
@@ -284,5 +780,10 @@
     });
   }
 
-  if (typeof module === 'object' && module.exports) module.exports = factories;
+  /* `factories` stays a map of factories, so the registration loop above needs no
+     guard and there is one name for the vocabulary rather than two. The CommonJS
+     export carries STATUS alongside them for the tests. */
+  if (typeof module === 'object' && module.exports) {
+    module.exports = Object.assign({}, factories, { status: STATUS });
+  }
 })(typeof globalThis !== 'undefined' ? globalThis : this);

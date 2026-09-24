@@ -10,6 +10,8 @@
 <script defer src="vendor/alpine.min.js"></script>
 </head>
 <body class="min-h-screen bg-bg text-text">
+<a href="#main"
+   class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-dialog focus:border focus:border-accent-700 focus:bg-bg focus:px-4 focus:py-2 focus:font-condensed focus:text-label focus:font-semibold focus:text-text focus:no-underline">Skip to main content</a>
     <!--NAV:search-->
     <!-- nav:start — identical on all four pages except which step carries aria-current.
          tools/splice-nav.mjs writes this block; tests/nav.test.js guards it. -->
@@ -28,7 +30,7 @@
     </header>
     <!-- nav:end -->
 
-<main class="mx-auto max-w-search px-7 py-[72px]">
+<main id="main" class="mx-auto max-w-search px-7 py-[72px]">
 
   <div class="mb-1 flex items-baseline gap-4">
     <span class="inline-block h-[13px] w-[13px] flex-none rounded-full border-2 border-accent-700 border-t-transparent motion-safe:animate-spin360"
@@ -38,10 +40,10 @@
   <p class="mb-[30px] m-0 text-muted">Testing 90 candidate portfolios at a time against the mandate, keeping the best and
     recombining them.</p>
 
-  <section class="panel !p-[22px]" aria-labelledby="s-convergence">
+  <section class="panel !p-[22px]" aria-labelledby="s-progress">
     <div class="mb-4 flex items-baseline justify-between gap-3">
-      <h2 id="s-convergence" class="m-0 text-h6 uppercase tracking-caps text-muted">Progress towards the mandate</h2>
-      <p class="m-0 font-condensed text-note tracking-wide">
+      <h2 id="s-progress" class="m-0 text-h6 uppercase tracking-caps text-muted">Progress towards the mandate</h2>
+      <p class="m-0 font-condensed text-note tracking-wide" data-region="round-counter">
         ROUND <span class="num" data-field="round">&#8212;</span> /
         <span class="num" data-field="roundTotal">&#8212;</span>
       </p>
@@ -70,8 +72,8 @@
     </ul>
 
     <div class="my-[18px] mt-[22px] h-1 bg-neutral-300" role="progressbar"
-         aria-labelledby="s-convergence" aria-valuemin="0" aria-valuemax="100"
-         data-field="progress">
+         aria-labelledby="s-progress" aria-valuemin="0" aria-valuemax="100"
+         aria-valuetext="Not started" data-field="progress">
       <div class="h-full w-0 bg-accent-700" data-field="progress-fill"></div>
     </div>
 
@@ -97,6 +99,14 @@
         <dd class="num m-0 text-num-lg" data-field="bestBlendedIrr">&#8212;</dd>
       </div>
     </dl>
+
+    <!-- The engine streams a round at least every 100 ms (epic §7), so the counter
+         and these figures cannot be live regions themselves without interrupting
+         the reader ten times a second. One sentence per quiet second instead. -->
+    <p class="sr-only" role="status" aria-live="polite" aria-atomic="true"
+       data-region="progress-announcer"
+       x-data="liveRegion({ watch: ['[data-region=&quot;round-counter&quot;]', '[data-region=&quot;live-stats&quot;]'], quiet: 1500 })"
+       x-text="message"></p>
   </section>
 
   <div class="mt-[18px] flex flex-wrap items-center justify-between gap-4">

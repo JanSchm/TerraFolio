@@ -186,9 +186,20 @@
      and §3.6. The order is §5.4's order of severity, which is NOT the order the design
      mockup emits them in (decisions A-5).
 
-     `severity` is the wire vocabulary (blocking | alert | info) and gates `runnable`.
-     `tone` is the visual treatment. Every warning carries a mark as well, so none is
-     conveyed by colour alone (epic §5, decisions A-10). */
+     `severity` is `alert` or `info` and nothing else. It used to carry a third value,
+     `blocking`, which api.md §5 had specified — but 1A's `WarningSeverity` admits two,
+     and `FeasibilityWarning` validates that a warning's severity is the one its *code*
+     carries, so the server could not emit `blocking` and 2B could not store it. #9
+     corrected the document; this follows it (decisions 3A-5).
+
+     Whether a warning stops the run is a property of the code, not of its severity —
+     `BLOCKING` below, mirroring `WarningCode.disables_run` — and it reaches a caller as
+     `runnable`. Severity says how loudly to render a warning; `runnable` says whether the
+     button works. `tone` is the visual treatment. Every warning carries a mark as well, so
+     none is conveyed by colour alone (epic §5, decisions A-10). */
+
+  /** The two codes that disable the run — exactly the two POST /optimisations 422s. */
+  var BLOCKING = ['NO_CANDIDATES', 'LOCKS_EXCEED_CAPITAL'];
 
   function warnings(pool, agg, mandate, total, lockedIds, excludedIds, lockedEquity_m) {
     var out = [];
@@ -196,7 +207,7 @@
 
     if (empty) {
       out.push({
-        code: 'NO_CANDIDATES', severity: 'blocking', tone: 'alert', mark: '×',
+        code: 'NO_CANDIDATES', severity: 'alert', tone: 'alert', mark: '×',
         message: 'No candidates pass the current screens. '
                + 'Widen countries, stages or the COD window.',
       });
@@ -204,7 +215,7 @@
 
     if (lockedEquity_m > mandate.availableCapital_m) {
       out.push({
-        code: 'LOCKS_EXCEED_CAPITAL', severity: 'blocking', tone: 'alert', mark: '×',
+        code: 'LOCKS_EXCEED_CAPITAL', severity: 'alert', tone: 'alert', mark: '×',
         message: 'Locked projects need ' + fmt.eurM(lockedEquity_m) + ' of equity against '
                + fmt.eurM(mandate.availableCapital_m) + ' available. Release a lock to run.',
         detail: {
@@ -273,9 +284,10 @@
    * not part of the mandate object, because they are a view on a result rather than a
    * statement of intent.
    *
-   * `runnable` is false if and only if some warning is blocking — exactly the two
-   * conditions POST /optimisations answers with 422, so the button and the API agree
-   * by construction.
+   * `runnable` is false if and only if one of the two blocking *codes* is present —
+   * exactly the two conditions POST /optimisations answers with 422, so the button and
+   * the API agree by construction. Keyed on the code rather than on a severity value,
+   * because severity is `alert` or `info` on both sides (decisions 3A-5).
    */
   function feasibility(payload, mandate, locks) {
     var all = projects(payload);
@@ -291,7 +303,7 @@
     }, 0);
 
     var found = warnings(pool, agg, mandate, all.length, lockedIds, excludedIds, lockedEquity_m);
-    var blocking = found.some(function (w) { return w.severity === 'blocking'; });
+    var blocking = found.some(function (w) { return BLOCKING.indexOf(w.code) !== -1; });
 
     return {
       eligibleCount: agg.eligibleCount,

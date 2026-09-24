@@ -244,7 +244,7 @@ test('warning — NO_CANDIDATES blocks the run', () => {
   const r = preview([candidate({ countryCode: 'XX' })]);
   const w = byCode(r, 'NO_CANDIDATES');
   assert.ok(w);
-  assert.equal(w.severity, 'blocking');
+  assert.equal(w.severity, 'alert', 'severity is alert or info; the block is the code (3A-5)');
   assert.equal(w.mark, '\u00D7');
   assert.equal(w.message,
     'No candidates pass the current screens. Widen countries, stages or the COD window.');
@@ -261,7 +261,7 @@ test('warning — LOCKS_EXCEED_CAPITAL blocks, and names the locks to release', 
 
   const w = byCode(r, 'LOCKS_EXCEED_CAPITAL');
   assert.ok(w, '§13 requires this one case to block rather than warn');
-  assert.equal(w.severity, 'blocking');
+  assert.equal(w.severity, 'alert', 'severity is alert or info; the block is the code (3A-5)');
   assert.equal(w.message,
     'Locked projects need \u20AC1,420m of equity against \u20AC1,200m available. Release a lock to run.');
   assert.equal(w.detail.excess_m, 220);

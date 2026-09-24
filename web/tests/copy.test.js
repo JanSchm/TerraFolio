@@ -18,6 +18,9 @@ const GA_VOCABULARY = [
   'genetic algorithm', 'chromosome', 'genome', 'gene ', 'allele',
   'crossover', 'mutation', 'mutate', 'tournament selection', 'elitism', 'elite',
   'fitness', 'generation', 'population', 'seeding population', 'converged',
+  // Added by issue #10: ui-contract.md §8 bans twelve terms, and these four were
+  // missing from the list above. 'solution space' was live in styleguide.html.
+  'solution space', 'objective function', 'convergence', 'tournament',
 ];
 
 /**

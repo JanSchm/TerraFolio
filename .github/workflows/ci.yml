@@ -40,3 +40,26 @@ jobs:
 
       - name: Tests
         run: uv run pytest
+
+  # Nothing under web/ was verified on main before this job existed: #5's axe,
+  # contrast, keyboard and copy guards and #10's accessibility tests all ran only
+  # on the author's machine. `npm test` runs the Tailwind build first through
+  # pretest, which tests/offline.test.js requires.
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # ci, not install: the lockfile is the contract, as it is on the Python side.
+      - name: Install the locked front-end toolchain
+        run: npm --prefix web ci
+
+      - name: Tests
+        run: npm --prefix web test

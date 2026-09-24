@@ -440,3 +440,26 @@ def test_the_map_is_not_one_flat_colour(packed: bytes) -> None:
     markers = set(re.findall(r'<circle [^>]*fill="(var\([^)]+\))"', document))
     assert markers <= {"var(--pack-accent700)", "var(--pack-accent400)"}
     assert markers, "no site markers"
+
+
+def test_muted_text_is_the_token_the_document_now_names() -> None:
+    """§7.3 was corrected by #10: muted is `neutral-700`, not ink at 55%.
+
+    55% measures 3.64:1 against the page ground and misses §12's 4.5:1 floor;
+    `neutral-700` clears it at 5.87:1. The pack uses muted for every eyebrow,
+    sub-label and caption — including the words that carry a tile's compliance
+    verdict — so this is a legibility obligation, not a preference. Pinned here
+    because the correction reached this branch through a merge rather than
+    through anything that would have failed.
+    """
+    assert "Muted text is\n`--color-neutral-700`" in UI_CONTRACT
+    colour = layout()["colour"]
+    assert "mutedAlpha" not in colour, "the pack still mixes ink for muted"
+    assert colour["neutral700"] == _ramp(700)[0]
+
+
+def test_the_pack_paints_muted_with_that_token(packed: bytes) -> None:
+    document = packed.decode("utf-8")
+    expected = layout()["colour"]["neutral700"]
+    assert f"--pack-muted: {expected};" in document
+    assert "--pack-muted: color-mix" not in document

@@ -14,6 +14,8 @@
 <script defer src="vendor/alpine.min.js"></script>
 </head>
 <body class="min-h-screen bg-bg text-text">
+<a href="#main"
+   class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-dialog focus:border focus:border-accent-700 focus:bg-bg focus:px-4 focus:py-2 focus:font-condensed focus:text-label focus:font-semibold focus:text-text focus:no-underline">Skip to main content</a>
     <!--NAV:portfolio-->
     <!-- nav:start — identical on all four pages except which step carries aria-current.
          tools/splice-nav.mjs writes this block; tests/nav.test.js guards it. -->
@@ -32,7 +34,7 @@
     </header>
     <!-- nav:end -->
 
-<main class="mx-auto max-w-portfolio px-7 pb-16 pt-7">
+<main id="main" class="mx-auto max-w-portfolio px-7 pb-16 pt-7">
 
   <div class="mb-[18px] flex flex-wrap items-end justify-between gap-5">
     <div>
@@ -42,7 +44,7 @@
     <div class="flex flex-wrap gap-2">
       <a href="mandate.html"
          class="inline-flex min-h-[44px] cursor-pointer items-center whitespace-nowrap border border-edge bg-transparent px-4 py-2 font-condensed text-label font-semibold text-text no-underline hover:bg-accent-100">Edit mandate</a>
-      <button type="button" data-action="export"
+      <button type="button" data-action="export" aria-haspopup="dialog" aria-expanded="false"
               class="min-h-[44px] cursor-pointer whitespace-nowrap border border-edge bg-transparent px-4 py-2 font-condensed text-label font-semibold hover:bg-accent-100">Export</button>
       <button type="button" data-action="rerun"
               class="min-h-[44px] cursor-pointer whitespace-nowrap border border-accent-700 bg-accent-700 px-4 py-2 font-condensed text-label font-semibold tracking-cta text-bg hover:bg-accent-800">Re-run</button>
@@ -94,7 +96,8 @@
         </p>
       </div>
       <div class="tile bg-highlight" x-data="kpiTile()" data-tile="irr" data-series="cashflowHold_m">
-        <p class="m-0 text-micro-lg uppercase tracking-micro text-muted">Equity IRR</p>
+        <p class="m-0 text-micro-lg uppercase tracking-micro text-muted">Equity IRR<span
+             data-field="irr-hold"></span></p>
         <p class="num mt-[3px] text-num-2xl" data-field="irr">&#8212;</p>
         <p class="mt-[2px] text-note" :class="subClass">
           <span aria-hidden="true" x-text="mark"></span><span class="sr-only" x-text="stateLabel"></span>
@@ -246,104 +249,148 @@
     </div>
 
     <div class="overflow-x-auto">
-      <table class="w-full min-w-[1240px] border-collapse text-cell">
+      <table class="w-full min-w-[1240px] border-collapse text-cell"
+             x-data="holdingsTable()">
         <caption class="sr-only">Selected holdings. Every column except the lock is sortable.</caption>
         <thead>
         <tr class="border-b border-divider">
           <th scope="col" class="whitespace-nowrap px-2 py-2 text-left align-bottom"><span class="sr-only">Locked into the portfolio</span></th>
-          <th scope="col" class="whitespace-nowrap px-2 py-2 text-left align-bottom" data-column="name" aria-sort="none">
-            <button type="button" data-sort="name"
+          <th scope="col" class="whitespace-nowrap px-2 py-2 text-left align-bottom" data-column="name" aria-sort="none" :aria-sort="ariaSort('name')">
+            <button type="button" data-sort="name" @click="sortBy('name', $event)"
                     class="min-h-[42px] w-full cursor-pointer select-none border-0 bg-transparent px-0 text-left font-sans text-micro uppercase tracking-caps text-muted hover:text-text">
-              Project<span aria-hidden="true" data-field="sort-arrow"></span>
+              Project<span class="ml-[3px]" aria-hidden="true" data-field="sort-arrow" x-text="arrow('name')"></span>
             </button>
           </th>
-          <th scope="col" class="whitespace-nowrap px-2 py-2 text-left align-bottom" data-column="tech" aria-sort="none">
-            <button type="button" data-sort="tech"
+          <th scope="col" class="whitespace-nowrap px-2 py-2 text-left align-bottom" data-column="technology" aria-sort="none" :aria-sort="ariaSort('technology')">
+            <button type="button" data-sort="technology" @click="sortBy('technology', $event)"
                     class="min-h-[42px] w-full cursor-pointer select-none border-0 bg-transparent px-0 text-left font-sans text-micro uppercase tracking-caps text-muted hover:text-text">
-              Technology<span aria-hidden="true" data-field="sort-arrow"></span>
+              Technology<span class="ml-[3px]" aria-hidden="true" data-field="sort-arrow" x-text="arrow('technology')"></span>
             </button>
           </th>
-          <th scope="col" class="whitespace-nowrap px-2 py-2 text-left align-bottom" data-column="stage" aria-sort="none">
-            <button type="button" data-sort="stage"
+          <th scope="col" class="whitespace-nowrap px-2 py-2 text-left align-bottom" data-column="stage" aria-sort="none" :aria-sort="ariaSort('stage')">
+            <button type="button" data-sort="stage" @click="sortBy('stage', $event)"
                     class="min-h-[42px] w-full cursor-pointer select-none border-0 bg-transparent px-0 text-left font-sans text-micro uppercase tracking-caps text-muted hover:text-text">
-              Stage<span aria-hidden="true" data-field="sort-arrow"></span>
+              Stage<span class="ml-[3px]" aria-hidden="true" data-field="sort-arrow" x-text="arrow('stage')"></span>
             </button>
           </th>
-          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="mw" aria-sort="none">
-            <button type="button" data-sort="mw"
+          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="capacityMw" aria-sort="none" :aria-sort="ariaSort('capacityMw')">
+            <button type="button" data-sort="capacityMw" @click="sortBy('capacityMw', $event)"
                     class="min-h-[42px] w-full cursor-pointer select-none border-0 bg-transparent px-0 text-right font-sans text-micro uppercase tracking-caps text-muted hover:text-text">
-              MW<span aria-hidden="true" data-field="sort-arrow"></span>
+              MW<span class="ml-[3px]" aria-hidden="true" data-field="sort-arrow" x-text="arrow('capacityMw')"></span>
             </button>
           </th>
-          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="cod" aria-sort="none">
-            <button type="button" data-sort="cod"
+          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="codYear" aria-sort="none" :aria-sort="ariaSort('codYear')">
+            <button type="button" data-sort="codYear" @click="sortBy('codYear', $event)"
                     class="min-h-[42px] w-full cursor-pointer select-none border-0 bg-transparent px-0 text-right font-sans text-micro uppercase tracking-caps text-muted hover:text-text">
-              COD<span aria-hidden="true" data-field="sort-arrow"></span>
+              COD<span class="ml-[3px]" aria-hidden="true" data-field="sort-arrow" x-text="arrow('codYear')"></span>
             </button>
           </th>
-          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="capex" aria-sort="none">
-            <button type="button" data-sort="capex"
+          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="totalCapex_m" aria-sort="none" :aria-sort="ariaSort('totalCapex_m')">
+            <button type="button" data-sort="totalCapex_m" @click="sortBy('totalCapex_m', $event)"
                     class="min-h-[42px] w-full cursor-pointer select-none border-0 bg-transparent px-0 text-right font-sans text-micro uppercase tracking-caps text-muted hover:text-text">
-              Capex &#8364;m<span aria-hidden="true" data-field="sort-arrow"></span>
+              Capex &#8364;m<span class="ml-[3px]" aria-hidden="true" data-field="sort-arrow" x-text="arrow('totalCapex_m')"></span>
             </button>
           </th>
-          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="equity" aria-sort="none">
-            <button type="button" data-sort="equity"
+          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="equity_m" aria-sort="none" :aria-sort="ariaSort('equity_m')">
+            <button type="button" data-sort="equity_m" @click="sortBy('equity_m', $event)"
                     class="min-h-[42px] w-full cursor-pointer select-none border-0 bg-transparent px-0 text-right font-sans text-micro uppercase tracking-caps text-muted hover:text-text">
-              Equity &#8364;m<span aria-hidden="true" data-field="sort-arrow"></span>
+              Equity &#8364;m<span class="ml-[3px]" aria-hidden="true" data-field="sort-arrow" x-text="arrow('equity_m')"></span>
             </button>
           </th>
-          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="lev" aria-sort="none">
-            <button type="button" data-sort="lev"
+          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="gearing" aria-sort="none" :aria-sort="ariaSort('gearing')">
+            <button type="button" data-sort="gearing" @click="sortBy('gearing', $event)"
                     class="min-h-[42px] w-full cursor-pointer select-none border-0 bg-transparent px-0 text-right font-sans text-micro uppercase tracking-caps text-muted hover:text-text">
-              Lev<span aria-hidden="true" data-field="sort-arrow"></span>
+              Lev<span class="ml-[3px]" aria-hidden="true" data-field="sort-arrow" x-text="arrow('gearing')"></span>
             </button>
           </th>
-          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="cf" aria-sort="none">
-            <button type="button" data-sort="cf"
+          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="netCapacityFactor" aria-sort="none" :aria-sort="ariaSort('netCapacityFactor')">
+            <button type="button" data-sort="netCapacityFactor" @click="sortBy('netCapacityFactor', $event)"
                     class="min-h-[42px] w-full cursor-pointer select-none border-0 bg-transparent px-0 text-right font-sans text-micro uppercase tracking-caps text-muted hover:text-text">
-              Cap. factor<span aria-hidden="true" data-field="sort-arrow"></span>
+              Cap. factor<span class="ml-[3px]" aria-hidden="true" data-field="sort-arrow" x-text="arrow('netCapacityFactor')"></span>
             </button>
           </th>
-          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="gwh" aria-sort="none">
-            <button type="button" data-sort="gwh"
+          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="annualGenerationGwh" aria-sort="none" :aria-sort="ariaSort('annualGenerationGwh')">
+            <button type="button" data-sort="annualGenerationGwh" @click="sortBy('annualGenerationGwh', $event)"
                     class="min-h-[42px] w-full cursor-pointer select-none border-0 bg-transparent px-0 text-right font-sans text-micro uppercase tracking-caps text-muted hover:text-text">
-              P50 GWh/y<span aria-hidden="true" data-field="sort-arrow"></span>
+              P50 GWh/y<span class="ml-[3px]" aria-hidden="true" data-field="sort-arrow" x-text="arrow('annualGenerationGwh')"></span>
             </button>
           </th>
-          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="lcoe" aria-sort="none">
-            <button type="button" data-sort="lcoe"
+          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="lcoe" aria-sort="none" :aria-sort="ariaSort('lcoe')">
+            <button type="button" data-sort="lcoe" @click="sortBy('lcoe', $event)"
                     class="min-h-[42px] w-full cursor-pointer select-none border-0 bg-transparent px-0 text-right font-sans text-micro uppercase tracking-caps text-muted hover:text-text">
-              LCOE &#8364;/MWh<span aria-hidden="true" data-field="sort-arrow"></span>
+              LCOE &#8364;/MWh<span class="ml-[3px]" aria-hidden="true" data-field="sort-arrow" x-text="arrow('lcoe')"></span>
             </button>
           </th>
-          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="offtake" aria-sort="none">
-            <button type="button" data-sort="offtake"
+          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="ppaShare" aria-sort="none" :aria-sort="ariaSort('ppaShare')">
+            <button type="button" data-sort="ppaShare" @click="sortBy('ppaShare', $event)"
                     class="min-h-[42px] w-full cursor-pointer select-none border-0 bg-transparent px-0 text-right font-sans text-micro uppercase tracking-caps text-muted hover:text-text">
-              Contracted<span aria-hidden="true" data-field="sort-arrow"></span>
+              Contracted<span class="ml-[3px]" aria-hidden="true" data-field="sort-arrow" x-text="arrow('ppaShare')"></span>
             </button>
           </th>
-          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="irr" aria-sort="none">
-            <button type="button" data-sort="irr"
+          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="equityIrr" aria-sort="none" :aria-sort="ariaSort('equityIrr')">
+            <button type="button" data-sort="equityIrr" @click="sortBy('equityIrr', $event)"
                     class="min-h-[42px] w-full cursor-pointer select-none border-0 bg-transparent px-0 text-right font-sans text-micro uppercase tracking-caps text-muted hover:text-text">
-              Equity IRR<span aria-hidden="true" data-field="sort-arrow"></span>
+              Equity IRR<span class="ml-[3px]" aria-hidden="true" data-field="sort-arrow" x-text="arrow('equityIrr')"></span>
             </button>
           </th>
-          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="dscr" aria-sort="none">
-            <button type="button" data-sort="dscr"
+          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="minDscr" aria-sort="none" :aria-sort="ariaSort('minDscr')">
+            <button type="button" data-sort="minDscr" @click="sortBy('minDscr', $event)"
                     class="min-h-[42px] w-full cursor-pointer select-none border-0 bg-transparent px-0 text-right font-sans text-micro uppercase tracking-caps text-muted hover:text-text">
-              Min DSCR<span aria-hidden="true" data-field="sort-arrow"></span>
+              Min DSCR<span class="ml-[3px]" aria-hidden="true" data-field="sort-arrow" x-text="arrow('minDscr')"></span>
             </button>
           </th>
-          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="risk" aria-sort="none">
-            <button type="button" data-sort="risk"
+          <th scope="col" class="whitespace-nowrap px-2 py-2 text-right align-bottom" data-column="developmentRiskScore" aria-sort="none" :aria-sort="ariaSort('developmentRiskScore')">
+            <button type="button" data-sort="developmentRiskScore" @click="sortBy('developmentRiskScore', $event)"
                     class="min-h-[42px] w-full cursor-pointer select-none border-0 bg-transparent px-0 text-right font-sans text-micro uppercase tracking-caps text-muted hover:text-text">
-              Risk<span aria-hidden="true" data-field="sort-arrow"></span>
+              Risk<span class="ml-[3px]" aria-hidden="true" data-field="sort-arrow" x-text="arrow('developmentRiskScore')"></span>
             </button>
           </th>
         </tr>
         </thead>
-        <tbody data-region="holdings"></tbody>
+        <!-- The row issue #11 renders, already carrying the four second signals
+             ui-contract.md §7.1 owes this table: the lock column's mark, `Locked`
+             and `Not selected` in a row's accessible name, and a `!` plus the floor
+             it broke on a Min DSCR below the mandate's. Landing it here rather than
+             leaving it to #11 is the whole reason 3B goes before group 4 — the
+             alternative is retrofitting these onto rows that already work.
+
+             `rows` stays empty. It is #11's to assign from the run's holdings array
+             (api.md §8.2), and the columns, formats and sort keys are §5.4's. -->
+        <tbody data-region="holdings">
+          <template x-for="row in rows" :key="row.id">
+            <tr class="border-b border-divider" :class="rowClass(row)" :data-project-id="row.id">
+              <td class="whitespace-nowrap px-2 py-2 text-left align-top">
+                <span aria-hidden="true" x-text="lockMark(row)"></span>
+                <span class="sr-only" x-text="lockName(row)"></span>
+              </td>
+              <td class="px-2 py-2 text-left align-top">
+                <button type="button" data-action="open-drawer" aria-haspopup="dialog"
+                        class="block cursor-pointer border-0 bg-transparent p-0 text-left hover:underline">
+                  <span class="block font-condensed text-num-cell font-semibold" x-text="row.name"></span>
+                  <span class="block text-meta text-muted" x-text="fmt.join(row.country, row.id)"></span>
+                </button>
+              </td>
+              <td class="whitespace-nowrap px-2 py-2 text-left align-top" x-text="technologyLabel(row)"></td>
+              <td class="whitespace-nowrap px-2 py-2 text-left align-top" x-text="stageLabel(row)"></td>
+              <td class="num whitespace-nowrap px-2 py-2 text-right align-top" x-text="fmt.count(row.capacityMw)"></td>
+              <td class="num whitespace-nowrap px-2 py-2 text-right align-top" x-text="fmt.year(row.codYear)"></td>
+              <td class="num whitespace-nowrap px-2 py-2 text-right align-top" x-text="fmt.count(row.totalCapex_m)"></td>
+              <td class="num whitespace-nowrap px-2 py-2 text-right align-top" x-text="fmt.count(row.equity_m)"></td>
+              <td class="num whitespace-nowrap px-2 py-2 text-right align-top" x-text="fmt.percent(row.gearing)"></td>
+              <td class="num whitespace-nowrap px-2 py-2 text-right align-top" x-text="fmt.percent1(row.netCapacityFactor)"></td>
+              <td class="num whitespace-nowrap px-2 py-2 text-right align-top" x-text="fmt.count(row.annualGenerationGwh)"></td>
+              <td class="num whitespace-nowrap px-2 py-2 text-right align-top" x-text="fmt.count(row.lcoe)"></td>
+              <td class="num whitespace-nowrap px-2 py-2 text-right align-top" x-text="fmt.percent(row.ppaShare)"></td>
+              <td class="num whitespace-nowrap px-2 py-2 text-right align-top font-condensed" x-text="fmt.irr(row.equityIrr)"></td>
+              <td class="num whitespace-nowrap px-2 py-2 text-right align-top" :class="dscrClass(row)">
+                <span x-text="fmt.dscr(row.minDscr)"></span><span
+                  class="ml-[2px]" aria-hidden="true" x-text="dscrMark(row)"></span><span
+                  class="sr-only" x-text="dscrNote(row)"></span>
+              </td>
+              <td class="num whitespace-nowrap px-2 py-2 text-right align-top" x-text="fmt.score(row.developmentRiskScore)"></td>
+            </tr>
+          </template>
+        </tbody>
       </table>
     </div>
 
@@ -353,34 +400,43 @@
   </section>
 </main>
 
-<!-- ── Project detail drawer ───────────────────────────────────────────────── -->
-<div class="fixed inset-0 z-scrim bg-text/35" data-region="drawer-scrim" hidden></div>
-<aside class="panel fixed inset-y-0 right-0 z-drawer w-[min(440px,94vw)] overflow-y-auto border-l border-divider bg-bg !p-[22px]"
-       data-region="drawer" role="dialog" aria-modal="true" aria-labelledby="p-drawer-title" hidden>
+<!-- ── Project detail drawer ─────────────────────────────────────────────────
+     role="dialog" and aria-modal are the claim that focus is trapped; overlay()
+     is what does the trapping, closes on Esc and hands focus back to the row that
+     opened it (ui-contract.md §7.2, §5.5). The opener is delegated on the
+     document because those rows are rendered by issue #11 and do not exist yet. -->
+<div x-data="overlay({ name: 'drawer', openWith: '[data-action=&quot;open-drawer&quot;]' })">
+  <div class="fixed inset-0 z-scrim bg-text/35" data-region="drawer-scrim"
+       x-ref="scrim" :hidden="!open" hidden @click="hide()"></div>
+  <aside class="panel fixed inset-y-0 right-0 z-drawer w-[min(440px,94vw)] overflow-y-auto border-l border-divider bg-bg !p-[22px]"
+         data-region="drawer" role="dialog" aria-modal="true" aria-labelledby="p-drawer-title"
+         x-ref="panel" tabindex="-1" :hidden="!open" hidden>
   <div class="flex items-start justify-between gap-3">
     <div>
       <p class="m-0 mb-[2px] text-h6 uppercase tracking-caps text-accent-700" data-field="drawer-kicker">&#8212;</p>
       <h2 id="p-drawer-title" class="m-0 text-h3" data-field="drawer-name">&#8212;</h2>
       <p class="m-0 mt-[2px] text-cell text-muted" data-field="drawer-location">&#8212;</p>
     </div>
-    <button type="button" data-action="close-drawer"
+    <button type="button" data-action="close-drawer" @click="hide()"
             class="min-h-[44px] flex-none cursor-pointer border border-edge bg-transparent px-4 py-2 font-condensed text-label font-semibold hover:bg-accent-100">Close</button>
   </div>
   <dl class="my-[18px] grid grid-cols-2 border border-divider" data-region="drawer-headline"></dl>
   <div data-region="drawer-groups"></div>
   <div class="mt-[22px] flex flex-wrap gap-2">
-    <button type="button" data-action="drawer-lock"
+    <button type="button" data-action="drawer-lock" aria-pressed="false"
             class="min-h-[44px] cursor-pointer border border-edge bg-transparent px-4 py-2 font-condensed text-label font-semibold hover:bg-accent-100">Lock into portfolio</button>
-    <button type="button" data-action="drawer-exclude"
+    <button type="button" data-action="drawer-exclude" aria-pressed="false"
             class="min-h-[44px] cursor-pointer border border-edge bg-transparent px-4 py-2 font-condensed text-label font-semibold hover:bg-accent-100">Exclude from search</button>
   </div>
-</aside>
+  </aside>
+</div>
 
 <!-- ── Export dialog ───────────────────────────────────────────────────────── -->
-<div class="fixed inset-0 z-dialog flex items-center justify-center bg-text/35 p-4"
-     data-region="export-scrim" hidden>
-  <div class="panel w-[min(460px,92vw)] bg-bg !p-6" role="dialog" aria-modal="true"
-       aria-labelledby="p-export-title">
+<div x-data="overlay({ name: 'export', openWith: '[data-action=&quot;export&quot;]' })">
+  <div class="fixed inset-0 z-dialog flex items-center justify-center bg-text/35 p-4"
+       data-region="export-scrim" x-ref="scrim" :hidden="!open" hidden @click.self="hide()">
+    <div class="panel w-[min(460px,92vw)] bg-bg !p-6" role="dialog" aria-modal="true"
+         aria-labelledby="p-export-title" x-ref="panel" tabindex="-1">
     <h2 id="p-export-title" class="mb-[6px] mt-0 text-h4">Export portfolio</h2>
     <p class="m-0 text-label text-muted" data-field="export-subtitle">&#8212;</p>
     <div class="my-[18px] mb-5 flex flex-col gap-2">
@@ -398,8 +454,9 @@
       </button>
     </div>
     <div class="flex justify-end">
-      <button type="button" data-action="close-export"
+      <button type="button" data-action="close-export" @click="hide()"
               class="min-h-[44px] cursor-pointer border border-accent-700 bg-accent-700 px-4 py-2 font-condensed text-label font-semibold text-bg hover:bg-accent-800">Done</button>
+    </div>
     </div>
   </div>
 </div>

@@ -16,8 +16,7 @@
     "accent400": "#94bce3",
     "accent700": "#416180",
     "accent800": "#2c455d",
-    "dividerAlpha": 0.16,
-    "mutedAlpha": 0.55
+    "dividerAlpha": 0.16
   },
   "compliance": {
     "capacityBand": 0.08,

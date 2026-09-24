@@ -133,17 +133,20 @@ def _tokens(colour: Mapping[str, Any]) -> str:
     document that defines their values.
     """
     divider = f"color-mix(in srgb, {colour['text']} {_pct(colour['dividerAlpha'])}, transparent)"
-    muted = f"color-mix(in srgb, {colour['text']} {_pct(colour['mutedAlpha'])}, transparent)"
-    # The key is the property name, verbatim. Kebab-casing it turned
-    # `neutral200` into `--pack-neutral-2-0-0` while the SVG still asked for
-    # `var(--pack-neutral200)`, so every numbered token silently fell back to
-    # its initial value — which is black for `fill`, and is why the map came out
-    # a solid block. `test_every_colour_token_the_pack_uses_is_declared` is the
-    # guard that would have caught it.
     named = "\n".join(
         f"  --pack-{name}: {value};" for name, value in colour.items() if isinstance(value, str)
     )
-    return f":root {{\n{named}\n  --pack-divider: {divider};\n  --pack-muted: {muted};\n}}"
+    # Muted is `neutral-700`, not ink at 55%. §7.3 was corrected by #10: 55%
+    # measures 3.64:1 against the page ground and so misses §12's 4.5:1 floor,
+    # where `neutral-700` clears it at 5.87:1. The pack uses muted for every
+    # eyebrow, sub-label and caption — including the words that carry a tile's
+    # compliance verdict — so it is the one token here that is a legibility
+    # obligation rather than a preference.
+    return (
+        f":root {{\n{named}\n"
+        f"  --pack-divider: {divider};\n"
+        f"  --pack-muted: {colour['neutral700']};\n}}"
+    )
 
 
 def _pct(fraction: float) -> str:
