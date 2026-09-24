@@ -25,13 +25,28 @@
     : root.TerraFolio && root.TerraFolio.format;
   if (!fmt) throw new Error('feasibility.js requires format.js');
 
+  /**
+   * Collapse the `UK` alias onto the ISO `GB` the rest of the system uses.
+   *
+   * pipeline-schema.md §4.1 keeps `UK` as an accepted alias and the assumption set's
+   * market tables key on `GB`, so `normalise_country_code` is applied at both ends in
+   * Python: to a file's declared country on load, and to the mandate's country chips
+   * before they are compared. This side compared raw strings, and mandate.html's chip
+   * group emits `UK` — so a British project was screened out of every mandate that
+   * asked for the United Kingdom, while the server admitted it. #12's parity harness
+   * found it; see docs/decisions.md 4B-6.
+   */
+  function normaliseCountry(code) {
+    return code === 'UK' ? 'GB' : code;
+  }
+
   /* ── The wire adapter ───────────────────────────────────────────────────────
      The one place GET /pipeline field names appear (api.md §2). Money is €m with an
      explicit _m suffix and the wire never carries a percentage, per api.md §1. */
   function project(raw) {
     return {
       id: raw.id,
-      countryCode: raw.countryCode,
+      countryCode: normaliseCountry(raw.countryCode),
       stage: raw.stage,
       technology: raw.technology,
       capacityMw: raw.capacityMw,
@@ -78,9 +93,16 @@
      names are api.md §6.1. */
 
   var screens = {
-    /** 1. The project's country is on the mandate's eligible list. */
+    /**
+     * 1. The project's country is on the mandate's eligible list.
+     *
+     * Both ends go through `normaliseCountry`, so the screen is right however it is
+     * called — the wire adapter has already normalised a project it built, and
+     * normalising twice is the same as normalising once.
+     */
     country: function (p, m) {
-      return (m.countries || []).indexOf(p.countryCode) !== -1;
+      var eligible = (m.countries || []).map(normaliseCountry);
+      return eligible.indexOf(normaliseCountry(p.countryCode)) !== -1;
     },
 
     /** 2. The project's development stage is in scope. */
@@ -257,7 +279,11 @@
       });
     }
 
-    if (!empty && agg.eligibleEquity_m < mandate.availableCapital_m * 0.9) {
+    /* A ratio rather than `equity < capital * 0.9`, so that a pool absorbing exactly
+       the floor lands on the same side here as it does in `feasibility.py`, which
+       divides. The two forms differ only in the last bits, and only exactly on the
+       boundary — which is the case #12 ships a parity pair for. */
+    if (!empty && agg.eligibleEquity_m / mandate.availableCapital_m < 0.9) {
       out.push({
         code: 'CAPITAL_UNDERUSED', severity: 'info', tone: 'neutral', mark: '!',
         message: 'Full pipeline absorbs only ' + fmt.eurM(agg.eligibleEquity_m)
@@ -295,11 +321,21 @@
     var excludedIds = (locks && locks.excludedIds) || [];
     var cap = riskCap(payload, mandate.riskAppetite);
 
-    var pool = all.filter(function (p) { return passes(p, mandate, cap, excludedIds); });
+    /* A lock re-admits. `screens.py` computes `eligible = survives_every_screen |
+       locked`, and this side used to drop a locked project that failed a screen — so
+       the footer promised a candidate count the run would not deliver, which is the
+       one bug this whole file exists to avoid. An exclusion still wins over a lock,
+       on both sides (decisions 4B-6). */
+    var held = lockedIds.filter(function (id) { return excludedIds.indexOf(id) === -1; });
+    var pool = all.filter(function (p) {
+      return passes(p, mandate, cap, excludedIds) || held.indexOf(p.id) !== -1;
+    });
     var agg = aggregate(pool);
 
+    /* Locked equity is what the locks actually commit, so an excluded id contributes
+       nothing: `feasibility.py` takes `set(locked) - set(excluded)` before summing. */
     var lockedEquity_m = all.reduce(function (sum, p) {
-      return lockedIds.indexOf(p.id) === -1 ? sum : sum + p.equity_m;
+      return held.indexOf(p.id) === -1 ? sum : sum + p.equity_m;
     }, 0);
 
     var found = warnings(pool, agg, mandate, all.length, lockedIds, excludedIds, lockedEquity_m);
