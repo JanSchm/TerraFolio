@@ -14,6 +14,8 @@
 <script defer src="vendor/alpine.min.js"></script>
 </head>
 <body class="min-h-screen bg-bg text-text">
+<a href="#main"
+   class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-dialog focus:border focus:border-accent-700 focus:bg-bg focus:px-4 focus:py-2 focus:font-condensed focus:text-label focus:font-semibold focus:text-text focus:no-underline">Skip to main content</a>
     <!--NAV:portfolio-->
     <!-- nav:start — identical on all four pages except which step carries aria-current.
          tools/splice-nav.mjs writes this block; tests/nav.test.js guards it. -->
@@ -32,7 +34,7 @@
     </header>
     <!-- nav:end -->
 
-<main class="mx-auto max-w-portfolio px-7 pb-16 pt-7">
+<main id="main" class="mx-auto max-w-portfolio px-7 pb-16 pt-7">
 
   <div class="mb-[18px] flex flex-wrap items-end justify-between gap-5">
     <div>
@@ -94,7 +96,8 @@
         </p>
       </div>
       <div class="tile bg-highlight" x-data="kpiTile()" data-tile="irr" data-series="cashflowHold_m">
-        <p class="m-0 text-micro-lg uppercase tracking-micro text-muted">Equity IRR</p>
+        <p class="m-0 text-micro-lg uppercase tracking-micro text-muted">Equity IRR<span
+             data-field="irr-hold"></span></p>
         <p class="num mt-[3px] text-num-2xl" data-field="irr">&#8212;</p>
         <p class="mt-[2px] text-note" :class="subClass">
           <span aria-hidden="true" x-text="mark"></span><span class="sr-only" x-text="stateLabel"></span>
@@ -369,9 +372,9 @@
   <dl class="my-[18px] grid grid-cols-2 border border-divider" data-region="drawer-headline"></dl>
   <div data-region="drawer-groups"></div>
   <div class="mt-[22px] flex flex-wrap gap-2">
-    <button type="button" data-action="drawer-lock"
+    <button type="button" data-action="drawer-lock" aria-pressed="false"
             class="min-h-[44px] cursor-pointer border border-edge bg-transparent px-4 py-2 font-condensed text-label font-semibold hover:bg-accent-100">Lock into portfolio</button>
-    <button type="button" data-action="drawer-exclude"
+    <button type="button" data-action="drawer-exclude" aria-pressed="false"
             class="min-h-[44px] cursor-pointer border border-edge bg-transparent px-4 py-2 font-condensed text-label font-semibold hover:bg-accent-100">Exclude from search</button>
   </div>
 </aside>

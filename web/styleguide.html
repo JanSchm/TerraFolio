@@ -10,6 +10,8 @@
 <script defer src="vendor/alpine.min.js"></script>
 </head>
 <body class="min-h-screen bg-bg text-text">
+<a href="#main"
+   class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-dialog focus:border focus:border-accent-700 focus:bg-bg focus:px-4 focus:py-2 focus:font-condensed focus:text-label focus:font-semibold focus:text-text focus:no-underline">Skip to main content</a>
     <!--NAV:none-->
     <!-- nav:start — identical on all four pages except which step carries aria-current.
          tools/splice-nav.mjs writes this block; tests/nav.test.js guards it. -->
@@ -28,7 +30,7 @@
     </header>
     <!-- nav:end -->
 
-<main class="mx-auto max-w-mandate px-7 pb-16 pt-8">
+<main id="main" class="mx-auto max-w-mandate px-7 pb-16 pt-8">
 
   <div class="mb-[22px] flex flex-wrap items-end justify-between gap-7">
     <div class="max-w-prose">
@@ -108,7 +110,7 @@
       <div class="panel">
         <h3 class="mb-4 text-h6 uppercase tracking-caps text-muted">Barlow Condensed &#183; headings and every numeral</h3>
         <p class="mb-2 font-condensed text-h1 font-semibold">Define the mandate</p>
-        <p class="mb-2 font-condensed text-h2 font-semibold">Searching the solution space</p>
+        <p class="mb-2 font-condensed text-h2 font-semibold">Searching the pipeline</p>
         <p class="mb-2 font-condensed text-h3 font-semibold">Suggested portfolio</p>
         <p class="mb-4 font-condensed text-h4 font-semibold">Portfolio score by round</p>
         <p class="num text-num-2xl">1,540 MW</p>
