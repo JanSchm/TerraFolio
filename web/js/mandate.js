@@ -32,6 +32,12 @@
   var api = load('api');
   var status = (typeof require === 'function') ? require('./controls.js').status
     : (root.TerraFolio && root.TerraFolio.status);
+  /* #13's, for this issue to fold in (4C-9). `pipelineNotice` tells an empty
+     directory apart from a mandate nothing passes, which §13 requires and which
+     `NO_CANDIDATES` cannot say: "there are no files" and "no file passes your
+     screens" send a user to different places. */
+  var edgeStates = (typeof require === 'function') ? require('./edge-states.js')
+    : (root.TerraFolio && root.TerraFolio.edgeStates);
 
   var MANDATE_KEY = 'terrafolio.mandate.v1';
   var STEERING_KEY = 'terrafolio.steering.v1';
@@ -457,6 +463,7 @@
   function renderHealth(health) {
     var banner = document.querySelector('[data-region="pipeline-health"]');
     if (!banner || !health) return;
+    renderEmptyPipeline(health);
     var rejected = health.rejected || [];
     banner.hidden = rejected.length === 0;
     if (!rejected.length) return;
@@ -478,6 +485,27 @@
       item.appendChild(document.createTextNode(' ' + fmt.SEPARATOR + ' ' + entry.message));
       list.appendChild(item);
     });
+  }
+
+  /**
+   * §13's other pipeline state: the directory holds no files at all.
+   *
+   * `NO_CANDIDATES` still fires — an empty pipeline has nothing that passes — but it
+   * tells the user to widen screens that are not the problem. `fileCount`, not
+   * `loadedCount`: a directory whose files all failed their tie-outs is a different
+   * fault with a different answer, and those files are named in the rejection list
+   * above (4C-1).
+   */
+  function renderEmptyPipeline(health) {
+    var region = document.querySelector('[data-region="pipeline-notice"]');
+    if (!region || !root.Alpine || typeof root.Alpine.$data !== 'function') return null;
+    var notice = safely(function () { return root.Alpine.$data(region); });
+    if (!notice || typeof notice.fromStatus !== 'function') return null;
+    /* #13 owns the component, its sentence and its marks; this file owns only the
+       fact it reports. `fromStatus` reads `fileCount`, not `loadedCount` — a
+       directory whose files all failed their tie-outs is a different fault with a
+       different answer, and those files are named in the banner above (4C-1). */
+    return notice.fromStatus(health);
   }
 
   /** Open or close the list of files that did not load. */
@@ -563,6 +591,7 @@
     usePipeline: usePipeline,
     toggleRejected: toggleRejected,
     renderHealth: renderHealth,
+    renderEmptyPipeline: renderEmptyPipeline,
   };
 
   root.TerraFolio = root.TerraFolio || {};

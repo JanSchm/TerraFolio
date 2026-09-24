@@ -121,10 +121,24 @@
   function draw(panel, sites, topology) {
     var libs = libraries();
     if (!panel) return false;
-    if (!topology || !libs) return degrade(panel);
+    if (!topology || !topology.objects || !topology.objects.countries || !libs) {
+      return degrade(panel);
+    }
 
-    var collection = libs.topo.feature(topology, topology.objects.countries);
-    if (!collection || !collection.features) return degrade(panel);
+    /* An atlas can be an object, and have an `objects.countries`, and still be
+       unusable: `{objects: {countries: {}}}` makes `topojson.feature` reach for
+       geometries that are not there and throw. §13's degradation is deliberately
+       total — a missing atlas, a malformed one and a missing projection library all
+       produce the same notice, and none of them throws, because a panel that threw
+       here would take the surrounding Alpine bindings with it (4C-9). */
+    var collection = null;
+    try {
+      collection = libs.topo.feature(topology, topology.objects.countries);
+    } catch (unusable) {
+      return degrade(panel);
+    }
+    var features = collection && collection.features;
+    if (!Array.isArray(features) || !features.length) return degrade(panel);
 
     var width = panel.clientWidth || 420;
     var projection = libs.geo.geoMercator()
@@ -141,7 +155,7 @@
     });
 
     var held = heldCountries(sites);
-    collection.features.forEach(function (feature) {
+    features.forEach(function (feature) {
       var shape = path(feature);
       if (!shape) return;
       svg.appendChild(element('path', {

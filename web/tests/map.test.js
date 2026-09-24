@@ -153,3 +153,38 @@ test('a marker with no capacity says so rather than printing nothing', async () 
   assert.match(panel.querySelector('circle title').textContent, /—/);
   dom.window.close();
 });
+
+/* ── §13's degradation is total (4C-9) ───────────────────────────────────────── */
+
+test('an atlas that is present but unusable degrades rather than throwing', async () => {
+  const dom = await servePage('portfolio.html');
+  const w = dom.window;
+  const panel = w.document.querySelector('[data-region="map"]');
+  const broken = [
+    ['no objects at all', {}],
+    ['an objects block with no countries', { objects: {} }],
+    ['countries with no geometries', { objects: { countries: {} } }],
+    ['geometries pointing at arcs that are not there', {
+      type: 'Topology', arcs: [],
+      objects: { countries: { type: 'GeometryCollection', geometries: [{ type: 'Polygon', arcs: [[99]] }] } },
+    }],
+  ];
+  for (const [what, atlas] of broken) {
+    let drew = null;
+    assert.doesNotThrow(() => { drew = w.TerraFolio.map.draw(panel, [site()], atlas); }, what);
+    assert.equal(drew, false, what);
+    assert.equal(panel.textContent.trim(), 'Map data unavailable.', what);
+    assert.equal(panel.querySelector('svg'), null, what);
+  }
+  dom.window.close();
+});
+
+test('a good atlas still draws after a broken one has been through the panel', async () => {
+  const dom = await servePage('portfolio.html');
+  const w = dom.window;
+  const panel = w.document.querySelector('[data-region="map"]');
+  w.TerraFolio.map.draw(panel, [site()], { objects: { countries: {} } });
+  assert.equal(w.TerraFolio.map.draw(panel, [site()], w.TerraFolio.worldAtlas), true);
+  assert.ok(panel.querySelector('svg circle'));
+  dom.window.close();
+});

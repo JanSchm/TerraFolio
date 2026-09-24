@@ -484,3 +484,46 @@ test('only the blocking warning carries the extra line', async () => {
     'a pipeline smaller than the target is not a screen anyone can widen');
   ctx.dom.window.close();
 });
+
+/* ── §13: an empty directory is not a mandate nothing passes (4C-1) ──────────── */
+
+const shown = (el) => el.style.display !== 'none' && !el.hidden;
+
+test('a pipeline with no files says so, in words NO_CANDIDATES cannot', async () => {
+  const ctx = await page();
+  ctx.M.startPage();
+  ctx.M.renderHealth({ fileCount: 0, loadedCount: 0, rejected: [] });
+  await new Promise((r) => setTimeout(r, 60));
+  const region = ctx.d.querySelector('[data-region="pipeline-notice"]');
+  assert.equal(shown(region), true);
+  assert.match(region.textContent, /The pipeline holds no project files/,
+    '"there are no files" and "no file passes your screens" send a user elsewhere');
+  assert.match(region.textContent, new RegExp(status.WORD.blocking),
+    '§7.1: a blocker is never a tone alone');
+  ctx.dom.window.close();
+});
+
+test('a directory whose files all failed their tie-outs is a different fault', async () => {
+  const ctx = await page();
+  ctx.M.startPage();
+  assert.equal(ctx.M.renderEmptyPipeline({
+    fileCount: 3, loadedCount: 0,
+    rejected: [{ file: 'P01.json', message: 'P01: tie-out failed.' }],
+  }), 'none', 'fileCount, not loadedCount: those files are named in the banner instead');
+  ctx.M.renderHealth({
+    fileCount: 3, loadedCount: 0,
+    rejected: [{ file: 'P01.json', message: 'P01: tie-out failed.' }],
+  });
+  assert.equal(ctx.d.querySelector('[data-region="pipeline-health"]').hidden, false);
+  ctx.dom.window.close();
+});
+
+test('a healthy pipeline shows neither notice', async () => {
+  const ctx = await page();
+  ctx.M.startPage();
+  ctx.M.renderHealth({ fileCount: 300, loadedCount: 300, rejected: [] });
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(shown(ctx.d.querySelector('[data-region="pipeline-notice"]')), false);
+  assert.equal(ctx.d.querySelector('[data-region="pipeline-health"]').hidden, true);
+  ctx.dom.window.close();
+});

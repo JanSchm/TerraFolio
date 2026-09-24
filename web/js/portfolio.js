@@ -28,6 +28,11 @@
   var mapper = load('map');
   var table = load('table');
   var store = load('mandate');
+  /* #13 wrote these for this issue to fold in (4C-9). `holdingNote` computes §13's
+     post-hold caveat from the same three numbers this file had been computing it
+     from, and says it in words the committee pack also uses. */
+  var edgeStates = (typeof require === 'function') ? require('./edge-states.js')
+    : (root.TerraFolio && root.TerraFolio.edgeStates);
   var status = (typeof require === 'function') ? require('./controls.js').status
     : (root.TerraFolio && root.TerraFolio.status);
 
@@ -94,9 +99,7 @@
     var defined = fmt.defined;
 
     setTile('capacity', fmt.mw(a.capacityMw), capacitySub(a, m),
-      state(defined(a.capacityMw)
-        ? Math.abs(a.capacityMw - m.capacityTargetMw) / m.capacityTargetMw <= CAPACITY_TOLERANCE
-        : null));
+      state(defined(a.capacityMw) ? onCapacityTarget(a, m) : null));
 
     setTile('projects', fmt.count(a.projectCount),
       fmt.join(fmt.count(a.solarCount) + ' solar', fmt.count(a.windCount) + ' wind'), 'neutral');
@@ -142,13 +145,35 @@
   }
 
   /**
-   * spec §13: where the capacity target is unreachable the run still returns the best
-   * feasible portfolio, and the tile names the shortfall rather than only the target.
+   * spec §13: where the capacity target is **unreachable** the run still returns the
+   * best feasible portfolio, and the tile names the shortfall rather than only the
+   * target.
+   *
+   * "Unreachable" is the same 8% band the tile's own verdict turns on, not merely
+   * "under target". Gating on the bare deficit puts `110 MW short` on a tile that
+   * also reads `✓ on target`, and the **default** mandate does exactly that — 1,390
+   * against 1,500 is 7.3% out, inside the band. `export/committee.py` renders this
+   * string under this band, and a screen that disagreed with the printout would be
+   * the worse half of the pair (4C-3).
+   *
+   * Decided on the **rendered** figure rather than on the float: `fmt.mw` rounds to
+   * whole MW and the pipeline's capacities are not integral, so a 0.3 MW deficit
+   * would otherwise print `0 MW short` — a shortfall a reader cannot act on.
    */
   function capacitySub(a, m) {
     var target = 'target ' + fmt.mw(m.capacityTargetMw);
-    if (!fmt.defined(a.capacityMw) || a.capacityMw >= m.capacityTargetMw) return target;
-    return fmt.join(target, fmt.mw(m.capacityTargetMw - a.capacityMw) + ' short');
+    if (!fmt.defined(a.capacityMw) || onCapacityTarget(a, m)) return target;
+    var deficit = m.capacityTargetMw - a.capacityMw;
+    if (deficit <= 0) return target;
+    var shown = fmt.mw(deficit);
+    if (shown === fmt.mw(0)) return target;
+    return fmt.join(target, shown + ' short');
+  }
+
+  /** §5.1's capacity verdict, shared by the tile's tone and by its sub-label. */
+  function onCapacityTarget(a, m) {
+    if (!fmt.defined(a.capacityMw) || !m.capacityTargetMw) return false;
+    return Math.abs(a.capacityMw - m.capacityTargetMw) / m.capacityTargetMw <= CAPACITY_TOLERANCE;
   }
 
   /* ── The run sub-line (ui-contract.md §5) ───────────────────────────────── */
@@ -346,7 +371,6 @@
 
   function groups(page, row) {
     var run = page.run || {};
-    var lastYear = yearAt(run, ((run.mandate || {}).holdYears || 0) - 1);
     var basis = (row.provenance || {});
 
     var sections = [
@@ -393,14 +417,27 @@
     });
 
     // spec §13: a project completing after the hold ends contributes construction
-    // outflows and an exit value only, and the sheet has to say so.
-    if (lastYear !== null && row.codYear > lastYear) {
+    // outflows and an exit value only, and the sheet has to say so. The sentence is
+    // #13's, so the drawer and the committee pack word it the same way (4C-5).
+    var hold = edgeStates.holdingNote({
+      codYear: row.codYear,
+      baseYear: baseYearOf(run),
+      holdYears: (run.mandate || {}).holdYears,
+    });
+    if (hold.afterHold) {
       var note = document.createElement('p');
-      note.className = 'mt-3 text-meta text-muted';
-      note.textContent = 'Commercial operation in ' + fmt.year(row.codYear)
-        + ' falls after the ' + fmt.count((run.mandate || {}).holdYears)
-        + '-year hold ends in ' + fmt.year(lastYear)
-        + '. Over the hold this project contributes construction outflows and an exit value only.';
+      note.className = 'mt-3 flex items-start gap-[7px] text-meta text-muted';
+      var mark = document.createElement('span');
+      mark.setAttribute('aria-hidden', 'true');
+      mark.textContent = hold.mark;
+      var word = document.createElement('span');
+      word.className = 'sr-only';
+      word.textContent = hold.word;
+      var body = document.createElement('span');
+      body.textContent = hold.message;
+      note.appendChild(mark);
+      note.appendChild(word);
+      note.appendChild(body);
       host.appendChild(note);
     }
   }
@@ -888,6 +925,7 @@
     refresh: refresh,
     readoutFor: readoutFor,
     capacitySub: capacitySub,
+    onCapacityTarget: onCapacityTarget,
     notice: notice,
     submit: submit,
     unrenderable: unrenderable,

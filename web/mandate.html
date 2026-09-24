@@ -44,7 +44,6 @@
         constraint below.</p>
     </div>
     <div>
-<<<<<<< HEAD
       <p class="m-0 font-condensed text-h5 uppercase tracking-wide text-muted">
         Pipeline: <span data-field="totalCount">&#8212;</span> screened candidates
         &#183; <span data-field="totalCapacityMw">&#8212;</span>
@@ -64,22 +63,17 @@
         <ul id="m-rejected" class="mt-[6px] flex max-w-[460px] flex-col gap-[6px] text-left"
             data-region="rejected-files" hidden></ul>
       </div>
-=======
-    <p class="m-0 font-condensed text-h5 uppercase tracking-wide text-muted">
-      Pipeline: <span data-field="totalCount">&#8212;</span> screened candidates
-      &#183; <span data-field="totalCapacityMw">&#8212;</span>
-    </p>
-    <!-- §13: `pipeline/` holding no files, and the pipeline moving under a stored
-         run, are both blockers rather than advisories, so both take the blocking
-         mark and word rather than a colour. Neither is a feasibility warning —
-         they are about the data, not about the mandate — so they sit here rather
-         than in the §5.4 list. -->
-    <p class="m-0 mt-2 max-w-[460px] text-cell" data-region="pipeline-notice"
-       x-data="pipelineNotice()" x-show="visible" :class="toneClass">
-      <span aria-hidden="true" x-text="mark"></span><span class="sr-only" x-text="word"></span>
-      <span x-text="message"></span>
-    </p>
->>>>>>> origin/main
+      <!-- §13: `pipeline/` holding no files, and the pipeline moving under a stored
+           run, are both blockers rather than advisories, so both take the blocking
+           mark and word rather than a colour. Neither is a feasibility warning —
+           they are about the data, not about the mandate — so they sit here rather
+           than in the §5.4 list. #13 owns the component; mandate.js gives it the
+           state it reports (4C-1, 4C-9). -->
+      <p class="m-0 mt-2 max-w-[460px] text-cell" data-region="pipeline-notice"
+         x-data="pipelineNotice()" x-show="visible" :class="toneClass">
+        <span aria-hidden="true" x-text="mark"></span><span class="sr-only" x-text="word"></span>
+        <span x-text="message"></span>
+      </p>
     </div>
   </div>
 

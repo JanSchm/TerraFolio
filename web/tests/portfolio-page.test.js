@@ -99,7 +99,7 @@ async function page(run) {
 test('every tile shows its value, the mandate figure it is judged against, and a state', async () => {
   const ctx = await page(runOf());
   const expected = {
-    capacity: ['1,450 MW', 'target 1,500 MW \u00b7 50 MW short'],
+    capacity: ['1,450 MW', 'target 1,500 MW'],
     projects: ['1', '1 solar · 0 wind'],
     'tech-split': ['44% solar', 'target 45% solar'],
     equity: ['€56m', 'of €1,200m · 5% deployed'],
@@ -314,7 +314,7 @@ test('a project completing after the hold ends says what it contributes', async 
   const ctx = await page(runOf({ holdings: [holding({ codYear: 2040 })] }));
   ctx.P.openDrawer(ctx.handle, 'P01');
   assert.match(ctx.d.querySelector('[data-region="drawer-groups"]').textContent,
-    /falls after the 10-year hold ends in 2036.*construction outflows and an exit value only/s,
+    /Commercial operation falls after the 10-year hold\. The project contributes construction outflows and an exit value only\./,
     'spec §13 requires the detail sheet to flag it');
   ctx.dom.window.close();
 });
@@ -668,5 +668,59 @@ test('opening a second run re-bases the comparison onto that run', async () => {
   assert.notEqual(ctx.M.steering().signature, first,
     'the baseline describes the run on screen, not the one before it');
   assert.equal(ctx.d.querySelector('[data-action="rerun"]').textContent.trim(), 'Re-run');
+  ctx.dom.window.close();
+});
+
+/* ── §5.1's capacity tile does not contradict itself (4C-3) ──────────────────── */
+
+test('a tile inside the band reads on target, and does not also read short', async () => {
+  // The default mandate does exactly this: 1,390 against 1,500 is 7.3% out, inside
+  // §5.1's 8% band. Gating on the bare deficit put `110 MW short` beside the ✓.
+  const ctx = await page(runOf({ aggregates: { capacityMw: 1390 } }));
+  assert.equal(ctx.field('capacity-sub'), 'target 1,500 MW');
+  assert.equal(ctx.tile('capacity').querySelector('[aria-hidden="true"]').textContent,
+    status.MARK.onTarget);
+  ctx.dom.window.close();
+});
+
+test('a tile outside the band names the shortfall, as the committee pack does', async () => {
+  const ctx = await page(runOf({ aggregates: { capacityMw: 1200 } }));
+  assert.equal(ctx.field('capacity-sub'), 'target 1,500 MW · 300 MW short');
+  assert.equal(ctx.tile('capacity').querySelector('[aria-hidden="true"]').textContent,
+    status.MARK.breach);
+  ctx.dom.window.close();
+});
+
+test('the clause is decided on the rendered figure, not the float behind it', async () => {
+  const ctx = await page(runOf({ aggregates: { capacityMw: 1499.7 } }));
+  assert.equal(ctx.field('capacity-sub'), 'target 1,500 MW',
+    'a 0.3 MW deficit would otherwise print `0 MW short`');
+  ctx.dom.window.close();
+});
+
+test('over target is never short', async () => {
+  const ctx = await page(runOf({ aggregates: { capacityMw: 2164 } }));
+  assert.equal(ctx.field('capacity-sub'), 'target 1,500 MW');
+  ctx.dom.window.close();
+});
+
+/* ── §13's post-hold note comes from #13's factory ───────────────────────────── */
+
+test('the drawer words the post-hold caveat as the committee pack words it', async () => {
+  const ctx = await page(runOf({ holdings: [holding({ codYear: 2040 })] }));
+  ctx.P.openDrawer(ctx.handle, 'P01');
+  const text = ctx.d.querySelector('[data-region="drawer-groups"]').textContent;
+  const expected = ctx.w.TerraFolio.edgeStates
+    .holdingNote({ codYear: 2040, baseYear: 2027, holdYears: 10 }).message;
+  assert.match(text, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+    'one sentence, owned by edge-states.js, so the screen and the pack agree (4C-5)');
+  ctx.dom.window.close();
+});
+
+test('a project completing inside the hold gets no caveat', async () => {
+  const ctx = await page(runOf({ holdings: [holding({ codYear: 2028 })] }));
+  ctx.P.openDrawer(ctx.handle, 'P01');
+  assert.equal(/contributes construction outflows/
+    .test(ctx.d.querySelector('[data-region="drawer-groups"]').textContent), false);
   ctx.dom.window.close();
 });

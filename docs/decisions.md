@@ -3674,6 +3674,59 @@ checked against the document by `tests/api/test_committee_pack.py`, so changing 
 contract change touching 1B, 3A and #11 at once. Raised on issue #1. What is fixed is that the two
 implementations agree exactly, so whatever scale is chosen will move both.
 
+### 4A-20 · #13's three factories, folded in — and one contract left open
+
+[4C-9](#4c-9--the-three-missing-page-states-land-in-webjsedge-statesjs) wrote
+`web/js/edge-states.js` with three factories "so that #11, which is in flight, folds three
+factories in rather than resolving three conflicting files". Two are folded in; the third is
+not, and the reason is a disagreement rather than an oversight.
+
+**`holdingNote`** replaces this file's own post-hold caveat in the drawer. Same three inputs —
+`codYear`, the pipeline's base year and `holdYears` — and now the same sentence the committee
+pack prints, which is the point of it living in one place.
+
+**`pipelineNotice`** is driven from `renderHealth`. §13 wants the mandate screen to say that
+`pipeline/` holds no files, and `NO_CANDIDATES` cannot: it tells the user to widen screens that
+are not the problem. It reads `fileCount`, not `loadedCount`, so a directory whose files all
+failed their tie-outs still reports as the different fault it is — those files are named in the
+validation banner beside it, which is this issue's own and stays.
+
+**`siteMap` is not adopted, and `web/js/map.js` stays.** The two disagree on one thing: 4C-9
+tints on `properties.name`, matching `export/committee.py` (3A-9); issue #11's brief is explicit
+that the join is on the ISO code, *"not on country name — the mockup string-matches
+`d.properties.name`, which silently drops any mismatch"*. Both work today for all fourteen
+markets. Adopting either silently would overrule one issue's written instruction with the
+other's, so the ISO join stays — it is this issue's instruction — and the question is
+[announced on #1](https://github.com/JanSchm/TerraFolio/issues/1) for #13 and the pack's owner
+to converge on one mechanism.
+
+What #13 got right regardless is folded in: the degradation is now **total**. An atlas that is
+absent, one with no `objects.countries`, one whose `countries` has no geometries, and one whose
+geometries point at arcs that are not there all produce §13's notice and none of them throws —
+a panel that threw would take the surrounding Alpine bindings with it.
+
+**Tile 1's shortfall** is gated on §5.1's 8% band rather than on the bare deficit, as
+[4C-3](#4c-3--tile-1s-sub-label-carries-the-shortfall) requires of this file by name: the
+default mandate lands 7.3% under target, so the ungated version put `110 MW short` on a tile
+that also read `✓ on target`. The clause is decided on the **rendered** figure, so a 0.3 MW
+deficit does not print `0 MW short`.
+
+### 4A-21 · A half-resolved conflict passed every guard
+
+One region of `web/mandate.html` was resolved and a second was not; `git add` staged the file
+with the markers still in it, and **nothing caught it**. jsdom parses `<<<<<<< HEAD` as ordinary
+text, so the accessibility, contrast, nav, copy and greyscale tests all walked past it while the
+page rendered it to the user between the heading and the panels. It was found by opening the
+page.
+
+**Decided.** `web/tests/no-conflict-markers.test.js` walks the tree for the three markers as git
+writes them — the side markers with a label after a space, the separator as seven equals alone on
+a line, so a setext underline and an ASCII rule are not flagged. It is a cheap check for a
+failure mode that is invisible to every expensive one, and it is the kind that only shows up
+after it has already shipped once.
+
+---
+
 ## Log
 
 | Date | Issue | Entry |
@@ -3841,3 +3894,5 @@ implementations agree exactly, so whatever scale is chosen will move both.
 | 2026-09-24 | #13 | 4C-8 — the edge fixtures are single documented edits to `P01`, width-3, and guarded against drift. |
 | 2026-09-24 | #13 | 4C-9 — the three missing page states land in `web/js/edge-states.js`; the map tints on country name, paints in utility classes because the system has no custom properties, and degrades on corrupt geometry as on missing. |
 | 2026-09-24 | #13 | 4C-10 — §5.3's map scale puts five of six markers outside the panel, in the pack as on screen. |
+| 2026-09-24 | #11 | 4A-20 — #13's `holdingNote` and `pipelineNotice` folded in; `siteMap` not, and the ISO-vs-name join raised on #1. |
+| 2026-09-24 | #11 | 4A-21 — a half-resolved conflict rendered to the user and passed every guard; a marker check now walks the tree. |
