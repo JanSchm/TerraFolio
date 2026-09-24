@@ -122,6 +122,16 @@ test('score — development risk to one decimal', () => {
   assertDashesUndefined(fmt.score, 'score');
 });
 
+test('mandateScore is three decimals, because that is where a run moves', () => {
+  assert.equal(fmt.mandateScore(5.018856), '5.019');
+  assert.equal(fmt.mandateScore(-2.216503), '-2.217');
+  assert.equal(fmt.mandateScore(0), '0.000', 'a score of zero is a score, not a blank');
+  assert.equal(fmt.mandateScore(1234.5), '1,234.500', 'grouped like every other figure');
+  for (const bad of [null, undefined, NaN, Infinity, -Infinity, 'x', {}]) {
+    assert.equal(fmt.mandateScore(bad), fmt.DASH);
+  }
+});
+
 test('join — middle-dot separator, dropping absent parts', () => {
   assert.equal(fmt.join('a', 'b'), `a ${DOT} b`);
   assert.equal(fmt.join(['a', 'b', 'c']), `a ${DOT} b ${DOT} c`, 'accepts an array');

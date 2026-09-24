@@ -124,6 +124,19 @@
   }
 
   /**
+   * The search screen's mandate score, to three decimals: `5.019`.
+   *
+   * ui-contract.md §4 is the only place in the product that asks for three, and it
+   * asks for a reason: the figure moves in the third decimal over a run, so at the
+   * one or two everywhere else uses it would sit still while the curve beside it
+   * climbs. It is a bare number, not a percentage or a multiple — the objective's
+   * units are its weights.
+   */
+  function mandateScore(value) {
+    return defined(value) ? group(value, 3) : DASH;
+  }
+
+  /**
    * Joins already-formatted parts with the middle-dot separator.
    * Parts that are null, undefined or empty are dropped, so a caller can pass a
    * conditional part without building the array by hand.
@@ -153,6 +166,7 @@
     count: count,
     year: year,
     score: score,
+    mandateScore: mandateScore,
     join: join,
   };
 
