@@ -194,7 +194,7 @@ def test_a_missing_stylesheet_is_named_rather_than_silently_skipped(tmp_path: Pa
     settings = settings_for(tmp_path)
     service = build_service(settings)
     try:
-        stored = _any_stored_run(service, settings)
+        stored = _any_stored_run(service)
         with pytest.raises(CommitteePackUnavailableError, match="npm --prefix web run build"):
             committee_pack(
                 stored,
@@ -211,7 +211,7 @@ def test_a_missing_atlas_degrades_to_a_notice(tmp_path: Path) -> None:
     settings = settings_for(tmp_path)
     service = build_service(settings)
     try:
-        stored = _any_stored_run(service, settings)
+        stored = _any_stored_run(service)
         document = committee_pack(
             stored,
             stylesheet=settings.stylesheet_path,
@@ -242,7 +242,7 @@ def test_the_built_stylesheet_inlines_cleanly(tmp_path: Path) -> None:
     settings = settings_for(tmp_path)
     service = build_service(settings)
     try:
-        stored = _any_stored_run(service, settings)
+        stored = _any_stored_run(service)
         document = committee_pack(
             stored,
             stylesheet=BUILT_STYLESHEET,
@@ -262,21 +262,22 @@ def test_the_built_stylesheet_inlines_cleanly(tmp_path: Path) -> None:
     )
 
 
-def _any_stored_run(service: Any, settings: Any) -> Any:
+def _any_stored_run(service: Any) -> Any:
     """One succeeded run, produced through the real engine, for a pure-function test."""
 
     request = OptimisationRequest.model_validate(
         {"mandate": mandate(), "effort": "fast", "seed": 5}
     )
-    preview = _preview_for(service, request)
-    pending = service.submit(request, preview)
+    snapshot = service.source.current()
+    preview = _preview_for(snapshot, service, request)
+    pending = service.submit(request, preview, snapshot)
     with closing(service.connect()) as connection:
         return load_run(connection, run_id=pending.run_id)
 
 
-def _preview_for(service: Any, request: Any) -> Any:
+def _preview_for(snapshot: Any, service: Any, request: Any) -> Any:
     return preview_feasibility(
-        service.source.candidates.arrays,
+        snapshot.candidates.arrays,
         mandate_to_scalars(request.mandate),
         service.assumptions,
         locked_ids=request.locked_ids,

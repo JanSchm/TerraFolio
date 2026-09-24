@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
+import math
 import sqlite3
 import time
 from collections.abc import AsyncIterator, Callable, Sequence
@@ -104,6 +105,21 @@ def resume_from(last_event_id: str | None) -> int:
     return max(cursor, 0)
 
 
+def _number(value: float) -> str:
+    """A JSON number, or ``null`` where there is not one.
+
+    ``json.dumps(float("nan"))`` emits the bare token ``NaN``, which is **not
+    valid JSON**: one such frame and every subscriber's ``JSON.parse`` throws
+    mid-stream, taking the search screen down with no diagnosable error. The
+    store's ``abs(x) < 9e999`` CHECK catches infinities but not NaN, because a
+    comparison against NaN is NULL and a NULL CHECK passes.
+
+    ``null`` is also what §1.4 requires of an undefined number anywhere on this
+    wire — never a sentinel, never a zero.
+    """
+    return json.dumps(value) if math.isfinite(value) else "null"
+
+
 def _frame(event: str, data: str, *, identifier: int | None = None) -> bytes:
     lines = [] if identifier is None else [f"id: {identifier}"]
     lines.append(f"event: {event}")
@@ -120,8 +136,8 @@ def _generation_frame(event: RunEvent, total: int) -> bytes:
     """
     data = (
         f'{{"generation":{event.generation},"totalGenerations":{total},'
-        f'"bestFitness":{json.dumps(event.best_fitness)},'
-        f'"meanFitness":{json.dumps(event.mean_fitness)},'
+        f'"bestFitness":{_number(event.best_fitness)},'
+        f'"meanFitness":{_number(event.mean_fitness)},'
         f'"best":{event.summary_json}}}'
     )
     return _frame("generation", data, identifier=event.generation)
@@ -135,6 +151,18 @@ def _status_frame(pulse: RunPulse) -> bytes:
             separators=(",", ":"),
         ),
     )
+
+
+FAILED_MESSAGE: Final = "The search did not complete. The failure is recorded against this run."
+CANCELLED_MESSAGE: Final = "The search was cancelled before it finished."
+"""What a run that did not succeed says on the wire.
+
+**Not ``run.error_message``**, which holds the worker's whole traceback for the
+audit trail. §1.7 says ``message`` is "one sentence fit to show a user", and a
+traceback is neither: it carries the server's absolute paths and its internal
+structure to a caller that is not authenticated at all in this backlog
+(epic §12 Q7).
+"""
 
 
 def _terminal_frame(run_id: str, pulse: RunPulse) -> bytes:
@@ -151,6 +179,12 @@ def _terminal_frame(run_id: str, pulse: RunPulse) -> bytes:
                 separators=(",", ":"),
             ),
         )
+    # A cancellation is not an engine failure, and `error_code` is optional for
+    # one (the schema only requires it for `failed`) — so defaulting to
+    # ENGINE_ERROR would report a run someone deliberately stopped as a crash,
+    # and any retry keyed on that code would retry it.
+    cancelled = pulse.status is RunStatus.CANCELLED
+    code = pulse.error_code or ("RUN_CANCELLED" if cancelled else "ENGINE_ERROR")
     return _frame(
         "failed",
         json.dumps(
@@ -158,8 +192,8 @@ def _terminal_frame(run_id: str, pulse: RunPulse) -> bytes:
                 "runId": run_id,
                 "status": pulse.status.value,
                 "error": {
-                    "code": pulse.error_code or "ENGINE_ERROR",
-                    "message": pulse.error_message or "The search did not complete.",
+                    "code": code,
+                    "message": CANCELLED_MESSAGE if cancelled else FAILED_MESSAGE,
                 },
             },
             separators=(",", ":"),

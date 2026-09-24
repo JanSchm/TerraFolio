@@ -27,7 +27,7 @@ from terrafolio.api.wire import (
 )
 from terrafolio.domain.mandate_bounds import ALL_BOUNDS
 
-__all__ = ["router", "service_of"]
+__all__ = ["require_active_assumption_set", "router", "service_of"]
 
 HOLD_YEARS: Final = ALL_BOUNDS["hold_years"]
 """§5.2's own control range, from the one module that states it.
@@ -46,7 +46,7 @@ def service_of(request: Request) -> Service:
     return service
 
 
-def _require_active_assumption_set(service: Service, requested: str | None) -> None:
+def require_active_assumption_set(service: Service, requested: str | None) -> None:
     """One assumption set is loaded per server, so a request for another is an error.
 
     §2 offers ``assumptionSetId`` as a query parameter. v1 loads exactly one set
@@ -81,8 +81,10 @@ def get_pipeline(
     nothing had moved.
     """
     service = service_of(request)
-    _require_active_assumption_set(service, assumption_set_id)
-    rendered = service.source.rendered(hold_years)
+    require_active_assumption_set(service, assumption_set_id)
+    # One snapshot, so the hash, the ETag and the projects all describe the same
+    # load even if a reload lands mid-request.
+    rendered = service.source.current().rendered(hold_years)
     if if_none_match is not None and _matches(if_none_match, rendered.etag):
         return Response(status_code=HTTPStatus.NOT_MODIFIED, headers={"ETag": rendered.etag})
     return Response(
@@ -114,7 +116,8 @@ def get_pipeline_status(request: Request) -> PipelineStatusResponse:
     because one stale file must not stop all work (A-7).
     """
     service = service_of(request)
-    return pipeline_status(service.source.result, loaded_at=service.source.loaded_at)
+    snapshot = service.source.current()
+    return pipeline_status(snapshot.result, loaded_at=snapshot.loaded_at)
 
 
 @router.post("/pipeline/reload")
@@ -127,7 +130,8 @@ def reload_pipeline(request: Request) -> PipelineStatusResponse:
     """
     service = service_of(request)
     service.reload_pipeline()
-    return pipeline_status(service.source.result, loaded_at=service.source.loaded_at)
+    snapshot = service.source.current()
+    return pipeline_status(snapshot.result, loaded_at=snapshot.loaded_at)
 
 
 @router.get("/projects/{project_id}/statements")
@@ -138,7 +142,7 @@ def get_statements(request: Request, project_id: str) -> dict[str, object]:
     period, and taking one would imply otherwise.
     """
     service = service_of(request)
-    for file in service.source.candidates.files:
+    for file in service.source.current().candidates.files:
         if file.id == project_id:
             return statements_payload(file)
     raise ApiError(

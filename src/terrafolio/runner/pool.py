@@ -20,7 +20,13 @@ from __future__ import annotations
 import multiprocessing
 import os
 from collections.abc import Callable
-from concurrent.futures import Executor, Future, ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import (
+    CancelledError,
+    Executor,
+    Future,
+    ProcessPoolExecutor,
+    ThreadPoolExecutor,
+)
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
@@ -97,12 +103,20 @@ class Runner:
         Best effort and deliberately silent on failure: a warm-up that cannot
         read the directory tells us nothing a real request will not tell us
         better, and refusing to start the server over it would turn a slow first
-        run into no server at all.
+        run into no server at all. Each future's result is dropped for the same
+        reason, but it is *retrieved*, so a failed warm-up does not surface
+        later as an unraisable-exception warning from the garbage collector.
+
+        One task per worker is a best effort at covering them all, not a
+        guarantee: nothing in ``ProcessPoolExecutor`` promises that N tasks land
+        on N distinct workers. A worker this misses simply pays for its own
+        first load.
         """
         if self._executor is None:
             return
         for _ in range(self.workers):
-            self._executor.submit(warm, pipeline_dir, pipeline_hash, assumption_set)
+            future = self._executor.submit(warm, pipeline_dir, pipeline_hash, assumption_set)
+            future.add_done_callback(lambda done: done.cancelled() or done.exception())
 
     def shutdown(self) -> None:
         if self._executor is not None:
@@ -122,7 +136,19 @@ class Runner:
 
 
 def _report(future: Future[WorkerOutcome], callbacks: Callbacks) -> None:
-    """Hand one finished future to the caller, whichever way it ended."""
+    """Hand one finished future to the caller, whichever way it ended.
+
+    **Cancellation is checked before anything touches ``exception()``.** On a
+    cancelled future that method *raises* ``CancelledError`` rather than
+    returning it, so the obvious spelling raises inside a done-callback — where
+    ``concurrent.futures`` swallows it — and neither callback fires. Since
+    :meth:`Runner.shutdown` cancels outstanding futures, that left every queued
+    run stuck in ``queued`` at every shutdown, with a stream that never ended
+    and a status the store's forward-only transitions can never correct.
+    """
+    if future.cancelled():
+        callbacks.failed(CancelledError("the run was cancelled before it started"))
+        return
     error = future.exception()
     if error is not None:
         callbacks.failed(error)

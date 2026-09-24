@@ -21,7 +21,8 @@ exact result" true only up to whatever pydantic happens to emit today.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Mapping
+import sqlite3
+from collections.abc import Iterable
 from contextlib import closing
 from http import HTTPStatus
 from typing import Annotated, Any, Final
@@ -31,9 +32,10 @@ from fastapi.responses import StreamingResponse
 
 from terrafolio.api.errors import ApiError, ErrorCode
 from terrafolio.api.messages import render
-from terrafolio.api.routes_pipeline import service_of
-from terrafolio.api.service import Service
-from terrafolio.api.sse import event_stream, read_pulse, resume_from
+from terrafolio.api.pipeline_source import Snapshot
+from terrafolio.api.routes_pipeline import require_active_assumption_set, service_of
+from terrafolio.api.service import ENGINE_ERROR, Service
+from terrafolio.api.sse import RunPulse, event_stream, read_pulse, resume_from
 from terrafolio.api.wire import (
     OptimisationAccepted,
     OptimisationRequest,
@@ -67,9 +69,17 @@ IMMUTABLE: Final = "private, immutable, max-age=31536000"
 # --------------------------------------------------------------------------
 
 
-def _preview(service: Service, request: PreviewRequest | OptimisationRequest) -> FeasibilityPreview:
+def _preview(
+    snapshot: Snapshot, service: Service, request: PreviewRequest | OptimisationRequest
+) -> FeasibilityPreview:
+    """Screen one mandate against **one** load of the pipeline.
+
+    The snapshot is passed rather than fetched so that a caller which then acts
+    on the result — starting a run against the eligible set this computed — is
+    guaranteed to be acting on the same pipeline it screened.
+    """
     return preview_feasibility(
-        service.source.candidates.arrays,
+        snapshot.candidates.arrays,
         mandate_to_scalars(request.mandate),
         service.assumptions,
         locked_ids=request.locked_ids,
@@ -104,7 +114,7 @@ def post_preview(request: Request, body: PreviewRequest) -> PreviewResponse:
     is wrong.
     """
     service = service_of(request)
-    preview = _preview(service, body)
+    preview = _preview(service.source.current(), service, body)
     return PreviewResponse.model_validate(
         {
             "eligible_count": preview.eligible_count,
@@ -126,8 +136,8 @@ def post_preview(request: Request, body: PreviewRequest) -> PreviewResponse:
 # --------------------------------------------------------------------------
 
 
-def _refuse_stale_pipeline(service: Service, claimed: str | None) -> None:
-    current = service.source.pipeline_hash
+def _refuse_stale_pipeline(snapshot: Snapshot, claimed: str | None) -> None:
+    current = snapshot.pipeline_hash
     if claimed is not None and claimed != current:
         raise ApiError(
             HTTPStatus.CONFLICT,
@@ -170,20 +180,17 @@ def _refuse_unrunnable(preview: FeasibilityPreview, locked_ids: Iterable[str]) -
 def post_optimisation(request: Request, body: OptimisationRequest, response: Response) -> Any:
     """§6. Starts a run. **202, never a result** — the client watches the stream."""
     service = service_of(request)
-    _refuse_stale_pipeline(service, body.pipeline_hash)
-    if body.assumption_set_id is not None:
-        active = service.assumptions.assumption_set_id
-        if body.assumption_set_id != active:
-            raise ApiError(
-                HTTPStatus.CONFLICT,
-                ErrorCode.INVALID_REQUEST,
-                f"This server is running assumption set {active}.",
-                {"assumptionSetId": active},
-            )
-    preview = _preview(service, body)
+    snapshot = service.source.current()
+    # One assumption set per server, and one status for saying so — `GET
+    # /pipeline` answers 400 for the identical condition, and §11 maps 409 to
+    # PIPELINE_MOVED alone, so a client keying off the status would read a
+    # conflict here as "reload the pipeline" and get nowhere.
+    require_active_assumption_set(service, body.assumption_set_id)
+    _refuse_stale_pipeline(snapshot, body.pipeline_hash)
+    preview = _preview(snapshot, service, body)
     _refuse_unrunnable(preview, body.locked_ids)
 
-    pending = service.submit(body, preview)
+    pending = service.submit(body, preview, snapshot)
     location = f"/optimisations/{pending.run_id}"
     response.headers["Location"] = location
     return OptimisationAccepted(
@@ -202,8 +209,20 @@ def post_optimisation(request: Request, body: OptimisationRequest, response: Res
 # --------------------------------------------------------------------------
 
 
-def _load(service: Service, run_id: str) -> StoredRun:
-    """One stored run, or 404. A malformed id never reaches the store."""
+FAILED_MESSAGE: Final = "The search did not complete. The failure is recorded against this run."
+"""What a failed run says on the wire.
+
+**Not the stored ``error_message``**, which holds the worker's whole traceback
+for the audit trail. §1.7 says ``message`` is "one sentence fit to show a user",
+and a traceback is neither one sentence nor fit to show: it carries the server's
+absolute filesystem paths and its internal structure to a caller that, in this
+backlog, is not authenticated at all (epic §12 Q7). The traceback stays in the
+store and in the server log, where an operator reads it.
+"""
+
+
+def _require_ulid(run_id: str) -> None:
+    """A malformed id never reaches the store."""
     if not is_ulid(run_id):
         raise ApiError(
             HTTPStatus.NOT_FOUND,
@@ -211,7 +230,44 @@ def _load(service: Service, run_id: str) -> StoredRun:
             "No run with that identifier.",
             {"runId": run_id},
         )
+
+
+def _pulse(connection: sqlite3.Connection, run_id: str) -> RunPulse:
+    """One run's state, cheaply, or 404.
+
+    ``load_run`` parses ``result_json`` into a validated ``RunRecord`` — every
+    holding, every field — which is a great deal of work to answer "has it
+    finished". This reads four columns by primary key instead, and the full
+    record is loaded only where one is actually needed.
+    """
+    pulse = read_pulse(connection, run_id)
+    if pulse is None:
+        raise ApiError(
+            HTTPStatus.NOT_FOUND,
+            ErrorCode.RUN_NOT_FOUND,
+            "No run with that identifier.",
+            {"runId": run_id},
+        )
+    return pulse
+
+
+def _finished(service: Service, run_id: str) -> StoredRun:
+    """One run that has produced a portfolio, or 409.
+
+    The exports and the pack all need a result; asking for one before the search
+    has finished is a 409 rather than a 404, because the run exists and the same
+    request will succeed later.
+    """
+    _require_ulid(run_id)
     with closing(service.connect()) as connection:
+        pulse = _pulse(connection, run_id)
+        if pulse.status is not RunStatus.SUCCEEDED:
+            raise ApiError(
+                HTTPStatus.CONFLICT,
+                ErrorCode.RUN_NOT_FINISHED,
+                "That run has not produced a portfolio yet.",
+                {"runId": run_id, "status": pulse.status.value},
+            )
         return load_run(connection, run_id=run_id)
 
 
@@ -224,48 +280,34 @@ def get_optimisation(request: Request, run_id: str) -> Response:
     been accepted rather than that the run has not finished.
     """
     service = service_of(request)
-    stored = _load(service, run_id)
-    status = stored.record.status
-    if status is RunStatus.SUCCEEDED:
-        with closing(service.connect()) as connection:
-            body = load_result_json(connection, run_id=run_id)
-        return Response(
-            content=body,
-            media_type="application/json",
-            headers={"Cache-Control": IMMUTABLE},
-        )
-    if status in TERMINAL_STATUSES:
-        return Response(
-            content=json.dumps(_with_failure(service, run_id, stored)),
-            media_type="application/json",
-            headers={"Cache-Control": IMMUTABLE},
-        )
+    _require_ulid(run_id)
+    with closing(service.connect()) as connection:
+        pulse = _pulse(connection, run_id)
+        if pulse.status is RunStatus.SUCCEEDED:
+            return Response(
+                content=load_result_json(connection, run_id=run_id),
+                media_type="application/json",
+                headers={"Cache-Control": IMMUTABLE},
+            )
+        if pulse.status in TERMINAL_STATUSES:
+            body: dict[str, Any] = json.loads(load_result_json(connection, run_id=run_id))
+            body["error"] = {"code": pulse.error_code or ENGINE_ERROR, "message": FAILED_MESSAGE}
+            return Response(
+                content=json.dumps(body),
+                media_type="application/json",
+                headers={"Cache-Control": IMMUTABLE},
+            )
+        stored = load_run(connection, run_id=run_id)
+        generation = latest_generation(connection, run_id=run_id)
     return Response(
-        content=_in_flight(service, stored).model_dump_json(by_alias=True),
+        content=_in_flight(stored, generation).model_dump_json(by_alias=True),
         media_type="application/json",
         headers={"Cache-Control": "no-store"},
     )
 
 
-def _with_failure(service: Service, run_id: str, stored: StoredRun) -> Mapping[str, Any]:
-    """A failed or cancelled run's record, with the reason it did not finish.
-
-    The stored record has no field for a failure — ``RunRecord`` describes a run,
-    and the reason lives in the ``run`` row — so it is merged in here. Only a
-    *succeeded* run is served byte-for-byte: §11's guarantee is about reopening a
-    **result**, and a run that produced none has nothing to reproduce.
-    """
-    with closing(service.connect()) as connection:
-        body: dict[str, Any] = json.loads(load_result_json(connection, run_id=run_id))
-    if stored.error_code is not None:
-        body["error"] = {"code": stored.error_code, "message": stored.error_message}
-    return body
-
-
-def _in_flight(service: Service, stored: StoredRun) -> RunInFlight:
+def _in_flight(stored: StoredRun, generation: int) -> RunInFlight:
     record = stored.record
-    with closing(service.connect()) as connection:
-        generation = latest_generation(connection, run_id=record.run_id)
     return RunInFlight(
         run_id=record.run_id,
         run_ref=record.run_ref,
@@ -336,7 +378,7 @@ def _attachment(name: str) -> str:
 @router.get("/optimisations/{run_id}/holdings.csv")
 def get_holdings_csv(request: Request, run_id: str) -> Response:
     """§9. The selection, seventeen columns, generated from the stored result."""
-    stored = _load(service_of(request), run_id)
+    stored = _finished(service_of(request), run_id)
     return Response(
         content=holdings_csv(stored),
         media_type=CSV_MEDIA_TYPE,
@@ -347,7 +389,7 @@ def get_holdings_csv(request: Request, run_id: str) -> Response:
 @router.get("/optimisations/{run_id}/cashflow.csv")
 def get_cashflow_csv(request: Request, run_id: str) -> Response:
     """§9. Thirty rows from ``cashflow30Y_m`` — **no terminal value** (A-6)."""
-    stored = _load(service_of(request), run_id)
+    stored = _finished(service_of(request), run_id)
     return Response(
         content=cashflow_csv(stored),
         media_type=CSV_MEDIA_TYPE,
@@ -359,7 +401,7 @@ def get_cashflow_csv(request: Request, run_id: str) -> Response:
 def get_pack(request: Request, run_id: str) -> Response:
     """§9.2. The offline committee pack: one file that opens with no network."""
     service = service_of(request)
-    stored = _load(service, run_id)
+    stored = _finished(service, run_id)
     try:
         document = committee_pack(
             stored,

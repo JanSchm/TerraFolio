@@ -43,6 +43,7 @@ class ErrorCode(StrEnum):
     INVALID_REQUEST = "INVALID_REQUEST"
     RUN_NOT_FOUND = "RUN_NOT_FOUND"
     PROJECT_NOT_FOUND = "PROJECT_NOT_FOUND"
+    PAGE_NOT_FOUND = "PAGE_NOT_FOUND"
     PIPELINE_MOVED = "PIPELINE_MOVED"
     RUN_EXPIRED = "RUN_EXPIRED"
     """Reserved. Nothing prunes ``run_event``, so no stream expires (§7)."""

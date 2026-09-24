@@ -119,12 +119,17 @@ class WorkerOutcome:
 
 
 _PIPELINES: dict[tuple[str, str], LoadResult] = {}
-"""Loaded pipelines, keyed by ``(directory, hash)``, for the life of the process.
+"""The **one** loaded pipeline this process is holding, keyed by directory and hash.
 
 A pool worker handles many runs. Re-reading, validating and tying out 300 files
-takes about a second, which would be a third of a Standard run's whole budget
-spent re-deriving data that has not moved. Keyed by hash, so a reload is a miss
-rather than a stale hit.
+takes about a quarter of a second and retains roughly 15 MB, which would be pure
+repetition across runs against data that has not moved.
+
+Bounded to a single entry on purpose. Users add and remove files while the
+server runs (epic §2), so the hash moves as a matter of course, and a cache that
+kept every hash it had ever seen would retain 15 MB per reload per worker for
+the life of the process — none of it ever reachable again, because only the
+current hash is ever asked for.
 """
 
 _ASSUMPTIONS: dict[str, AssumptionSet] = {}
@@ -156,6 +161,7 @@ def _pipeline_for(directory: Path, expected_hash: str, assumptions: AssumptionSe
             f"{directory} now hashes to {loaded.pipeline_hash}, not the "
             f"{expected_hash} this run was accepted against"
         )
+    _PIPELINES.clear()
     _PIPELINES[key] = loaded
     return loaded
 

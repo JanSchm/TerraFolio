@@ -14,6 +14,7 @@ module-level singleton to reach for.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import secrets
 import sqlite3
 import traceback
@@ -21,7 +22,7 @@ from contextlib import closing
 from typing import Final
 
 import terrafolio
-from terrafolio.api.pipeline_source import PipelineSource
+from terrafolio.api.pipeline_source import PipelineSource, Snapshot
 from terrafolio.api.records import (
     PendingRun,
     build_provenance,
@@ -47,6 +48,8 @@ from terrafolio.store.runs import finish_run, open_run
 from terrafolio.store.snapshots import record_assumption_set
 
 __all__ = ["Service", "build_service"]
+
+LOG: Final = logging.getLogger("terrafolio.api")
 
 SUBMITTED_BY: Final = "terrafolio-api"
 """``run.created_by``. Authentication is not in this backlog (epic §12 Q7), so
@@ -77,7 +80,6 @@ class Service:
         self.assumptions = assumptions
         self.source = source
         self.runner = runner
-        self._pending: dict[str, PendingRun] = {}
         with closing(self.connect()) as connection:
             self.assumption_snapshot = record_assumption_set(
                 connection, assumptions, recorded_at=_now()
@@ -100,7 +102,15 @@ class Service:
             self.source.record(connection)
 
     def warm(self) -> None:
-        if self.settings.warm_workers:
+        """Load the pipeline into the pool's workers before the first real run.
+
+        Only for ``process``: a thread or inline worker shares this process, and
+        this process has already loaded the pipeline into ``PipelineSource``.
+        Warming those would run ``cpu_count() - 1`` concurrent loads of 300
+        files in the parent, racing to fill one cache key and discarding all but
+        one of the results.
+        """
+        if self.settings.warm_workers and self.runner.mode is RunnerMode.PROCESS:
             self.runner.warm(
                 self.source.directory, self.source.pipeline_hash, self.settings.assumption_set
             )
@@ -123,8 +133,19 @@ class Service:
             return 1
         return observed_threads()
 
-    def submit(self, request: OptimisationRequest, preview: FeasibilityPreview) -> PendingRun:
+    def submit(
+        self,
+        request: OptimisationRequest,
+        preview: FeasibilityPreview,
+        snapshot: Snapshot,
+    ) -> PendingRun:
         """Record a run and start it. The caller has already refused 409 and 422.
+
+        ``snapshot`` is passed in rather than read from ``self.source`` because
+        the caller already screened against one: re-reading here would let a
+        concurrent ``POST /pipeline/reload`` land between the two, and the run
+        would be recorded with eligibility computed over a pipeline it is not
+        about to search.
 
         The seed is resolved **here**, not in the worker, so that it is on the
         run row before the search begins: a run whose seed was only knowable
@@ -132,7 +153,7 @@ class Service:
         §5 makes a run with no recorded seed not a run.
         """
         mandate, effort = request.mandate, request.effort
-        loaded = self.source.result
+        loaded = snapshot.result
         arrays = loaded.arrays
         eligible_ids = tuple(
             arrays.ids[index]
@@ -149,7 +170,7 @@ class Service:
         )
         created_at = _now()
         with closing(self.connect()) as connection:
-            self.source.record(connection)
+            self.source.record(connection, snapshot)
             stored = open_run(
                 connection,
                 RunSubmission(
@@ -177,29 +198,37 @@ class Service:
             locked_ids=stored.record.locked_ids,
             excluded_ids=stored.record.excluded_ids,
             provenance=provenance,
-            candidates=self.source.candidates,
-            returns=self.source.returns(mandate.hold_years),
+            candidates=snapshot.candidates,
+            returns=snapshot.returns(mandate.hold_years),
             total_generations=params.generations,
         )
-        self._pending[pending.run_id] = pending
-        self.runner.submit(
-            RunPayload(
-                run_id=pending.run_id,
-                database_path=self.settings.database_path,
-                pipeline_dir=self.source.directory,
-                pipeline_hash=loaded.pipeline_hash,
-                assumption_set=self.settings.assumption_set,
-                mandate=mandate,
-                effort=effort,
-                seed=resolved,
-                locked_ids=pending.locked_ids,
-                excluded_ids=pending.excluded_ids,
-            ),
-            Callbacks(
-                succeeded=lambda outcome: self._succeeded(pending, outcome),
-                failed=lambda error: self._failed(pending, error),
-            ),
+        payload = RunPayload(
+            run_id=pending.run_id,
+            database_path=self.settings.database_path,
+            pipeline_dir=self.source.directory,
+            pipeline_hash=loaded.pipeline_hash,
+            assumption_set=self.settings.assumption_set,
+            mandate=mandate,
+            effort=effort,
+            seed=resolved,
+            locked_ids=pending.locked_ids,
+            excluded_ids=pending.excluded_ids,
         )
+        try:
+            self.runner.submit(
+                payload,
+                Callbacks(
+                    succeeded=lambda outcome: self._succeeded(pending, outcome),
+                    failed=lambda error: self._failed(pending, error),
+                ),
+            )
+        except Exception as error:
+            # The row is already committed, so a runner that refuses the work —
+            # a pool shut down under us, a worker that died during spawn — would
+            # otherwise leave it `queued` for ever, with a stream that never
+            # ends and a status no forward-only transition can ever correct.
+            self._failed(pending, error)
+            raise
         return pending
 
     # -- finishing one -------------------------------------------------------
@@ -216,8 +245,6 @@ class Service:
                 finish_run(connection, record=record, finished_at=_now())
         except RunAlreadyFinishedError:  # pragma: no cover - idempotent retry
             pass
-        finally:
-            self._pending.pop(pending.run_id, None)
 
     def _failed(self, pending: PendingRun, error: BaseException) -> None:
         """Record the failure, with whatever curve reached the log before it.
@@ -241,12 +268,7 @@ class Service:
                     failure=RunFailure(code=ENGINE_ERROR, message=_diagnosis(error)),
                 )
         except (StoreError, ValueError):  # pragma: no cover - the run is already terminal
-            pass
-        finally:
-            self._pending.pop(pending.run_id, None)
-
-    def pending(self, run_id: str) -> PendingRun | None:
-        return self._pending.get(run_id)
+            LOG.exception("could not record the failure of run %s", pending.run_id)
 
 
 def _draw_seed() -> int:

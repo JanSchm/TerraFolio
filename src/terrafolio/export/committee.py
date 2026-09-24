@@ -36,13 +36,20 @@ import json
 import math
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final
 
 from terrafolio.domain.enums import Technology
 from terrafolio.domain.results import Holding, RunRecord
-from terrafolio.export.csv import SEPARATOR, money_m, multiple, percent, quantity
+from terrafolio.export.csv import (
+    PERCENT_SCALE,
+    SEPARATOR,
+    money_m,
+    multiple,
+    percent,
+    quantity,
+)
 from terrafolio.store.records import StoredRun
 
 __all__ = [
@@ -148,16 +155,41 @@ def _pct(fraction: float) -> str:
 # --------------------------------------------------------------------------
 
 
+MERCATOR_LIMIT: Final = math.degrees(math.atan(math.sinh(math.pi)))
+"""The latitude Mercator can represent, in degrees — about 85.05°.
+
+``atan(sinh(pi))`` is where the square projection's edge falls. Derived rather
+than written down: it is a property of the projection, not a value anyone chose.
+"""
+
+
+def _raw(lon: float, lat: float) -> tuple[float, float]:
+    """The unscaled Mercator of one coordinate, in radians.
+
+    Spelled as d3 spells it — ``log(tan((halfPi + phi) / 2))`` rather than the
+    algebraically identical ``log(tan(pi/4 + phi/2))`` — so the two agree in the
+    last bits and not merely to within a rounding.
+    """
+    clamped = max(-MERCATOR_LIMIT, min(MERCATOR_LIMIT, lat))
+    phi = math.radians(clamped)
+    return math.radians(lon), math.log(math.tan((math.pi / 2 + phi) / 2))
+
+
 @dataclass(frozen=True, slots=True)
 class Mercator:
     """``d3.geoMercator``, to the arithmetic d3 actually performs.
 
-    d3 projects to ``[k·x + dx, dy - k·y]`` over the raw Mercator
-    ``[λ, ln tan(π/4 + φ/2)]``, with ``dx`` and ``dy`` chosen so the configured
-    centre lands on the configured translate. Reimplemented here rather than
-    inlining 36 KB of ``d3-geo`` and a 108 KB atlas into every pack, and pinned
-    against the real library by a parity test so "reimplemented" cannot quietly
-    become "approximated".
+    d3 projects to ``[k.x + dx, dy - k.y]`` over the raw Mercator
+    ``[lambda, ln tan(pi/4 + phi/2)]``, with ``dx`` and ``dy`` chosen so the
+    configured centre lands on the configured translate. Reimplemented here
+    rather than inlining 36 KB of ``d3-geo`` and a 108 KB atlas into every pack,
+    and pinned against the real library by a parity test so "reimplemented"
+    cannot quietly become "approximated".
+
+    The two offsets depend only on the configuration, so they are computed once
+    at construction. Deriving them inside ``__call__`` meant reprojecting the
+    centre for every one of the ~8,000 points in a world atlas — three times the
+    trigonometry per point, for two numbers that never change.
     """
 
     scale: float
@@ -166,30 +198,19 @@ class Mercator:
     translate_x: float
     translate_y: float
 
-    @property
-    def limit(self) -> float:
-        """The latitude Mercator can represent, in degrees.
+    offset_x: float = field(init=False)
+    offset_y: float = field(init=False)
 
-        ``atan(sinh(π))`` — about 85.05° — is where the square projection's
-        edge falls. Derived rather than written down: it is a property of the
-        projection, not a value anyone chose.
-        """
-        return math.degrees(math.atan(math.sinh(math.pi)))
-
-    def _raw(self, lon: float, lat: float) -> tuple[float, float]:
-        clamped = max(-self.limit, min(self.limit, lat))
-        phi = math.radians(clamped)
-        # Spelled as d3 spells it — `log(tan((halfPi + phi) / 2))` rather than the
-        # algebraically identical `log(tan(pi/4 + phi/2))` — so the two agree in
-        # the last bits and not merely to within a rounding.
-        return math.radians(lon), math.log(math.tan((math.pi / 2 + phi) / 2))
+    def __post_init__(self) -> None:
+        centre_x, centre_y = _raw(self.centre_lon, self.centre_lat)
+        # `object.__setattr__` because the dataclass is frozen: these are
+        # derived at construction, not assignable afterwards.
+        object.__setattr__(self, "offset_x", self.translate_x - self.scale * centre_x)
+        object.__setattr__(self, "offset_y", self.translate_y + self.scale * centre_y)
 
     def __call__(self, lon: float, lat: float) -> tuple[float, float]:
-        centre_x, centre_y = self._raw(self.centre_lon, self.centre_lat)
-        offset_x = self.translate_x - self.scale * centre_x
-        offset_y = self.translate_y + self.scale * centre_y
-        x, y = self._raw(lon, lat)
-        return self.scale * x + offset_x, offset_y - self.scale * y
+        x, y = _raw(lon, lat)
+        return self.scale * x + self.offset_x, self.offset_y - self.scale * y
 
 
 def _decode_arcs(topology: Mapping[str, Any]) -> list[list[tuple[float, float]]]:
@@ -258,6 +279,25 @@ def _path(
 # --------------------------------------------------------------------------
 # Formatting
 # --------------------------------------------------------------------------
+
+
+def _figure(value: float) -> str:
+    """A grouped whole number with no unit — ``1,234``."""
+    return quantity(value, "").strip()
+
+
+def _one_decimal(value: float) -> str:
+    """A number to one decimal — ``3.2``.
+
+    Routed through ``percent`` so the half-away-from-zero rule lives in one
+    place in the system (``ui-contract.md`` §2) rather than being re-implemented
+    here with a different one: an f-string's ``.1f`` rounds half to **even**, so
+    a figure landing on a half would read one way in the pack and another in the
+    CSV for the same run. The scale cancels — ``percent`` multiplies by 100
+    inside the decimal domain and this divides by the same constant — so the
+    only thing borrowed is the rounding.
+    """
+    return percent(value / PERCENT_SCALE, places=1).removesuffix("%")
 
 
 def _text(value: object) -> str:
@@ -380,7 +420,7 @@ def _tiles(record: RunRecord, bands: Mapping[str, float]) -> list[Tile]:
         ),
         Tile(
             label="Weighted LCOE",
-            value=f"€{totals.weighted_lcoe:,.0f}",
+            value=f"€{_figure(totals.weighted_lcoe)}",
             sub="per MWh, real",
             state=NEUTRAL,
         ),
@@ -409,7 +449,7 @@ def _tiles(record: RunRecord, bands: Mapping[str, float]) -> list[Tile]:
             ),
             sub=_join(
                 f"cap {percent(mandate.max_country_share)}",
-                f"risk score {totals.weighted_risk_score:.1f}",
+                f"risk score {_one_decimal(totals.weighted_risk_score)}",
             ),
             state=_verdict(totals.largest_country_share <= mandate.max_country_share),
         ),
@@ -692,12 +732,12 @@ def _holdings_table(record: RunRecord) -> str:
             f'<td class="num">{_text(percent(holding.gearing))}</td>'
             f'<td class="num">{_text(percent(holding.net_capacity_factor, places=1))}</td>'
             f'<td class="num">{_text(quantity(holding.annual_generation_gwh, ""))}</td>'
-            f'<td class="num">{holding.lcoe:,.0f}</td>'
+            f'<td class="num">{_text(_figure(holding.lcoe))}</td>'
             f'<td class="num">{_text(percent(holding.ppa_share))}</td>'
             f'<td class="num">'
             f"{_text(_optional(holding.equity_irr, lambda value: percent(value, places=1)))}</td>"
             f"{dscr_cell}"
-            f'<td class="num">{holding.development_risk_score:.1f}</td>'
+            f'<td class="num">{_text(_one_decimal(holding.development_risk_score))}</td>'
             "</tr>"
         )
     headings = "".join(f"<th>{_text(name)}</th>" for name in HOLDINGS_HEADINGS)

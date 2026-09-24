@@ -22,6 +22,7 @@ from test_sse import queued_run
 
 from terrafolio.api.app import create_app
 from terrafolio.api.records import PendingRun, failed_record
+from terrafolio.api.routes_runs import FAILED_MESSAGE
 from terrafolio.api.service import Service, build_service
 from terrafolio.api.wire import OptimisationRequest
 from terrafolio.domain.enums import Effort, RunStatus
@@ -172,7 +173,17 @@ async def test_a_run_that_fails_is_recorded_rather_than_lost(tmp_path: Path) -> 
 
         assert body["status"] == "failed"
         assert body["error"]["code"] == "ENGINE_ERROR"  # type: ignore[index]
-        assert "now hashes to" in body["error"]["message"]  # type: ignore[index]
+        # §1.7: one sentence fit to show a user. The diagnosis lives in the
+        # store, not on a wire that nothing in this backlog authenticates.
+        message = body["error"]["message"]  # type: ignore[index]
+        assert message == FAILED_MESSAGE
+        assert "Traceback" not in message
+        assert "/" not in message, "a server path reached the client"
+
+        with closing(service.connect()) as connection:
+            recorded = load_run(connection, run_id=str(body["runId"]))
+        assert recorded.error_code == "ENGINE_ERROR"
+        assert "now hashes to" in str(recorded.error_message), "the audit trail lost the reason"
         # The run keeps everything that explains it.
         assert body["provenance"]["seed"] == 3  # type: ignore[index]
         assert body["aggregates"] is None
@@ -287,6 +298,7 @@ async def test_a_cancelled_run_reads_back_as_a_terminal_run(tmp_path: Path) -> N
 
 def _pending_for(service: Service, run_id: str) -> PendingRun:
     """The submission-time record for a run this test opened by hand."""
+    snapshot = service.source.current()
     with closing(service.connect()) as connection:
         stored = load_run(connection, run_id=run_id)
     record = stored.record
@@ -299,7 +311,7 @@ def _pending_for(service: Service, run_id: str) -> PendingRun:
         locked_ids=record.locked_ids,
         excluded_ids=record.excluded_ids,
         provenance=record.provenance,
-        candidates=service.source.candidates,
-        returns=service.source.returns(record.mandate.hold_years),
+        candidates=snapshot.candidates,
+        returns=snapshot.returns(record.mandate.hold_years),
         total_generations=stored.generations_planned,
     )
