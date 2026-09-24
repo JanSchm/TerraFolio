@@ -77,10 +77,27 @@
      (project, mandate) and returns a boolean; none looks at any other. Mandate field
      names are api.md §6.1. */
 
+  /**
+   * Collapse the `UK` alias onto the ISO `GB` the rest of the system uses.
+   *
+   * `pipeline-schema.md` §4.1 accepts `UK` as an alias and `ui-contract.md` §3.2 names
+   * the fourteenth market that way, so the country chips emit `UK` while every loaded
+   * file carries `GB`. `pipeline/arrays.py` normalises **both** ends for exactly this
+   * reason; doing it on one side only is not an alias, it is a screen that silently
+   * rejects every British project. See docs/decisions.md 4A-2.
+   */
+  function isoCountry(code) {
+    return code === 'UK' ? 'GB' : code;
+  }
+
   var screens = {
     /** 1. The project's country is on the mandate's eligible list. */
     country: function (p, m) {
-      return (m.countries || []).indexOf(p.countryCode) !== -1;
+      var wanted = m.countries || [];
+      for (var i = 0; i < wanted.length; i++) {
+        if (isoCountry(wanted[i]) === isoCountry(p.countryCode)) return true;
+      }
+      return false;
     },
 
     /** 2. The project's development stage is in scope. */
@@ -153,6 +170,57 @@
     return SCREEN_ORDER.filter(function (name) {
       return !screens[name](p, m, cap, excludedIds);
     });
+  }
+
+  /**
+   * This file's screen names, spelled as `optimiser/screens.py` spells them.
+   *
+   * The two lists were written independently and four of the nine disagree. The wire
+   * name is the one that reaches a user, through `screensToWiden` on
+   * POST /mandate/preview and in the 422 a blocked run answers with, so it is the one
+   * this side has to emit. The local names stay as they are: they key `screens` and
+   * are what `SCREEN_ORDER` and every unit test name.
+   */
+  var WIRE_SCREEN_NAMES = {
+    country: 'countries',
+    stage: 'stages',
+    codWindow: 'codWindow',
+    minDscr: 'minDscr',
+    riskCap: 'riskScore',
+    gridSecured: 'gridSecured',
+    omContracted: 'omContracted',
+    currency: 'eurRevenue',
+    notExcluded: 'exclusions',
+  };
+
+  /**
+   * The screens rejecting anything, worst offender first — §13's "naming the screens
+   * to widen", and the actionable half of the answer on a mandate nothing passes.
+   *
+   * Each screen is counted **independently** over the whole pipeline, as
+   * `ScreenResult.drops` does: a project failing three screens is counted by all
+   * three, because widening any one of them is a thing the user can do. Ties break on
+   * the wire name, which is what makes this reproduce the server's order exactly.
+   */
+  function screensToWiden(all, m, cap, excludedIds) {
+    var drops = {};
+    var i;
+    var j;
+    for (i = 0; i < SCREEN_ORDER.length; i++) drops[SCREEN_ORDER[i]] = 0;
+    for (i = 0; i < all.length; i++) {
+      for (j = 0; j < SCREEN_ORDER.length; j++) {
+        var name = SCREEN_ORDER[j];
+        if (!screens[name](all[i], m, cap, excludedIds)) drops[name] += 1;
+      }
+    }
+    return SCREEN_ORDER
+      .filter(function (name) { return drops[name] > 0; })
+      .map(function (name) { return { name: WIRE_SCREEN_NAMES[name], drops: drops[name] }; })
+      .sort(function (a, b) {
+        if (a.drops !== b.drops) return b.drops - a.drops;
+        return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+      })
+      .map(function (entry) { return entry.name; });
   }
 
   /* ── The eligible pool, in aggregate ────────────────────────────────────────
@@ -295,7 +363,16 @@
     var excludedIds = (locks && locks.excludedIds) || [];
     var cap = riskCap(payload, mandate.riskAppetite);
 
-    var pool = all.filter(function (p) { return passes(p, mandate, cap, excludedIds); });
+    /* A lock re-admits a project that fails a hard pre-screen, and the re-admission
+       is visible rather than silent (`LOCKS_PRESENT`). That is what `apply_screens`
+       does — `eligible = survives_every_screen | locked` — and api.md §5 requires
+       this computation to agree with the preview endpoint field for field. A project
+       that is both locked and excluded stays excluded: the exclusion is the more
+       specific instruction. See decisions.md 2A-20 and 4A-3. */
+    var held = lockedIds.filter(function (id) { return excludedIds.indexOf(id) === -1; });
+    var pool = all.filter(function (p) {
+      return passes(p, mandate, cap, excludedIds) || held.indexOf(p.id) !== -1;
+    });
     var agg = aggregate(pool);
 
     var lockedEquity_m = all.reduce(function (sum, p) {
@@ -314,6 +391,7 @@
       eligibleGearing: agg.eligibleGearing,
       lockedEquity_m: lockedEquity_m,
       warnings: found,
+      screensToWiden: screensToWiden(all, mandate, cap, excludedIds),
       runnable: !blocking,
       /* Not on the wire: the pool itself, and the three footer figures already
          formatted, so the page never formats a number of its own (spec §14). */
@@ -331,6 +409,9 @@
 
   var api = {
     feasibility: feasibility,
+    screensToWiden: screensToWiden,
+    WIRE_SCREEN_NAMES: WIRE_SCREEN_NAMES,
+    isoCountry: isoCountry,
     screens: screens,
     SCREEN_ORDER: SCREEN_ORDER,
     passes: passes,
