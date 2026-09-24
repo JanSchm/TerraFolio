@@ -129,13 +129,21 @@
 
   /**
    * What the primary action compares itself against, so §7.6's relabelling to
-   * "Re-run with changes" is a fact rather than a flag someone has to remember to
-   * set. Keys are sorted because a store rebuilt in a different order is the same
-   * mandate.
+   * "Re-run with changes" is a fact rather than a flag someone has to remember to set.
+   *
+   * Both the keys and any list of values are sorted, because the question is whether
+   * this is the same mandate and neither order carries meaning. The list half is not
+   * theoretical: `domain/mandate.py` sorts and dedupes `countries` and `stages`, so
+   * the mandate that comes back on a stored run is alphabetical while the chips emit
+   * them in the order ui-contract.md §3.2 lays them out. Comparing those two
+   * literally made every freshly finished run claim it had changed since it ran.
    */
   function signature(mandate, locks) {
     var keys = Object.keys(mandate || {}).sort();
-    var ordered = keys.map(function (key) { return [key, mandate[key]]; });
+    var ordered = keys.map(function (key) {
+      var value = mandate[key];
+      return [key, Array.isArray(value) ? value.slice().sort() : value];
+    });
     return JSON.stringify([ordered, ids(locks && locks.lockedIds), ids(locks && locks.excludedIds)]);
   }
 
@@ -224,7 +232,11 @@
 
   /* ── The page ───────────────────────────────────────────────────────────── */
 
+  /** Idempotent: `boot` calls it, and a second page would bind the form twice. */
+  var current = null;
+
   function startPage() {
+    if (current) return current;
     var form = document.querySelector('[data-form="mandate"]');
     if (!form) return null;
 
@@ -238,6 +250,7 @@
       submitting: false,
     };
 
+    current = page;
     var saved = savedMandate();
     if (saved) applyMandate(form, saved);
     page.mandate = readMandate(form);
@@ -427,6 +440,7 @@
     applyMandate: applyMandate,
     warningItem: warningItem,
     startPage: startPage,
+    reset: function () { current = null; },
     usePipeline: usePipeline,
     toggleRejected: toggleRejected,
     renderHealth: renderHealth,

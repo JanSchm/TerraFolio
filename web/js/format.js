@@ -65,6 +65,18 @@
     return defined(value) ? '€' + group(Math.round(value), 0) + 'm' : DASH;
   }
 
+  /**
+   * Euros with no magnitude suffix: `€41`.
+   *
+   * For a figure whose unit is in the label beside it rather than in the number —
+   * ui-contract.md §5.1's weighted-LCOE tile reads `€41` over `per MWh, 6% real`.
+   * It takes no `m`, because it is not in millions; putting one there is the €m
+   * boundary error the suffix exists to prevent.
+   */
+  function eur(value) {
+    return defined(value) ? '\u20ac' + group(Math.round(value), 0) : DASH;
+  }
+
   /** Euros per MWh, whole euros: `€41/MWh`. */
   function eurMwh(value) {
     return defined(value) ? '€' + group(Math.round(value), 0) + '/MWh' : DASH;
@@ -124,6 +136,17 @@
   }
 
   /**
+   * A coordinate, to two decimals with a degree sign: `39.33°`.
+   *
+   * ui-contract.md §5.5 pins the precision. Two decimals is about a kilometre, which
+   * is the site-centroid precision spec §8 says is sufficient, and showing more would
+   * claim a survey nobody did.
+   */
+  function degrees(value) {
+    return defined(value) ? group(value, 2) + '\u00b0' : DASH;
+  }
+
+  /**
    * The search screen's mandate score, to three decimals: `5.019`.
    *
    * ui-contract.md §4 is the only place in the product that asks for three, and it
@@ -155,6 +178,7 @@
     TIMES: TIMES,
     defined: defined,
     eurM: eurM,
+    eur: eur,
     eurMwh: eurMwh,
     mw: mw,
     gwh: gwh,
@@ -167,6 +191,7 @@
     year: year,
     score: score,
     mandateScore: mandateScore,
+    degrees: degrees,
     join: join,
   };
 

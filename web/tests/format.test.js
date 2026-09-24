@@ -122,6 +122,26 @@ test('score — development risk to one decimal', () => {
   assertDashesUndefined(fmt.score, 'score');
 });
 
+test('eur is euros with the unit left to the label beside it', () => {
+  assert.equal(fmt.eur(41), '\u20ac41');
+  assert.equal(fmt.eur(1204.6), '\u20ac1,205');
+  assert.equal(fmt.eur(0), '\u20ac0', 'a cost of zero is a cost');
+  assert.ok(!fmt.eur(41).endsWith('m'), 'it is not in millions, and must not claim to be');
+  for (const bad of [null, undefined, NaN, Infinity, -Infinity, 'x', {}]) {
+    assert.equal(fmt.eur(bad), fmt.DASH);
+  }
+});
+
+test('degrees is two decimals, which is the precision the sites are known to', () => {
+  assert.equal(fmt.degrees(39.33), '39.33\u00b0');
+  assert.equal(fmt.degrees(1.1), '1.10\u00b0', 'padded, so a column of them aligns');
+  assert.equal(fmt.degrees(-8.94), '-8.94\u00b0');
+  assert.equal(fmt.degrees(0), '0.00\u00b0');
+  for (const bad of [null, undefined, NaN, Infinity, -Infinity, 'x', {}]) {
+    assert.equal(fmt.degrees(bad), fmt.DASH);
+  }
+});
+
 test('mandateScore is three decimals, because that is where a run moves', () => {
   assert.equal(fmt.mandateScore(5.018856), '5.019');
   assert.equal(fmt.mandateScore(-2.216503), '-2.217');

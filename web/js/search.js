@@ -81,7 +81,11 @@
     return match ? decodeURIComponent(match.slice(4)) : null;
   }
 
+  /** Idempotent: `boot` calls it, and a second call would open a second stream. */
+  var current = null;
+
   function start() {
+    if (current) return current;
     if (!document.querySelector('[data-region="round-counter"]')) return null;
 
     var page = {
@@ -96,6 +100,7 @@
       stopped: false,
     };
 
+    current = page;
     var cancel = document.querySelector('[data-action="cancel"]');
     if (cancel) {
       // Not preventDefault: the link goes back to the mandate, and this only makes
@@ -255,6 +260,7 @@
     note: note,
     counter: counter,
     start: start,
+    reset: function () { current = null; },
     arrive: arrive,
     tick: tick,
     draw: draw,
