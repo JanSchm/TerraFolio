@@ -212,8 +212,8 @@ test('the countries a portfolio holds are tinted, and the others are not', () =>
   // a mismatch here means the printed pack and the screen tint different maps —
   // and counting `<path>` elements, as this file used to, cannot see it.
   const svg = edge.siteMap({ atlas: ATLAS, sites: SITES }).markup;
-  const tinted = (svg.match(/--color-accent-200/g) || []).length;
-  const plain = (svg.match(/--color-neutral-200/g) || []).length;
+  const tinted = (svg.match(/fill-accent-200/g) || []).length;
+  const plain = (svg.match(/fill-neutral-200/g) || []).length;
 
   assert.equal(tinted, SITES.length, 'one tint per held country');
   assert.ok(plain > 100, 'and every other country stays neutral');
@@ -223,12 +223,42 @@ test('the countries a portfolio holds are tinted, and the others are not', () =>
 });
 
 test('a malformed atlas degrades exactly as a missing one does', () => {
-  for (const atlas of [undefined, null, {}, { objects: {} }, { objects: { countries: null } }]) {
+  // The last four are the sharp ones: an atlas can be an object, and carry an
+  // `objects.countries`, and still be unusable. `topojson.feature` throws on
+  // them, and a throw inside these getters takes the surrounding Alpine bindings
+  // with it — the opposite of degrading.
+  for (const atlas of [
+    undefined, null, {}, { objects: {} }, { objects: { countries: null } },
+    { objects: { countries: {} } },
+    { objects: { countries: { type: 'Nope' } } },
+    { objects: { countries: { type: 'GeometryCollection' } } },
+    { objects: { countries: { type: 'GeometryCollection', geometries: [] } }, arcs: [] },
+  ]) {
     const map = edge.siteMap({ atlas, sites: SITES });
     assert.equal(map.available, false);
     assert.equal(map.notice, 'Map data unavailable.');
     assert.equal(map.markup, '', 'the notice is text for the page, never injected markup');
   }
+});
+
+test('every colour the map paints with is a class the stylesheet actually defines', () => {
+  // The bug this exists to catch: 1D's Tailwind theme defines literal colours and
+  // emits no custom properties, so `fill="var(--color-accent-200)"` resolves to
+  // nothing and every country and marker falls back to the browser default. A test
+  // that only counted the *string* in the markup would pass while the rendered map
+  // was black — which is exactly what the tint assertion above would do on its own.
+  const built = fs.readFileSync(path.join(WEB, 'dist', 'app.css'), 'utf8');
+  const painted = Object.values(edge.paint);
+  assert.ok(painted.length >= 6, 'every fill and stroke the map sets');
+
+  for (const name of painted) {
+    assert.match(built, new RegExp('\\.' + name + '\\{'),
+      `${name} is not in dist/app.css — Tailwind never generated it`);
+  }
+
+  const svg = edge.siteMap({ atlas: ATLAS, sites: SITES }).markup;
+  assert.ok(!svg.includes('var(--color-'),
+    'the design system has no custom properties, so a var() here paints nothing');
 });
 
 test('the map draws the projection ui-contract.md §5.3 pins, and the pack reads the same numbers', () => {

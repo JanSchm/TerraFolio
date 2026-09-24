@@ -2989,6 +2989,21 @@ reproduces the committee pack's own Python reimplementation to the rendered deci
 atlas's `id` is a **numeric** ISO-3166 code, so a tint keyed on `ES` or `ESP` matches nothing and
 fails silently; only an assertion that a held country is actually tinted catches it.
 
+The map paints with **utility classes**, never `var(--color-…)`. 1D's Tailwind theme defines
+literal colours and emits no custom properties — `web/dist/app.css` carries no `--color-*` at all —
+so an inline `fill="var(--color-accent-200)"` is an unresolved reference and every country and
+marker falls back to the browser default. The committee pack meets the same wall and answers it the
+other way, declaring its own `--pack-*` properties, because it ships its own stylesheet; a page
+inside the design system should use the system, as the legend swatches under this very map already
+do. The test asserts each class exists in the built stylesheet, because a test that only counted the
+string in the markup would pass while the rendered map was black.
+
+An atlas that is an object, and carries an `objects.countries`, can still be unusable —
+`{objects: {countries: {}}}` makes `topojson.feature` reach for geometries that are not there. The
+conversion therefore happens where `available` can see it rather than inside `svg()`: a throw from a
+getter Alpine is evaluating takes the surrounding bindings with it, which is the opposite of the
+degradation §13 asks for. Corrupt geometry now reaches the same notice as missing geometry.
+
 The degradation notice is **text**, rendered by the page into an element beside the map rather than
 injected into it. `data-region="map"` carries `role="img"`, and an ARIA img's subtree is
 presentational — a notice inside it is announced to nobody, so the one state whose whole job is to
@@ -3148,5 +3163,5 @@ implementations agree exactly, so whatever scale is chosen will move both.
 | 2026-09-24 | #13 | 4C-6 — §3.5's first sentence names three screens statically; `screensToWiden` carries the real ones. |
 | 2026-09-24 | #13 | 4C-7 — a whole-pipeline failure on reload is a 500; `422 PIPELINE_UNUSABLE` proposed to 3A on #1. |
 | 2026-09-24 | #13 | 4C-8 — the edge fixtures are single documented edits to `P01`, width-3, and guarded against drift. |
-| 2026-09-24 | #13 | 4C-9 — the three missing page states land in `web/js/edge-states.js`; the map tints on country name and the notice sits outside the ARIA img. |
+| 2026-09-24 | #13 | 4C-9 — the three missing page states land in `web/js/edge-states.js`; the map tints on country name, paints in utility classes because the system has no custom properties, and degrades on corrupt geometry as on missing. |
 | 2026-09-24 | #13 | 4C-10 — §5.3's map scale puts five of six markers outside the panel, in the pack as on screen. |

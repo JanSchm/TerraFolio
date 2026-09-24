@@ -76,6 +76,34 @@
     emptyPipeline: 'The pipeline holds no project files. Add files to pipeline/ and reload.',
   };
 
+  /**
+   * §5.3's colours, as **utility classes** rather than as `var(--color-…)`.
+   *
+   * 1D's Tailwind theme defines literal colours and emits no custom properties —
+   * `web/dist/app.css` contains no `--color-*` at all — so `fill="var(--color-accent-200)"`
+   * is an unresolved reference and the browser falls back to its default, which
+   * is black. Every marker and every country would render in the wrong colour on
+   * a map that otherwise looked fine.
+   *
+   * The committee pack hits the same wall and answers it the other way: it
+   * declares its own `--pack-*` properties because it ships its own stylesheet.
+   * A page inside the design system should use the system instead, which is what
+   * the legend swatches directly beneath this map already do (`bg-solar`,
+   * `bg-wind`, `border-accent-700`).
+   *
+   * Written as whole literals because Tailwind's scanner reads
+   * `content: ['./*.html', './js/**' + '/*.js']` as plain text: a class assembled
+   * from fragments is a class that never gets generated.
+   */
+  var PAINT = {
+    held: 'fill-accent-200',
+    other: 'fill-neutral-200',
+    border: 'stroke-divider',
+    solar: 'fill-accent-700',
+    wind: 'fill-accent-400',
+    marker: 'stroke-bg',
+  };
+
   /* ui-contract.md §5.3, in one place so the geometry is quotable rather than
      scattered through the rendering. The committee pack reads the same numbers
      from export/pack-layout.json. */
@@ -99,12 +127,44 @@
   function siteMap(options) {
     var o = options || {};
 
-    /* The memo lives in the closure, never on the returned object. Alpine's
+    /* Both memos live in the closure, never on the returned object. Alpine's
        reactivity tracks property writes, so caching onto `this` inside a getter
        that `x-html` evaluates would write to tracked state from inside the effect
        reading it — which re-triggers the effect and leaves sibling bindings in an
        inconsistent state. A closure variable is invisible to the proxy. */
     var memo = null;
+    var decoded = null;
+
+    /**
+     * The atlas's countries as features, or `null` if it cannot produce them.
+     *
+     * The conversion happens **here**, not in `svg()`, because it is the call
+     * that throws on a corrupt topology — and `available` has to be able to
+     * answer without throwing. An atlas can be an object, and have an
+     * `objects.countries`, and still be unusable: `{objects: {countries: {}}}`
+     * makes `topojson.feature` reach for geometries that are not there. A panel
+     * that threw there would take the surrounding Alpine bindings with it, which
+     * is the opposite of the degradation §13 asks for.
+     *
+     * Memoised per atlas so `available` is cheap to read on every reactive pass.
+     */
+    function countries(atlas) {
+      if (decoded && decoded.atlas === atlas) return decoded.features;
+      decoded = { atlas: atlas, features: null };
+      var d3 = geo();
+      var client = topo();
+      if (!atlas || !atlas.objects || !atlas.objects.countries || !d3 || !client) {
+        return null;
+      }
+      try {
+        var collection = client.feature(atlas, atlas.objects.countries);
+        var list = collection && collection.features;
+        decoded.features = Array.isArray(list) && list.length ? list : null;
+      } catch (error) {
+        decoded.features = null;
+      }
+      return decoded.features;
+    }
 
     return {
       sites: o.sites || [],
@@ -127,9 +187,7 @@
       },
 
       get available() {
-        var atlas = this.atlas;
-        if (!atlas || !atlas.objects || !atlas.objects.countries) return false;
-        return Boolean(geo() && topo());
+        return countries(this.atlas) !== null;
       },
 
       /**
@@ -169,14 +227,13 @@
         var path = d3.geoPath(projection);
         var held = this.heldCountries;
 
-        var countries = topo().feature(this.atlas, this.atlas.objects.countries).features;
-        var shapes = countries.map(function (country) {
+        var shapes = countries(this.atlas).map(function (country) {
           var drawn = path(country);
           if (!drawn) return '';
           var name = (country.properties || {}).name;
-          var fill = held[name] ? 'var(--color-accent-200)' : 'var(--color-neutral-200)';
-          return '<path d="' + drawn + '" fill="' + fill
-            + '" stroke="var(--color-divider)" stroke-width="' + MAP.countryStroke + '"/>';
+          var fill = held[name] ? PAINT.held : PAINT.other;
+          return '<path d="' + drawn + '" class="' + fill + ' ' + PAINT.border
+            + '" stroke-width="' + MAP.countryStroke + '"/>';
         }).join('');
 
         var markers = this.sites.map(function (site) {
@@ -187,13 +244,11 @@
           var radius = Math.max(
             MAP.markerRadiusFloor, Math.sqrt(mw) * MAP.markerRadiusFactor
           );
-          var colour = site.technology === 'solar'
-            ? 'var(--color-accent-700)'
-            : 'var(--color-accent-400)';
+          var colour = site.technology === 'solar' ? PAINT.solar : PAINT.wind;
           return '<circle cx="' + point[0].toFixed(1) + '" cy="' + point[1].toFixed(1)
-            + '" r="' + radius.toFixed(1) + '" fill="' + colour
+            + '" r="' + radius.toFixed(1) + '" class="' + colour + ' ' + PAINT.marker
             + '" fill-opacity="' + MAP.markerFillOpacity
-            + '" stroke="var(--color-bg)" stroke-width="' + MAP.markerStroke + '"/>';
+            + '" stroke-width="' + MAP.markerStroke + '"/>';
         }).join('');
 
         return '<svg viewBox="0 0 ' + MAP.width + ' ' + MAP.height
@@ -341,6 +396,6 @@
   }
 
   if (typeof module === 'object' && module.exports) {
-    module.exports = Object.assign({}, factories, { messages: MESSAGES, map: MAP });
+    module.exports = Object.assign({}, factories, { messages: MESSAGES, map: MAP, paint: PAINT });
   }
 })(typeof globalThis !== 'undefined' ? globalThis : this);
