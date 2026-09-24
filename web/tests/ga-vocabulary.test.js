@@ -121,31 +121,61 @@ for (const file of fs.readdirSync(WEB).filter((f) => f.endsWith('.html'))) {
  * A hand-rolled scanner rather than a regex because the two things that must not be
  * confused — a comment and a string — can each contain the other's delimiters.
  */
-function stringLiterals(source) {
+/** Keywords after which a `/` can only begin a regex, never divide. */
+const REGEX_MAY_FOLLOW = new Set([
+  'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw',
+  'case', 'do', 'else', 'yield', 'await',
+]);
+
+function stringLiterals(source, file = '<source>') {
   const out = [];
   let i = 0;
   let previous = '';
+  let word = '';
   while (i < source.length) {
     const c = source[i];
     const next = source[i + 1];
     if (c === '/' && next === '/') { while (i < source.length && source[i] !== '\n') i += 1; continue; }
     if (c === '/' && next === '*') { i = source.indexOf('*/', i + 2); i = i < 0 ? source.length : i + 2; continue; }
-    // A '/' that opens a regex rather than dividing: decided by what precedes it.
-    if (c === '/' && /[(,=:[!&|?{};+\-*%~^]/.test(previous)) {
+
+    /* A '/' that opens a regex rather than dividing. The preceding punctuation
+       decides it most of the time, but `return /re/` and `typeof x === 'y' ? /a/ : /b/`
+       are preceded by a letter, and reading those as division desynchronises the
+       whole scan. */
+    if (c === '/' && (/[(,=:[!&|?{};+\-*%~^]/.test(previous) || REGEX_MAY_FOLLOW.has(word))) {
       i += 1;
-      while (i < source.length && source[i] !== '/') { if (source[i] === '\\') i += 1; i += 1; }
-      i += 1; previous = '/'; continue;
+      while (i < source.length && source[i] !== '/') {
+        if (source[i] === '\\') i += 1;
+        if (source[i] === '[') { while (i < source.length && source[i] !== ']') i += 1; }
+        i += 1;
+      }
+      i += 1; previous = '/'; word = ''; continue;
     }
+
     if (c === '"' || c === "'" || c === '`') {
       const quote = c;
+      const opened = i;
       let value = '';
       i += 1;
       while (i < source.length && source[i] !== quote) {
         if (source[i] === '\\') { i += 2; value += ' '; continue; }
         value += source[i]; i += 1;
       }
-      i += 1; previous = quote; out.push(value); continue;
+      /* Fail closed. A quoted literal cannot contain a raw newline in JavaScript —
+         that is a syntax error — so one here means the scan lost its place, most
+         likely on a regex this heuristic misread. Silently carrying on would leave
+         the rest of the file unscanned and the guard reporting success. */
+      if (quote !== '`' && value.indexOf('\n') !== -1) {
+        const line = source.slice(0, opened).split('\n').length;
+        throw new Error(`${file}:${line}: the literal scanner lost its place — a ${quote} `
+          + 'literal cannot span lines. Something before this was misread, so the rest '
+          + 'of the file would go unchecked. Widen REGEX_MAY_FOLLOW or simplify the line.');
+      }
+      i += 1; previous = quote; word = ''; out.push(value); continue;
     }
+
+    if (/[A-Za-z_$]/.test(c)) word += c;
+    else if (!/\s/.test(c)) word = '';
     if (!/\s/.test(c)) previous = c;
     i += 1;
   }
@@ -161,7 +191,7 @@ function jsFiles(dir, prefix = 'js') {
 for (const file of jsFiles('js')) {
   test(`${file}: no algorithm vocabulary in a string literal`, () => {
     const bad = [];
-    for (const value of stringLiterals(fs.readFileSync(path.join(WEB, file), 'utf8'))) {
+    for (const value of stringLiterals(fs.readFileSync(path.join(WEB, file), 'utf8'), file)) {
       if (WIRE_NAMES.has(value)) continue;
       const found = offences(value);
       if (found.length) bad.push(`${file}: "${value.slice(0, 70)}" → ${found.join(', ')}`);
@@ -182,6 +212,25 @@ test('the scanner reads literals and ignores comments and identifiers', () => {
     'var leak = "ROUND 7, generation 7 of 60";',
   ].join('\n');
   assert.deepEqual(stringLiterals(source), ['Mandate score', 'ROUND 7, generation 7 of 60']);
+});
+
+test('a regex literal does not desynchronise the scan', () => {
+  // `return` ends in a letter, so punctuation alone reads this as division and the
+  // apostrophe opens a literal that swallows the rest of the file — leaving the
+  // guard reporting success over code it never looked at.
+  const source = [
+    "function isDone(s) { return /it's done/.test(s); }",
+    "var label = 'Best fitness this generation';",
+  ].join('\n');
+  assert.deepEqual(stringLiterals(source), ['Best fitness this generation'],
+    'the literal after the regex must still be found');
+  assert.deepEqual(offences(stringLiterals(source)[0]).sort(), ['fitness', 'generation']);
+});
+
+test('a scan that loses its place fails loudly rather than reporting success', () => {
+  // A shape the heuristic cannot resolve must stop the run, not quietly skip the file.
+  assert.throws(() => stringLiterals("var a = b /'/ c;\nvar d = 'x';\n", 'probe.js'),
+    /lost its place/);
 });
 
 test('the domain sense of generation passes and the algorithm sense does not', () => {

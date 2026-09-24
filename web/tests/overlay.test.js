@@ -149,6 +149,54 @@ for (const { what, trigger, scrim } of OVERLAYS) {
   });
 }
 
+test('the trap recaptures focus that reached the page behind it', async () => {
+  // A wrapper-scoped keydown handler only catches Tab once focus is already
+  // inside, so focus arriving from outside — back from the URL bar, or moved by
+  // a script — would walk the page behind the scrim freely. The listener is on
+  // the document while open, and comes off again when it closes.
+  const dom = await portfolio();
+  const d = dom.window.document;
+  d.querySelector('[data-action="export"]').click();
+  await settled(dom);
+
+  const outside = d.querySelector('#p-search');
+  outside.focus();
+  assert.equal(d.activeElement, outside, 'focus is on the page behind the dialog');
+
+  const event = press(dom.window, outside, 'Tab');
+  assert.equal(event.defaultPrevented, true);
+  assert.ok(d.activeElement.closest('[role="dialog"]'),
+    'Tab from outside must pull focus back into the dialog');
+
+  press(dom.window, d.activeElement, 'Escape');
+  await settled(dom);
+
+  const afterClose = press(dom.window, outside, 'Tab');
+  assert.equal(afterClose.defaultPrevented, false,
+    'and the document listener has to come off again, or the page stays trapped');
+  dom.window.close();
+});
+
+test('opening an already-open overlay does not strand the first trigger', async () => {
+  const dom = await portfolio();
+  const d = dom.window.document;
+  const trigger = d.querySelector('[data-action="export"]');
+  trigger.click();
+  await settled(dom);
+
+  // A second open would overwrite returnTo, leaving this one announcing an
+  // expanded dialog forever and never receiving focus back.
+  const other = d.querySelector('[data-region="holdings"] [data-action="open-drawer"]');
+  other.click();
+  await settled(dom);
+
+  d.querySelector('[data-action="close-export"]').click();
+  await settled(dom);
+  assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+  assert.equal(d.activeElement, trigger, 'focus is owed back to what opened it');
+  dom.window.close();
+});
+
 test('the export trigger reports what it opens and whether it is open', async () => {
   const dom = await portfolio();
   const d = dom.window.document;

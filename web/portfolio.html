@@ -405,8 +405,7 @@
      is what does the trapping, closes on Esc and hands focus back to the row that
      opened it (ui-contract.md §7.2, §5.5). The opener is delegated on the
      document because those rows are rendered by issue #11 and do not exist yet. -->
-<div x-data="overlay({ name: 'drawer', openWith: '[data-action=&quot;open-drawer&quot;]' })"
-     @keydown="onKeydown($event)">
+<div x-data="overlay({ name: 'drawer', openWith: '[data-action=&quot;open-drawer&quot;]' })">
   <div class="fixed inset-0 z-scrim bg-text/35" data-region="drawer-scrim"
        x-ref="scrim" :hidden="!open" hidden @click="hide()"></div>
   <aside class="panel fixed inset-y-0 right-0 z-drawer w-[min(440px,94vw)] overflow-y-auto border-l border-divider bg-bg !p-[22px]"
@@ -433,8 +432,7 @@
 </div>
 
 <!-- ── Export dialog ───────────────────────────────────────────────────────── -->
-<div x-data="overlay({ name: 'export', openWith: '[data-action=&quot;export&quot;]' })"
-     @keydown="onKeydown($event)">
+<div x-data="overlay({ name: 'export', openWith: '[data-action=&quot;export&quot;]' })">
   <div class="fixed inset-0 z-dialog flex items-center justify-center bg-text/35 p-4"
        data-region="export-scrim" x-ref="scrim" :hidden="!open" hidden @click.self="hide()">
     <div class="panel w-[min(460px,92vw)] bg-bg !p-6" role="dialog" aria-modal="true"

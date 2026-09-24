@@ -104,7 +104,13 @@ function inherited(el, prefix, doc) {
 
 /* ── Walking a page ───────────────────────────────────────────────────────── */
 
+/**
+ * Not rendered text. Compared case-insensitively because an SVG element reports a
+ * lowercase `tagName` while an HTML one reports uppercase — so an SVG `<title>`,
+ * which is a tooltip and not visible text, was being audited as if it were.
+ */
 const SKIP = new Set(['SCRIPT', 'STYLE', 'TEMPLATE', 'TITLE', 'DESC']);
+const skipped = (el) => SKIP.has(el.tagName.toUpperCase());
 
 function isHidden(el) {
   return !!el.closest('[hidden], .sr-only');
@@ -156,7 +162,7 @@ function pairings(document, page) {
   };
 
   for (const el of document.querySelectorAll('*')) {
-    if (SKIP.has(el.tagName) || isHidden(el)) continue;
+    if (skipped(el) || isHidden(el)) continue;
 
     const ownText = [...el.childNodes]
       .some((n) => n.nodeType === 3 && n.nodeValue.trim().length > 0);

@@ -106,6 +106,53 @@ test('a sentence pairs each label with its figure', async () => {
   dom.window.close();
 });
 
+test('a flat definition list pairs each term with its own value', async () => {
+  // The conventional <dl> shape has no per-pair wrapper. Asking a term's parent
+  // for its first <dd> pairs every term with the first value, and the footer
+  // announces confidently wrong figures with nothing failing.
+  const dom = new JSDOM('<dl id="figures">'
+    + '<dt>Eligible capacity</dt><dd>3,120 MW</dd>'
+    + '<dt>Equity required at full draw</dt><dd>\u20AC1,154m</dd></dl>');
+  const dl = dom.window.document.getElementById('figures');
+  const region = liveRegion({ quiet: 10 });
+  region.observe([dl]);
+  dl.querySelector('dd').textContent = '3,120 MW';
+  await after(dom.window, 40);
+
+  assert.equal(region.message,
+    'Eligible capacity 3,120 MW. Equity required at full draw \u20AC1,154m.');
+  dom.window.close();
+});
+
+test('a source that renders empty announces nothing, not a lone full stop', async () => {
+  const { dom, dl } = figures(PAIR('Eligible capacity', '3,120 MW'));
+  const region = liveRegion({ quiet: 10 });
+  region.observe([dl]);
+
+  // #11 re-rendering the figures leaves the region empty for a frame.
+  dl.textContent = '';
+  await after(dom.window, 40);
+  assert.equal(region.compose(), '', 'nothing composed means nothing to end with a stop');
+  assert.equal(region.message, '', 'and nothing is announced');
+  dom.window.close();
+});
+
+test('a label containing a digit does not defeat the unknown-figure guard', async () => {
+  // The guard is about whether a *value* has arrived. Several labels #11 adds
+  // carry numbers — "P50 GWh/y", "30-year FCFE", the CO2 factor.
+  const { dom, dl } = figures(PAIR('P50 generation, GWh/y', '\u2014'));
+  const region = liveRegion({ quiet: 10 });
+  region.observe([dl]);
+  dl.querySelector('dd').textContent = '\u2014';
+  await after(dom.window, 40);
+  assert.equal(region.message, '', 'the label\'s digits say nothing about the figure');
+
+  dl.querySelector('dd').textContent = '388';
+  await after(dom.window, 40);
+  assert.match(region.message, /388/, 'and it speaks once the figure is real');
+  dom.window.close();
+});
+
 test('a region with no definition list is announced as its own text', async () => {
   const dom = new JSDOM('<p id="round">ROUND <span>12</span> / <span>60</span></p>');
   const counter = dom.window.document.getElementById('round');

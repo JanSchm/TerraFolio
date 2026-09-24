@@ -73,16 +73,38 @@ function offenders(root) {
   return found;
 }
 
+/** How many elements each scanned tone was found on, across every page. */
+const scanned = Object.fromEntries(Object.keys(STATUS_ONLY).map((c) => [c, 0]));
+
 for (const page of PAGES) {
   test(`${page}: no status survives only as a colour`, async () => {
     const dom = await loadPage(page);
-    const found = offenders(dom.window.document.body);
+    const body = dom.window.document.body;
+    for (const cls of Object.keys(STATUS_ONLY)) scanned[cls] += body.querySelectorAll(`.${cls}`).length;
+    const found = offenders(body);
     dom.window.close();
     assert.deepEqual(found, [],
       'Add a mark in an aria-hidden span, or the state in an sr-only one. '
       + 'ui-contract.md §7.1 lists the required second signal for every place.');
   });
 }
+
+/**
+ * The per-page scans above are a regression guard, and three of the four pages
+ * carry none of these tones until issue #11 renders rows and warnings — so those
+ * three pass over an empty set today. That is fine as long as it stays visible:
+ * if the whole suite ever stops finding a tone anywhere, the guard has quietly
+ * become decoration and this says so.
+ */
+test('every tone this scans is rendered somewhere, so the scan is not vacuous', () => {
+  const unexercised = Object.entries(scanned)
+    .filter(([, count]) => count === 0)
+    .map(([cls]) => `${cls} (${STATUS_ONLY[cls]}) appears on no page`);
+  assert.deepEqual(unexercised, [],
+    'styleguide.html is the specimen sheet: every state §7.1 governs is rendered there '
+    + 'so that this guard has something to inspect. Restore the specimen rather than '
+    + 'relaxing the scan.');
+});
 
 test('portfolio.html: the rendered rows and the open overlays hold up too', async () => {
   const dom = await loadPage('portfolio.html');

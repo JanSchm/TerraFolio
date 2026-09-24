@@ -15,24 +15,10 @@ const config = require('../tailwind.config.js');
 
 const C = config.theme.colors;
 
-function channels(hex) {
-  const h = hex.replace('#', '');
-  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
-}
-
-function relativeLuminance(hex) {
-  const [r, g, b] = channels(hex).map((c) => {
-    const s = c / 255;
-    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-function ratio(fg, bg) {
-  const a = relativeLuminance(fg);
-  const b = relativeLuminance(bg);
-  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-}
+/* One implementation of the WCAG maths, shared with tests/contrast-audit.test.js.
+   Two copies of the sRGB linearisation would let a corrected coefficient land in
+   one and not the other, while both files went on reporting the same numbers. */
+const { ratio } = require('./helpers/contrast.js');
 
 /** WCAG 2.1: 4.5:1 for body text, 3:1 for large text and for UI/graphic boundaries. */
 const TEXT = 4.5;

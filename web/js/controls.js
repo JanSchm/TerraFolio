@@ -42,6 +42,23 @@
     return prefix + '-' + uid;
   }
 
+  /**
+   * The `<dd>` belonging to a `<dt>`, for either shape a definition list takes.
+   *
+   * Walking forward to the next sibling `<dd>` is what the HTML actually means, and
+   * it reads a flat `<dt><dd><dt><dd>` list and a per-pair `<div>`-wrapped one the
+   * same way. Asking the parent for its first `<dd>` does not: on the flat shape —
+   * which is the conventional one — every term pairs with the first value, and the
+   * footer announces confidently wrong figures.
+   */
+  function valueFor(dt) {
+    for (var el = dt.nextElementSibling; el; el = el.nextElementSibling) {
+      if (el.tagName === 'DD') return el;
+      if (el.tagName === 'DT') return null;
+    }
+    return null;
+  }
+
   /** One line of text out of whatever whitespace the markup used. */
   function collapse(text) {
     return String(text || '').replace(/\s+/g, ' ').trim();
@@ -284,6 +301,16 @@
     },
   };
 
+  /** The two values `aria-sort` takes for a sorted column, and nothing else. */
+  function direction(value) {
+    if (value === undefined || value === null) return 'descending';
+    if (value !== 'ascending' && value !== 'descending') {
+      throw new Error('holdingsTable: direction must be "ascending" or "descending", got '
+        + JSON.stringify(value));
+    }
+    return value;
+  }
+
   /** ui-contract.md §5.4's display labels. Wire values in, investor English out. */
   var TECHNOLOGY = { solar: 'Solar', onshore_wind: 'Wind', offshore_wind: 'Offshore wind' };
   var STAGE = {
@@ -384,23 +411,46 @@
       },
 
       flush: function () {
+        /* Nothing is known yet: the pages ship showing em dashes (§2) and reading a
+           row of them aloud on arrival is noise. Decided on the *values*, not on the
+           rendered sentence — a label that happens to contain a digit, like
+           "P50 GWh/y", says nothing about whether its figure has arrived. */
+        if (!this.values().some(function (v) { return v && v !== fmt.DASH; })) return;
+
         var text = this.compose();
-        /* An em dash means the figure is not known yet (§2). A sentence made only
-           of them says nothing, and repeating what was just said says nothing either. */
+        /* Repeating what was just said says nothing either. */
         if (!text || text === this.message) return;
-        if (text.indexOf(fmt.DASH) !== -1 && !/[0-9]/.test(text)) return;
         this.message = text;
       },
 
+      /**
+       * A source's `<dd>` values, or its whole text when it is not a definition
+       * list. What `flush` decides on.
+       */
+      values: function () {
+        var out = [];
+        this.sources.forEach(function (node) {
+          var terms = node.querySelectorAll('dt');
+          if (!terms.length) { out.push(collapse(node.textContent)); return; }
+          Array.prototype.forEach.call(terms, function (dt) {
+            out.push(collapse(valueFor(dt) && valueFor(dt).textContent));
+          });
+        });
+        return out;
+      },
+
       compose: function () {
-        return this.sources.map(function (node) {
+        var parts = this.sources.map(function (node) {
           var terms = node.querySelectorAll('dt');
           if (!terms.length) return collapse(node.textContent);
           return Array.prototype.map.call(terms, function (dt) {
-            var dd = dt.parentElement.querySelector('dd');
+            var dd = valueFor(dt);
             return collapse(dt.textContent) + ' ' + collapse(dd ? dd.textContent : '');
           }).join('. ');
-        }).filter(Boolean).join('. ') + '.';
+        }).filter(Boolean);
+        /* No trailing full stop when there is nothing to end: a source that is
+           momentarily empty would otherwise announce "." on its own. */
+        return parts.length ? parts.join('. ') + '.' : '';
       },
     };
   }
@@ -447,6 +497,9 @@
 
       init: function () {
         this.attach(this.$refs.panel, this.$refs.scrim);
+        var self = this;
+        /* Bound once so hide() can take it off again. */
+        this.keydown = function (event) { self.onKeydown(event); };
         if (o.openWith) this.delegate(o.openWith);
       },
 
@@ -492,12 +545,26 @@
       },
 
       show: function ($event) {
+        /* Already open: a second show() would overwrite returnTo, stranding the
+           first trigger's aria-expanded="true" and losing the element focus is
+           owed back. The opener is delegated on the document, so this is reachable
+           whenever a trigger stays clickable behind the scrim. */
+        if (this.open) return;
+        if (!this.keydown) {
+          var bound = this;
+          this.keydown = function (event) { bound.onKeydown(event); };
+        }
         var trigger = $event && $event.target;
         this.returnTo = (trigger && trigger.closest)
           ? (trigger.closest('button, a[href]') || trigger)
           : null;
         this.open = true;
         this.expand(true);
+        /* On the document, not on the wrapper: a wrapper-scoped listener only
+           traps Tab once focus is already inside, so focus arriving from outside —
+           back from the URL bar, or moved programmatically — would walk the page
+           behind the scrim freely. §7.2 asks for a trap, not a fence. */
+        if (this.keydown) this.doc().addEventListener('keydown', this.keydown, true);
         var self = this;
         /* After Alpine has removed [hidden]: focus() will not move to an element
            the layout has no box for. */
@@ -511,6 +578,7 @@
       hide: function () {
         if (!this.open) return;
         this.open = false;
+        if (this.keydown) this.doc().removeEventListener('keydown', this.keydown, true);
         this.expand(false);
         var back = this.returnTo;
         this.returnTo = null;
@@ -540,6 +608,13 @@
         if (trigger && trigger.hasAttribute && trigger.hasAttribute('aria-expanded')) {
           trigger.setAttribute('aria-expanded', state ? 'true' : 'false');
         }
+      },
+
+      /** The document this overlay lives in, however it was attached. */
+      doc: function () {
+        return (this.$el && this.$el.ownerDocument)
+          || (this.panel && this.panel.ownerDocument)
+          || root.document;
       },
 
       after: function (fn) {
@@ -576,7 +651,11 @@
       rows: [],
       name: o.name || 'holdingsSort',
       field: o.field || 'equityIrr',
-      direction: o.direction || 'descending',
+      /* Spelled in the aria-sort vocabulary, and checked, because both the
+         attribute and the arrow are indexed by it: 'desc' would put a value
+         outside the ARIA token list on the header and render the literal text
+         "undefined" beside its label, neither of which fails loudly. */
+      direction: direction(o.direction),
       /* The mandate's Min DSCR floor. Null until #11 supplies it, and a null floor
          breaches nothing — the cell cannot claim a breach it cannot measure. */
       dscrFloor: typeof o.dscrFloor === 'number' ? o.dscrFloor : null,
@@ -659,8 +738,6 @@
     liveRegion: liveRegion,
   };
 
-  factories.status = STATUS;
-
   root.TerraFolio = root.TerraFolio || {};
   root.TerraFolio.controls = factories;
   root.TerraFolio.status = STATUS;
@@ -669,12 +746,15 @@
   if (root.document) {
     root.document.addEventListener('alpine:init', function () {
       Object.keys(factories).forEach(function (name) {
-        /* The export carries STATUS as well as the factories; only a factory is a
-           component, and Alpine.data() with a plain object fails at use, not here. */
-        if (typeof factories[name] === 'function') root.Alpine.data(name, factories[name]);
+        root.Alpine.data(name, factories[name]);
       });
     });
   }
 
-  if (typeof module === 'object' && module.exports) module.exports = factories;
+  /* `factories` stays a map of factories, so the registration loop above needs no
+     guard and there is one name for the vocabulary rather than two. The CommonJS
+     export carries STATUS alongside them for the tests. */
+  if (typeof module === 'object' && module.exports) {
+    module.exports = Object.assign({}, factories, { status: STATUS });
+  }
 })(typeof globalThis !== 'undefined' ? globalThis : this);
