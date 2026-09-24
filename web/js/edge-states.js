@@ -87,10 +87,6 @@
     markerFillOpacity: 0.82, markerStroke: 1,
   };
 
-  function isFiniteNumber(value) {
-    return typeof value === 'number' && isFinite(value);
-  }
-
   /**
    * §7.3 and §13: a real projection of the selected sites, or a notice.
    *
@@ -102,17 +98,32 @@
    */
   function siteMap(options) {
     var o = options || {};
+
+    /* The memo lives in the closure, never on the returned object. Alpine's
+       reactivity tracks property writes, so caching onto `this` inside a getter
+       that `x-html` evaluates would write to tracked state from inside the effect
+       reading it — which re-triggers the effect and leaves sibling bindings in an
+       inconsistent state. A closure variable is invisible to the proxy. */
+    var memo = null;
+
     return {
       sites: o.sites || [],
       atlas: o.atlas !== undefined ? o.atlas : (root.TerraFolio && root.TerraFolio.worldAtlas),
 
-      /** The countries the portfolio holds an asset in, for the tint. */
+      /**
+       * The countries the portfolio holds an asset in, for §5.3's tint.
+       *
+       * Keyed on the country **name** — `Spain`, not `ES` or `ESP` — because the
+       * atlas identifies a country by `properties.name` and its `id` is a numeric
+       * ISO-3166 code. `export/committee.py` joins the same two fields, so the
+       * printed pack and this panel tint the same countries.
+       */
       get heldCountries() {
-        var codes = {};
+        var names = {};
         this.sites.forEach(function (site) {
-          if (site && site.iso3) codes[site.iso3] = true;
+          if (site && site.country) names[site.country] = true;
         });
-        return codes;
+        return names;
       },
 
       get available() {
@@ -121,20 +132,32 @@
         return Boolean(geo() && topo());
       },
 
+      /**
+       * The sentence the panel shows in place of a map.
+       *
+       * Text, not markup. The page renders it into its own element, outside the
+       * `role="img"` container: an ARIA img's subtree is presentational, so a
+       * notice injected inside it is announced to nobody, and the one state whose
+       * whole job is to explain itself would explain itself to sighted users only.
+       */
       get notice() { return this.available ? '' : MESSAGES.mapUnavailable; },
 
       /**
-       * The panel's markup: an <svg> when the geometry is there, a <p> when not.
+       * The panel's `<svg>`, or nothing.
        *
        * A portfolio with no sites yet draws nothing rather than an empty atlas —
-       * the panel is a summary of a selection, and there is no selection before a
-       * run. A *missing* atlas still says so, because that is a fault the user
-       * can act on whether or not a run has happened.
+       * the panel summarises a selection, and there is no selection before a run.
+       *
+       * Memoised on the atlas and the sites it was built from. `x-html` re-reads
+       * this getter on every reactive pass, and rebuilding means re-projecting
+       * 177 countries into a ~190 KB string; a page that assigns `atlas` and then
+       * `sites` would otherwise pay for it twice before the first paint.
        */
       get markup() {
-        if (!this.available) return '<p class="notice">' + MESSAGES.mapUnavailable + '</p>';
-        if (!this.sites.length) return '';
-        return this.svg();
+        if (!this.available || !this.sites.length) return '';
+        if (memo && memo.atlas === this.atlas && memo.sites === this.sites) return memo.svg;
+        memo = { atlas: this.atlas, sites: this.sites, svg: this.svg() };
+        return memo.svg;
       },
 
       svg: function () {
@@ -150,16 +173,17 @@
         var shapes = countries.map(function (country) {
           var drawn = path(country);
           if (!drawn) return '';
-          var fill = held[country.id] ? 'var(--color-accent-200)' : 'var(--color-neutral-200)';
+          var name = (country.properties || {}).name;
+          var fill = held[name] ? 'var(--color-accent-200)' : 'var(--color-neutral-200)';
           return '<path d="' + drawn + '" fill="' + fill
             + '" stroke="var(--color-divider)" stroke-width="' + MAP.countryStroke + '"/>';
         }).join('');
 
         var markers = this.sites.map(function (site) {
-          if (!isFiniteNumber(site.lat) || !isFiniteNumber(site.lon)) return '';
+          if (!fmt.defined(site.lat) || !fmt.defined(site.lon)) return '';
           var point = projection([site.lon, site.lat]);
-          if (!point || !isFiniteNumber(point[0]) || !isFiniteNumber(point[1])) return '';
-          var mw = isFiniteNumber(site.capacityMw) ? site.capacityMw : 0;
+          if (!point || !fmt.defined(point[0]) || !fmt.defined(point[1])) return '';
+          var mw = fmt.defined(site.capacityMw) ? site.capacityMw : 0;
           var radius = Math.max(
             MAP.markerRadiusFloor, Math.sqrt(mw) * MAP.markerRadiusFactor
           );
@@ -220,12 +244,28 @@
         return this.state;
       },
 
-      /** A 409 body → the 'moved' state, carrying the server's own sentence. */
+      /**
+       * A 409 body → the 'moved' state, carrying the server's own sentence.
+       *
+       * A body with no `error` at all clears it: that is a run the server
+       * accepted, so the pipeline the client is holding is current again. A body
+       * carrying some *other* error is left alone — it belongs to whatever
+       * renders that error, and a failed run is not evidence the pipeline moved
+       * back.
+       */
       fromConflict: function (body) {
         var error = body && body.error;
-        if (!error || error.code !== 'PIPELINE_MOVED') return this.state;
+        if (!error) return this.clear();
+        if (error.code !== 'PIPELINE_MOVED') return this.state;
         this.state = 'moved';
         this.detail = error.message || '';
+        return this.state;
+      },
+
+      /** Back to silence, for a page that has recovered by any other route. */
+      clear: function () {
+        this.state = 'none';
+        this.detail = '';
         return this.state;
       },
     };
@@ -255,13 +295,13 @@
 
       /** The last year the truncated cash-flow series covers. */
       get exitYear() {
-        if (!isFiniteNumber(this.baseYear) || !isFiniteNumber(this.holdYears)) return null;
+        if (!fmt.defined(this.baseYear) || !fmt.defined(this.holdYears)) return null;
         return this.baseYear + this.holdYears - 1;
       },
 
       get afterHold() {
         var exit = this.exitYear;
-        return exit !== null && isFiniteNumber(this.codYear) && this.codYear > exit;
+        return exit !== null && fmt.defined(this.codYear) && this.codYear > exit;
       },
 
       get message() {
@@ -272,7 +312,7 @@
 
       /** The COD row's own suffix, so the figure and the caveat sit together. */
       get codLabel() {
-        if (!isFiniteNumber(this.codYear)) return fmt.DASH;
+        if (!fmt.defined(this.codYear)) return fmt.DASH;
         if (!this.afterHold) return fmt.year(this.codYear);
         return fmt.year(this.codYear) + ' ' + fmt.DASH + ' after the '
           + fmt.count(this.holdYears) + '-year hold';

@@ -43,7 +43,7 @@ from terrafolio.domain.mandate import Mandate
 from terrafolio.domain.reduce import MandateScalars, mandate_to_scalars
 from terrafolio.optimiser.feasibility import preview_feasibility
 from terrafolio.optimiser.screens import apply_screens
-from terrafolio.pipeline.loader import PipelineLoadError, load_pipeline
+from terrafolio.pipeline.loader import LoadResult, PipelineLoadError, load_pipeline
 
 ASSUMPTIONS = assumptions()
 
@@ -64,9 +64,13 @@ def _eligible_count(printed: str) -> int:
     return int(printed.split(" of ", 1)[0])
 
 
-def _status(directory: Path) -> dict[str, Any]:
-    """The `GET /pipeline/status` body for a directory, as the mandate screen reads it."""
-    loaded = load_pipeline(directory, ASSUMPTIONS)
+def _status(loaded: LoadResult) -> dict[str, Any]:
+    """The `GET /pipeline/status` body for a load, as the mandate screen reads it.
+
+    Takes the result rather than the directory: every caller has just loaded it,
+    and re-loading forty-nine files to render a report about them is the kind of
+    waste a test suite accumulates quietly.
+    """
     return json.loads(pipeline_status(loaded, loaded_at=EPOCH).model_dump_json(by_alias=True))
 
 
@@ -105,7 +109,7 @@ def test_a_file_that_fails_a_tie_out_is_excluded_by_name_and_never_partially_loa
     assert loaded.pipeline_hash == golden_load().pipeline_hash, "never partially loaded"
 
     # The mandate footer's two numbers, and the reason beside them.
-    status = _status(directory)
+    status = _status(loaded)
     assert (status["fileCount"], status["loadedCount"]) == (GOLDEN_COUNT + 1, GOLDEN_COUNT)
     entry = next(row for row in status["rejected"] if row["file"] == "P49-fails-a-tie-out.json")
     assert entry["check"] in checks
@@ -301,7 +305,7 @@ def test_a_file_supplying_a_mandate_dependent_result_is_rejected_with_the_reason
         assert key in message, "every offending key is collected, not just the first"
     assert "depends on the mandate's hold period" in message
 
-    status = _status(directory)
+    status = _status(loaded)
     entry = next(
         row for row in status["rejected"] if row["file"] == "P50-supplies-derived-results.json"
     )
@@ -347,7 +351,7 @@ def test_a_statement_series_of_the_wrong_length_names_the_field_and_the_expected
     assert "statements.years" in message, "the field, by its wire name"
     assert f"must have exactly 30 annual values, got {length}" in message
 
-    status = _status(directory)
+    status = _status(loaded)
     entry = next(row for row in status["rejected"] if row["file"] == fixture)
     assert "statements.years" in entry["message"]
 

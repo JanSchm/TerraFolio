@@ -33,7 +33,21 @@ const REPO = path.resolve(WEB, '..');
 const SPEC = fs.readFileSync(path.join(REPO, 'docs', 'spec.md'), 'utf8');
 const PY = path.join(REPO, 'tests', 'unit');
 
-const settled = (dom) => new Promise((resolve) => dom.window.setTimeout(resolve, 30));
+/**
+ * One reactive pass, then one frame.
+ *
+ * `x-text` lands on the microtask queue, but `x-show` applies its style through
+ * `Alpine.mutateDom`, which defers to `requestAnimationFrame` — so a bare
+ * `setTimeout` can observe the text updated and the visibility not yet, which is
+ * a flake that reads exactly like a bug in the component.
+ */
+const settled = (dom) =>
+  new Promise((resolve) => {
+    dom.window.setTimeout(
+      () => dom.window.requestAnimationFrame(() => dom.window.setTimeout(resolve, 30)),
+      30,
+    );
+  });
 
 /* ------------------------------------------------------------------ */
 /* The ledger                                                          */
@@ -148,15 +162,21 @@ const ATLAS = JSON.parse(
   fs.readFileSync(path.join(WEB, 'public', 'countries-110m.json'), 'utf8'),
 );
 
+/** Two holdings in `api.md` §8.2's shape. `country` is the name, as the wire sends it. */
 const SITES = [
-  { id: 'P01', iso3: 'ESP', lat: 39.25, lon: -6.52, capacityMw: 180, technology: 'solar' },
-  { id: 'P46', iso3: 'DNK', lat: 55.7, lon: 8.1, capacityMw: 400, technology: 'wind' },
+  { id: 'P01', country: 'Spain', lat: 39.25, lon: -6.52, capacityMw: 180, technology: 'solar' },
+  { id: 'P46', country: 'Denmark', lat: 55.7, lon: 8.1, capacityMw: 400, technology: 'wind' },
 ];
 
 test('the map panel degrades to a notice and the rest of the page is untouched', async () => {
   const dom = await loadPage('portfolio.html');
   try {
     const panel = dom.window.document.querySelector('[data-region="map"]');
+    const notice = dom.window.document.querySelector('[data-region="map-notice"]');
+    assert.ok(notice, 'the notice has its own element');
+    assert.equal(panel.getAttribute('role'), 'img');
+    assert.equal(notice.closest('[role="img"]'), null,
+      'and it sits outside the ARIA img, whose subtree is announced to nobody');
     const data = dom.window.Alpine.$data(panel);
 
     data.atlas = ATLAS;
@@ -164,11 +184,13 @@ test('the map panel degrades to a notice and the rest of the page is untouched',
     await settled(dom);
     assert.equal(panel.querySelectorAll('circle').length, SITES.length, 'a marker per site');
     assert.ok(panel.querySelectorAll('path').length > 100, 'and the countries behind them');
-    assert.ok(!panel.textContent.includes('Map data unavailable.'));
+    assert.equal(notice.style.display, 'none', 'and no notice while the map is drawn');
 
     data.atlas = null;
     await settled(dom);
-    assert.equal(panel.textContent.trim(), 'Map data unavailable.');
+    assert.equal(notice.textContent.trim(), 'Map data unavailable.');
+    assert.equal(notice.style.display, '', 'the notice is shown');
+    assert.equal(panel.style.display, 'none', 'and the ARIA img is gone, not merely empty');
     assert.equal(panel.querySelectorAll('circle').length, 0, 'and no half-drawn map');
 
     // "The rest of the page is unaffected" is the clause that actually matters,
@@ -183,12 +205,29 @@ test('the map panel degrades to a notice and the rest of the page is untouched',
   }
 });
 
+test('the countries a portfolio holds are tinted, and the others are not', () => {
+  // The bug this exists to catch: keying the tint on a code (`ES`, `ESP`) finds
+  // nothing, because the atlas identifies a country by `properties.name` and its
+  // `id` is a numeric ISO-3166 code. `export/committee.py` joins name to name, so
+  // a mismatch here means the printed pack and the screen tint different maps —
+  // and counting `<path>` elements, as this file used to, cannot see it.
+  const svg = edge.siteMap({ atlas: ATLAS, sites: SITES }).markup;
+  const tinted = (svg.match(/--color-accent-200/g) || []).length;
+  const plain = (svg.match(/--color-neutral-200/g) || []).length;
+
+  assert.equal(tinted, SITES.length, 'one tint per held country');
+  assert.ok(plain > 100, 'and every other country stays neutral');
+
+  const none = edge.siteMap({ atlas: ATLAS, sites: [] }).markup;
+  assert.equal(none, '', 'no selection, no map');
+});
+
 test('a malformed atlas degrades exactly as a missing one does', () => {
   for (const atlas of [undefined, null, {}, { objects: {} }, { objects: { countries: null } }]) {
     const map = edge.siteMap({ atlas, sites: SITES });
     assert.equal(map.available, false);
     assert.equal(map.notice, 'Map data unavailable.');
-    assert.ok(map.markup.includes('Map data unavailable.'));
+    assert.equal(map.markup, '', 'the notice is text for the page, never injected markup');
   }
 });
 
@@ -199,9 +238,13 @@ test('the map draws the projection ui-contract.md §5.3 pins, and the pack reads
 
   // The committee pack reimplements this projection in Python. The two agreeing
   // is what stops a printed pack and the screen showing a site in two places.
-  for (const key of ['width', 'height', 'centreLon', 'centreLat', 'scaleFactor',
-    'countryStroke', 'markerRadiusFloor', 'markerRadiusFactor', 'markerFillOpacity',
-    'markerStroke']) {
+  //
+  // Compared key-set first, not against a list written out here: a hand-listed
+  // subset silently stops covering a constant the moment `pack-layout.json` gains
+  // one, which is the whole failure this check exists to prevent.
+  assert.deepEqual(Object.keys(edge.map).sort(), Object.keys(pinned).sort(),
+    'edge-states.js and pack-layout.json pin the same constants');
+  for (const key of Object.keys(pinned)) {
     assert.equal(edge.map[key], pinned[key], `${key} disagrees with the pack`);
   }
 
@@ -285,7 +328,15 @@ test('a moved pipeline is announced with the sentence the 409 carried', async ()
     assert.equal(data.mark, controls.status.MARK.blocking);
     assert.equal(notice.textContent.includes(sentence), true);
 
+    // Some other error is not evidence the pipeline moved back, so the blocker
+    // stands; a body the server accepted is, so it clears.
     assert.equal(data.fromConflict({ error: { code: 'NO_CANDIDATES', message: 'x' } }), 'moved');
+    assert.equal(data.fromConflict({ runId: '01ABC', status: 'queued' }), 'none');
+    await settled(dom);
+    assert.equal(data.visible, false, 'a recovered page stops reading as blocked');
+
+    data.fromConflict({ error: { code: 'PIPELINE_MOVED', message: sentence } });
+    assert.equal(data.clear(), 'none', 'and any other route back is explicit');
   } finally {
     dom.window.close();
   }

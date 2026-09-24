@@ -87,10 +87,16 @@ def mandate(**overrides: Any) -> dict[str, Any]:
 # The fixture library, and its provenance
 # ---------------------------------------------------------------------------
 
-EdgePointers = tuple[tuple[str, ...], ...]
+EdgePointers = tuple[tuple[str | int, ...], ...]
+"""A path into a project file. An ``int`` step indexes a statement series.
+
+Naming the index matters: a pointer that stops at the array would let a fixture
+carrying *two* edits inside one series pass a guard whose docstring promises the
+file is broken in exactly one way.
+"""
 
 EDGE_PROVENANCE: Mapping[str, EdgePointers] = {
-    "P49-fails-a-tie-out.json": (("statements", "debtSchedule", "closing"),),
+    "P49-fails-a-tie-out.json": (("statements", "debtSchedule", "closing", 5),),
     "P50-supplies-derived-results.json": (("irr",), ("moic",), ("terminalValue",)),
     "P51-twenty-nine-statement-years.json": (("statements", "years"),),
     "P52-thirty-one-statement-years.json": (("statements", "years"),),
@@ -122,7 +128,12 @@ def edge_payload(name: str) -> dict[str, Any]:
 
 
 def repair(payload: dict[str, Any], base: dict[str, Any], pointers: EdgePointers) -> dict[str, Any]:
-    """Copy each pointer's value back from ``base``, deleting what the base lacks."""
+    """Copy each pointer's value back from ``base``, deleting what the base lacks.
+
+    A trailing ``int`` addresses one element of a series, so repairing it leaves
+    every other element to be compared — which is what makes "broken in exactly
+    one way" an assertion rather than a claim.
+    """
     for pointer in pointers:
         node: Any = payload
         source: Any = base
@@ -130,7 +141,9 @@ def repair(payload: dict[str, Any], base: dict[str, Any], pointers: EdgePointers
             node = node[key]
             source = source[key]
         leaf = pointer[-1]
-        if leaf in source:
+        # An int indexes a series, so the base always has it; a str may name a
+        # key the base never carried, which is a fixture that *added* a field.
+        if isinstance(leaf, int) or leaf in source:
             node[leaf] = source[leaf]
         else:
             del node[leaf]
@@ -139,7 +152,7 @@ def repair(payload: dict[str, Any], base: dict[str, Any], pointers: EdgePointers
     return payload
 
 
-def edge_corpus(tmp_path: Path, *, add: Sequence[str] = (), drop: Sequence[str] = ()) -> Path:
+def edge_corpus(tmp_path: Path, *, add: Sequence[str] = ()) -> Path:
     """The 48 golden files in a writable directory, plus named edge fixtures.
 
     Deriving from the golden corpus rather than from a bare directory is what
@@ -150,8 +163,6 @@ def edge_corpus(tmp_path: Path, *, add: Sequence[str] = (), drop: Sequence[str] 
     directory = tmp_path / "pipeline"
     directory.mkdir(parents=True, exist_ok=True)
     for path in sorted(GOLDEN_PIPELINE.glob("*.json")):
-        if path.name in drop:
-            continue
         shutil.copy(path, directory / path.name)
     for name in add:
         shutil.copy(EDGE_FIXTURES / name, directory / name)

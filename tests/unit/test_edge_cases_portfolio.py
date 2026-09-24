@@ -92,6 +92,9 @@ async def test_locked_projects_breaching_a_concentration_cap_still_run_and_show_
             )
 
             result = await completed_run(client, mandate=constrained, lockedIds=locked)
+            # Inside the block: the pack is rendered from *this* run, rather than
+            # from a second search that only happens to reproduce it.
+            document = _pack(service, settings, result["runId"])
 
     assert result["status"] == "succeeded", "§13 row 3: the run proceeds"
     for project_id in locked:
@@ -100,11 +103,6 @@ async def test_locked_projects_breaching_a_concentration_cap_still_run_and_show_
     share = result["aggregates"]["largestCountryShare"]
     assert share > 0.25, "the locks alone put one country over the cap"
     assert result["aggregates"]["largestCountryCode"] == "ES"
-
-    with opened_service(settings) as service:
-        async with opened_client(settings, service) as client:
-            replayed = await completed_run(client, mandate=constrained, lockedIds=locked)
-            document = _pack(service, settings, replayed["runId"])
 
     tile = _tile(document, "Largest country")
     assert "tile--alert" in tile, "surfaced in the alert tone"
@@ -148,18 +146,36 @@ async def test_an_unreachable_capacity_target_still_returns_a_portfolio_showing_
     )
 
 
-async def test_a_capacity_target_that_is_met_keeps_the_sub_label_it_always_had(
+async def test_a_capacity_target_the_tile_calls_on_target_never_also_says_short(
     tmp_path: Path,
 ) -> None:
-    """The other side of the same change: a portfolio on target gains no clause."""
+    """The other side of the same change, and the one that is easy to get wrong.
+
+    §5.1 scopes the shortfall to a target that is *unreachable*, which is the same
+    8% band the tile's own verdict turns on — not merely "under target". Gating on
+    the bare deficit instead puts `110 MW short` beside the ✓ and the words
+    `on target` on one tile, which is what the **default** mandate produces: 1,390
+    MW against 1,500 is 7.3% out, comfortably inside the band.
+    """
     settings = settings_for(tmp_path)
     with opened_service(settings) as service:
         async with opened_client(settings, service) as client:
-            result = await completed_run(client, mandate=mandate(capacityTargetMw=200))
-            document = _pack(service, settings, result["runId"])
+            under = await completed_run(client, mandate=mandate(capacityTargetMw=1500))
+            under_pack = _pack(service, settings, under["runId"])
 
-    assert result["aggregates"]["capacityMw"] > 200
-    tile = _tile(document, "Installed capacity")
+            over = await completed_run(client, mandate=mandate(capacityTargetMw=200))
+            over_pack = _pack(service, settings, over["runId"])
+
+    capacity = under["aggregates"]["capacityMw"]
+    assert capacity < 1500, "under target"
+    assert abs(capacity - 1500) / 1500 <= 0.08, "but inside §5.1's band, so on target"
+
+    tile = _tile(under_pack, "Installed capacity")
+    assert "on target" in tile, "the verdict the band gives"
+    assert "short" not in tile, "and therefore no shortfall clause to contradict it"
+
+    assert over["aggregates"]["capacityMw"] > 200
+    tile = _tile(over_pack, "Installed capacity")
     assert "target 200 MW" in tile
     assert "short" not in tile
 

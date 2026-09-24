@@ -2865,10 +2865,20 @@ capacity target is unreachable (§13)". `export/committee.py` rendered `target {
 unconditionally, so the printed pack went alert without ever saying by how much — which is a
 committee's next question.
 
-**Decided.** The sub-label becomes `target {t} MW · {n} MW short` when the portfolio is under
-target, through `_join`, so a portfolio at or above target is byte-identical to before. The `{n} MW
-short` wording is new — §5.1 pins the behaviour and not the words — and **`web/js/portfolio.js`
-must render the same string**, or the screen and the printout will disagree. Announced on issue #1.
+**Decided.** The sub-label becomes `target {t} MW · {n} MW short` when the target is
+**unreachable**, which is the same 8% band the tile's own verdict turns on — not merely "under
+target". That distinction is the whole of it: gating on the bare deficit puts `110 MW short` beside
+the ✓ and the words `on target` on one tile, and the *default* mandate does exactly that (1,390 MW
+against 1,500 is 7.3% out, inside the band). A tile that contradicts itself in a committee pack is
+worse than one that says less.
+
+The clause is also decided on the **rendered** figure rather than on the float behind it.
+`quantity` rounds half away from zero to whole MW and the pipeline's capacities are not integral
+(221.6, 165.2, 94.6 MW …), so a 0.3 MW deficit would otherwise print `0 MW short`.
+
+The `{n} MW short` wording is new — §5.1 pins the behaviour and not the words — and
+**`web/js/portfolio.js` must render the same string, under the same band**, or the screen and the
+printout will disagree. Announced on issue #1.
 
 ### 4C-4 · A post-exit COD has an exit value of exactly zero
 
@@ -2974,7 +2984,15 @@ and a slot each on `mandate.html` and `portfolio.html`.
 `siteMap` is a real projection, not a placeholder: `d3.geoMercator` centred on §5.3's `[12, 55]` at
 `width × 1.15`, reading the atlas `public/countries-110m.js` already puts on `window`. It
 reproduces the committee pack's own Python reimplementation to the rendered decimal, and
-`web/tests/edge-cases.test.js` pins that agreement.
+`web/tests/edge-cases.test.js` pins that agreement — including the country tint, which joins
+`holding.country` to the atlas's `properties.name` exactly as `export/committee.py` does. The
+atlas's `id` is a **numeric** ISO-3166 code, so a tint keyed on `ES` or `ESP` matches nothing and
+fails silently; only an assertion that a held country is actually tinted catches it.
+
+The degradation notice is **text**, rendered by the page into an element beside the map rather than
+injected into it. `data-region="map"` carries `role="img"`, and an ARIA img's subtree is
+presentational — a notice inside it is announced to nobody, so the one state whose whole job is to
+explain itself would have explained itself to sighted users only.
 
 ### 4C-10 · §5.3's map geometry puts most of the corpus off-panel
 
@@ -3124,11 +3142,11 @@ implementations agree exactly, so whatever scale is chosen will move both.
 | 2026-09-24 | #10 | `ui-contract.md` §7.3 corrected: muted is `neutral-700` at 5.87:1, not `text` at 55%. |
 | 2026-09-24 | #13 | 4C-1 — an empty pipeline answers `NO_CANDIDATES`; a client tells it apart on `totalCount == 0`. |
 | 2026-09-24 | #13 | 4C-2 — a pipeline with no files has no distributions; the `NaN` ones stopped the server starting. |
-| 2026-09-24 | #13 | 4C-3 — tile 1's sub-label gains `· {n} MW short`, as §5.1 has always required. |
+| 2026-09-24 | #13 | 4C-3 — tile 1 gains `· {n} MW short`, gated on §5.1's band so a ✓ tile never also reads short. |
 | 2026-09-24 | #13 | 4C-4 — a post-exit COD has an exit value of exactly zero; §13 is satisfied and the model is unchanged. |
 | 2026-09-24 | #13 | 4C-5 — the drawer's hold flag is computed from `codYear`, `baseYear` and `holdYears`; no wire flag. |
 | 2026-09-24 | #13 | 4C-6 — §3.5's first sentence names three screens statically; `screensToWiden` carries the real ones. |
 | 2026-09-24 | #13 | 4C-7 — a whole-pipeline failure on reload is a 500; `422 PIPELINE_UNUSABLE` proposed to 3A on #1. |
 | 2026-09-24 | #13 | 4C-8 — the edge fixtures are single documented edits to `P01`, width-3, and guarded against drift. |
-| 2026-09-24 | #13 | 4C-9 — the three missing page states land in `web/js/edge-states.js`, not in three of #11's files. |
+| 2026-09-24 | #13 | 4C-9 — the three missing page states land in `web/js/edge-states.js`; the map tints on country name and the notice sits outside the ARIA img. |
 | 2026-09-24 | #13 | 4C-10 — §5.3's map scale puts five of six markers outside the panel, in the pack as on screen. |
